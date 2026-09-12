@@ -57,6 +57,16 @@ public class AndroidLauncher extends AndroidApplication{
 
         initialize(new ClientLauncher(){
 
+            {
+                // DesktopLauncher wires this up in its own constructor (add(Main.INSTANCE)) but
+                // this anonymous subclass never did, so mindustry.client.Main.init() - which sets
+                // up Navigation.navigator and instantiates every baked-in mod - never ran on
+                // Android at all. ClientLogic's ClientLoadEvent handler then crashed with
+                // UninitializedPropertyAccessException on Navigation.navigator.init() since it was
+                // never assigned. See mindustry.client.Main.init()/DesktopLauncher for context.
+                add(mindustry.client.Main.INSTANCE);
+            }
+
             @Override
             public void hide(){
                 moveTaskToBack(true);
