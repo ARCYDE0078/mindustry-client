@@ -4,17 +4,16 @@ import arc.Core;
 import arc.Events;
 import arc.input.KeyBind;
 import arc.input.KeyCode;
-import arc.math.Mathf;
 import arc.struct.Seq;
 import mindustry.content.Blocks;
 import mindustry.entities.units.BuildPlan;
 import mindustry.game.EventType;
 import mindustry.gen.Building;
 import mindustry.gen.Groups;
-import mindustry.world.Tile;
+import mindustry.input.InputHandler;
+import mindustry.world.Block;
 import mindustry.world.blocks.power.PowerGraph;
 import mindustry.world.blocks.power.PowerNode;
-import qol.bridgetocore.BridgeToCoreFeature;
 import qol.controlhelper.core.requestexecutor.IRequest;
 import qol.controlhelper.core.requestexecutor.RequestExecutor;
 import qol.core.SafeSettings;
@@ -23,12 +22,11 @@ import java.util.function.BooleanSupplier;
 
 import static arc.Core.input;
 import static arc.Core.scene;
+import static mindustry.Vars.control;
 import static mindustry.Vars.headless;
 import static mindustry.Vars.player;
 import static mindustry.Vars.state;
-import static mindustry.Vars.tilesize;
 import static mindustry.Vars.ui;
-import static mindustry.Vars.world;
 
 /**
  * Hotkey version of what {@link PowerNetworkReconnector}'s button only does when the two networks are
@@ -39,33 +37,22 @@ import static mindustry.Vars.world;
  * Reuses {@link PowerNetworkReconnector#findLink} first (via the shared instance passed in) to check
  * whether the closest pair of graphs can already be joined by configuring an existing node - if so, that's
  * strictly cheaper than building anything, so it just queues that link exactly like the reconnect button
- * does. Only when that comes back empty (neither graph has a node with spare capacity already in laser
- * range of the other) does this fall back to laying new {@link Blocks#powerNodeLarge} down as a straight
- * chain of {@link BuildPlan}s, one per hop, spaced under the block's own {@code laserRange} - each node
- * auto-links to its neighbors the moment it's actually built (see {@code PowerNode.PowerNodeBuild#placed}),
- * so the chain self-assembles as the player walks it, the same way manually placing a line of nodes always
- * has.
- * <p>
- * Power node lasers aren't blocked by terrain or other buildings (only distance and each node's own
- * {@code maxNodes} capacity matter - see {@code PowerNode#linkValid}), so unlike {@link
- * qol.bridgetocore.BridgeToCoreFeature}'s item routes this deliberately does NOT need a real obstacle-
- * avoiding A* search: a straight line of evenly spaced waypoints is already an optimal path. Each waypoint
- * only needs a small spiral nudge off its exact straight-line spot to land on a buildable tile, reusing
- * {@link BridgeToCoreFeature#canBuildOn} for that check - the same validity predicate the bridge/junction/
- * titanium route finders use, just without the pathfinding around it.
+ * does. Only when that comes back empty does it fall back to laying a new chain of {@link
+ * Blocks#powerNodeLarge} - at sonka's request, ported from the vendored Scheme mod's own node-connect tool
+ * ({@code scheme.tools.BuildingTools#connect}/{@code scheme.moded.SchemeInput}) rather than the from-scratch
+ * hop-spacing/tile-snapping search this used to do: aim a line one tile short of each existing building
+ * (same "px - 1 : px + 1" trick Scheme uses so the line's own endpoint doesn't land on the building's
+ * occupied tile) and hand it to {@link InputHandler#updateLine} - the same line-placement pass a manual
+ * shift-drag runs, so it already spaces plans by the block's size and applies replacement rules - then
+ * {@link InputHandler#flushPlans} filters out anything that doesn't fit via the normal {@code validPlace}
+ * check. Each node still auto-links to its neighbors the moment it's actually built (see {@code
+ * PowerNode.PowerNodeBuild#placed}), so the chain self-assembles as the player walks it, exactly like
+ * manually placing a line of nodes always has - no bespoke pathfinding or buildable-tile search needed.
  */
 public class PowerBridgeBuilder{
     public static final KeyBind connectPowerNetworksKey = KeyBind.add("connect_power_networks", KeyCode.n, "control-helper");
 
     static final PowerNode NODE = (PowerNode)Blocks.powerNodeLarge;
-    /**
-     * Hop spacing is kept safely under the node's real laser range rather than right up against it - a
-     * waypoint that lands exactly on the theoretical max range can still fail {@code linkValid} once
-     * nudged a tile or two off the ideal straight-line spot to dodge an obstacle, which would silently
-     * break the chain in the middle. 80% of {@code laserRange} leaves enough slack for that nudge.
-     */
-    static final float RANGE_SAFETY = 0.8f;
-    static final int MAX_SNAP_RADIUS = 8;
 
     final RequestExecutor requestExecutor;
     final PowerNetworkReconnector reconnector;
@@ -134,49 +121,30 @@ public class PowerBridgeBuilder{
     }
 
     void buildChain(Building from, Building to){
-        float hopDist = NODE.laserRange * tilesize * RANGE_SAFETY;
-        float totalDist = from.dst(to);
-        //at least 2: this branch only runs once a direct link was already ruled out, so even a short
-        //gap needs at least one brand new node in between to act as the bridge
-        int hops = Math.max(2, Mathf.ceil(totalDist / hopDist));
+        int ax = from.tileX(), ay = from.tileY();
+        int bx = to.tileX(), by = to.tileY();
+        //scheme-size "px - 1 : px + 1" trick, applied at both ends since both are existing occupied
+        //buildings here (Scheme's own connect() only ever has one - the other end is a blank zone)
+        int x1 = ax > bx ? ax - 1 : ax + 1;
+        int y1 = ay > by ? ay - 1 : ay + 1;
+        int x2 = bx > ax ? bx - 1 : bx + 1;
+        int y2 = by > ay ? by - 1 : by + 1;
 
-        int placed = 0;
-        for(int k = 1; k < hops; k++){
-            float t = (float)k / hops;
-            float wx = Mathf.lerp(from.x, to.x, t);
-            float wy = Mathf.lerp(from.y, to.y, t);
-            Tile tile = findBuildableNear(wx, wy);
-            //a single blocked waypoint doesn't necessarily doom the chain - autolink plus the
-            //neighboring hops' own range may still bridge across the gap once built, so keep going
-            //rather than aborting the whole chain over one obstructed spot
-            if(tile == null) continue;
-            player.unit().addBuild(new BuildPlan(tile.x, tile.y, 0, NODE));
-            placed++;
-        }
+        InputHandler in = control.input;
+        Block prevBlock = in.block;
+        in.block = NODE;
+        in.updateLine(x1, y1, x2, y2);
+        Seq<BuildPlan> plans = new Seq<>(in.linePlans);
+        in.linePlans.clear();
+        in.block = prevBlock;
 
-        if(placed > 0){
-            ui.showInfoFade(Core.bundle.format("qol.power-bridge.queued", placed));
-        }else{
+        if(plans.isEmpty()){
             ui.showInfoToast(Core.bundle.get("qol.power-bridge.blocked", "No clear spot for new nodes between those networks"), 3f);
+            return;
         }
-    }
 
-    static Tile findBuildableNear(float worldX, float worldY){
-        Tile center = world.tileWorld(worldX, worldY);
-        if(center == null) return null;
-
-        for(int r = 0; r <= MAX_SNAP_RADIUS; r++){
-            for(int dx = -r; dx <= r; dx++){
-                for(int dy = -r; dy <= r; dy++){
-                    if(Math.max(Math.abs(dx), Math.abs(dy)) != r) continue; //ring only - inner radii already tried on a previous r
-                    int tx = center.x + dx, ty = center.y + dy;
-                    if(BridgeToCoreFeature.canBuildOn(NODE, player.team(), tx, ty, 0)){
-                        return world.tile(tx, ty);
-                    }
-                }
-            }
-        }
-        return null;
+        in.flushPlans(plans);
+        ui.showInfoFade(Core.bundle.format("qol.power-bridge.queued", plans.size));
     }
 
     public boolean IsEnabled(){
