@@ -8,6 +8,7 @@ import eui.core.LabelSetting;
 import eui.input.CoreDrag;
 import eui.input.Drag;
 import eui.interact.ActionDelayHotkey;
+import eui.interact.AmmoPriorityDialog;
 import eui.interact.AutofillPriorityDialog;
 import eui.interact.AutoUnit;
 import eui.other.Mine;
@@ -104,6 +105,7 @@ import static mindustry.Vars.mobile;
  */
 public class EUIMod{
     private AutofillPriorityDialog autofillPriorityDialog;
+    private AmmoPriorityDialog ammoPriorityDialog;
     private SchematicsImportExport schematicsImportExport;
 
     public EUIMod(){
@@ -122,6 +124,7 @@ public class EUIMod{
         //--- phase A: input/automation ---
         new AutoUnit();
         autofillPriorityDialog = new AutofillPriorityDialog();
+        ammoPriorityDialog = new AmmoPriorityDialog();
         new ActionDelayHotkey();
         new Mine();
 

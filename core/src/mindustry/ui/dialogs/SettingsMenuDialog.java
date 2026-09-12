@@ -443,10 +443,21 @@ public class SettingsMenuDialog extends BaseDialog{
         client.pref(new qol.core.ButtonSetting("autotransfer-priority", () -> {
             if(eui.interact.AutofillPriorityDialog.instance != null) eui.interact.AutofillPriorityDialog.instance.show();
         }));
+        //per-turret ammo priority + min-core-to-feed-it overrides (sonka's request, 2026-09-12) - see
+        //AmmoPriorityDialog and AutoTransfer.loadAmmoPriorities()/loadAmmoMinCores()'s doc comments
+        client.pref(new qol.core.ButtonSetting("autotransfer-ammo-priority", () -> {
+            if(eui.interact.AmmoPriorityDialog.instance != null) eui.interact.AmmoPriorityDialog.instance.show();
+        }));
         //fromContainers used to be silently hardcoded on (transfer() falls back to whichever storage
         //block is nearest whenever it can't reach the core) with a "prefer the one near the core" guess
         //bolted on top; sonka asked to drop the guessing entirely and just let the player decide instead
         client.checkPref("autotransfer-fromcontainers", true, b -> mindustry.client.utils.AutoTransfer.fromContainers = b);
+        //exposed as sliders 2026-09-12 (sonka's request) - previously only settable by editing the raw
+        //settings keys AutoTransfer.init() already reads; wiring the changed-callback keeps the running
+        //instance in sync immediately instead of waiting for the next init() (e.g. a server rejoin)
+        client.sliderPref("autotransfer-mincoreitems", 100, 0, 2000, 10, s -> String.valueOf(s), i -> mindustry.client.utils.AutoTransfer.minCoreItems = i);
+        client.sliderPref("autotransfer-mintransfer", 2, 0, 50, 1, s -> String.valueOf(s), i -> mindustry.client.utils.AutoTransfer.minTransfer = i);
+        client.sliderPref("autotransfer-mintransfertotal", 10, 0, 200, 5, s -> String.valueOf(s), i -> mindustry.client.utils.AutoTransfer.minTransferTotal = i);
 
         client.category("graphics");
         client.sliderPref("minzoom", 0, 0, 100, s -> Strings.fixed(Mathf.pow(10, 0.0217f * s) / 100f, 2) + "x");

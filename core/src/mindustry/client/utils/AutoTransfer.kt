@@ -14,6 +14,7 @@ import mindustry.entities.bullet.*
 import mindustry.gen.*
 import mindustry.graphics.*
 import mindustry.type.*
+import mindustry.world.Block
 import mindustry.world.blocks.defense.turrets.*
 import mindustry.world.blocks.power.NuclearReactor.*
 import mindustry.world.blocks.production.*
@@ -31,10 +32,10 @@ class AutoTransfer {
         @JvmField var enabled = false
         var fromCores = false
         @JvmField var fromContainers = false
-        var minCoreItems = -1
+        @JvmField var minCoreItems = -1
         var debug = false
-        var minTransferTotal = -1
-        var minTransfer = -1
+        @JvmField var minTransferTotal = -1
+        @JvmField var minTransfer = -1
         var drain = false
         var drainToContainers = false
 
@@ -60,6 +61,38 @@ class AutoTransfer {
         /** Defensive [Number] cast: the dialog writes Integers, but JSON round-trips are untrusted. */
         fun priority(priorities: ObjectMap<String, Any?>, build: Building): Int =
             (priorities.get(build.block.name) as? Number)?.toInt() ?: 0
+
+        /**
+         * Per-turret, per-ammo settings shared with [eui.interact.AmmoPriorityDialog] (sonka's
+         * request, 2026-09-12): keyed by `"<turret block name>|<ammo item name>"`.
+         * - `eui.autofill.ammo.priority` (range -2..5, default 0): among a turret's eligible ammo
+         *   types, the highest-priority one wins over [getAmmoScore]'s DPS estimate - ties (including
+         *   the common all-default-0 case) still fall back to DPS, so an unconfigured turret behaves
+         *   exactly as before. [EXCLUDE_PRIORITY] (-2) keeps that specific ammo from ever being
+         *   fetched for that turret, even if it's the only thing available.
+         * - `eui.autofill.ammo.mincore` (default -1 = "no override"): overrides the caller's
+         *   `minItems` (normally the global [minCoreItems] slider) for this one turret+ammo pair, so
+         *   e.g. a scarce ammo type can require a much bigger core stockpile before turrets start
+         *   eating it, without raising the floor for every other item.
+         * Both re-read once per candidate scan (delay-gated, ~1/s via the same round as
+         * [loadPriorities]), so dialog edits apply immediately without a listener.
+         */
+        @Suppress("UNCHECKED_CAST")
+        fun loadAmmoPriorities(): ObjectMap<String, Any?> =
+            Core.settings.getJson("eui.autofill.ammo.priority", ObjectMap::class.java) { ObjectMap<String, Any?>() } as ObjectMap<String, Any?>
+
+        @Suppress("UNCHECKED_CAST")
+        fun loadAmmoMinCores(): ObjectMap<String, Any?> =
+            Core.settings.getJson("eui.autofill.ammo.mincore", ObjectMap::class.java) { ObjectMap<String, Any?>() } as ObjectMap<String, Any?>
+
+        private fun ammoKey(turret: Block, item: Item) = "${turret.name}|${item.name}"
+
+        fun ammoPriority(config: ObjectMap<String, Any?>, turret: Block, item: Item): Int =
+            (config.get(ammoKey(turret, item)) as? Number)?.toInt() ?: 0
+
+        /** Returns -1 (no override) if unset, matching [eui.interact.AmmoPriorityDialog]'s "use the global minimum" default. */
+        fun ammoMinCore(config: ObjectMap<String, Any?>, turret: Block, item: Item): Int =
+            (config.get(ammoKey(turret, item)) as? Number)?.toInt() ?: -1
 
         // Reactive backoff: on top of InteractTimer's fixed "eui-action-delay" pacing (which only honors
         // what the user configured, not what a given server actually allows), stretch the delay further
@@ -259,18 +292,37 @@ class AutoTransfer {
                 else cons.items.firstOrNull { i -> build.acceptStack(i.item, build.getMaximumAccepted(i.item), player.unit()) >= minTransfer && hasMinItems(i.item, max(i.amount, minItems)) }?.item
             }
             is ConsumeItemFilter -> {
-                var best: Item? = null
-                var bestScore = -1f
-                content.items().each { i ->
-                    if (i == Items.blastCompound || !build.block.consumesItem(i) || !hasMinItems(i) || build.acceptStack(i, Int.MAX_VALUE, player.unit()) < minTransfer) return@each
-                    if (build.block is ItemTurret) { // Turrets have varying ammo, prefer the highest-DPS one that's eligible
-                        val score = getAmmoScore((build.block as ItemTurret).ammoTypes[i])
+                if (build.block is ItemTurret) {
+                    // Per-turret ammo priority + min-core override (sonka's request, 2026-09-12) - see
+                    // loadAmmoPriorities()/loadAmmoMinCores()'s doc comment. Priority dominates the
+                    // comparison (scaled well above any realistic DPS value) and DPS only breaks ties,
+                    // so a turret with no configured ammo priorities (the common case) picks exactly
+                    // the same highest-DPS ammo as before.
+                    val ammoPriorities = loadAmmoPriorities()
+                    val ammoMinCores = loadAmmoMinCores()
+                    var best: Item? = null
+                    var bestScore = Float.NEGATIVE_INFINITY
+                    content.items().each { i ->
+                        if (i == Items.blastCompound || !build.block.consumesItem(i) || build.acceptStack(i, Int.MAX_VALUE, player.unit()) < minTransfer) return@each
+                        val ammoPriority = ammoPriority(ammoPriorities, build.block, i)
+                        if (ammoPriority <= EXCLUDE_PRIORITY) return@each // this ammo is excluded for this turret
+                        val minCoreOverride = ammoMinCore(ammoMinCores, build.block, i)
+                        val effectiveMin = if (minCoreOverride >= 0) minCoreOverride else minItems
+                        // Deliberately independent of hasMinItems()'s "global minItems==0 bypasses
+                        // everything" quirk (used by the other branches below) - a per-ammo override must
+                        // still apply its own floor even when the global Min Core Items slider is 0.
+                        if (!(effectiveMin == 0 || core.items.has(i, effectiveMin))) return@each
+                        val score = ammoPriority * 1e6f + getAmmoScore((build.block as ItemTurret).ammoTypes[i])
                         if (score > bestScore) { best = i; bestScore = score }
-                    } else if (best == null) {
-                        best = i
                     }
+                    best
+                } else {
+                    var best: Item? = null
+                    content.items().each { i ->
+                        if (best == null && i != Items.blastCompound && build.block.consumesItem(i) && hasMinItems(i) && build.acceptStack(i, Int.MAX_VALUE, player.unit()) >= minTransfer) best = i
+                    }
+                    best
                 }
-                best
             }
             is ConsumeItemDynamic -> cons.items.get(build).firstOrNull { i -> build.getMaximumAccepted(i.item) - build.items.get(i.item) >= minTransfer && hasMinItems(i.item, max(i.amount, minItems)) }?.item
             else -> null
