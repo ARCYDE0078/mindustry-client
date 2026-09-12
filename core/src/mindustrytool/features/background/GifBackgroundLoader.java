@@ -70,7 +70,9 @@ public final class GifBackgroundLoader{
     }
 
     private static Texture toTexture(int[] argb, int srcW, int srcH, int outW, int outH){
-        //arc Pixmaps are bottom-up (GL origin bottom-left) - flip while copying from top-down GIF rows
+        //arc Pixmaps are top-down like the GIF's own row order (Renderer.takeMapScreenshot copies
+        //ScreenUtils output straight into pixmap.pixels with no extra flip) - no flip needed here;
+        //the previous bottom-up assumption was wrong and rendered every gif upside down
         Pixmap pixmap = new Pixmap(outW, outH);
         for(int y = 0; y < outH; y++){
             int srcY = Math.min(srcH - 1, y * srcH / outH);
@@ -78,7 +80,7 @@ public final class GifBackgroundLoader{
                 int srcX = Math.min(srcW - 1, x * srcW / outW);
                 int c = argb[srcY * srcW + srcX];
                 int a = (c >>> 24) & 0xFF, r = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, b = c & 0xFF;
-                pixmap.set(x, outH - y - 1, Color.rgba8888(r / 255f, g / 255f, b / 255f, a / 255f));
+                pixmap.set(x, y, Color.rgba8888(r / 255f, g / 255f, b / 255f, a / 255f));
             }
         }
         Texture texture = new Texture(pixmap);
