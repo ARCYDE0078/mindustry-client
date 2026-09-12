@@ -7,6 +7,7 @@ import qol.controlhelper.core.ExtinguishedRebuilder;
 import qol.controlhelper.core.HandMiner;
 import qol.controlhelper.core.PlansPrioritizer;
 import qol.controlhelper.core.PlansSaver;
+import qol.controlhelper.core.PowerBridgeBuilder;
 import qol.controlhelper.core.PowerNetworkReconnector;
 import qol.controlhelper.core.SupportsIgnorer;
 import qol.controlhelper.core.UnitSplitter;
@@ -51,6 +52,7 @@ public class ControlHelperFeature implements Feature{
     DrillsValidator drillsValidator;
     DisconnectedPowerHighlighter disconnectedPowerHighlighter;
     PowerNetworkReconnector powerNetworkReconnector;
+    PowerBridgeBuilder powerBridgeBuilder;
 
     ControlHelperWindow window;
 
@@ -89,6 +91,7 @@ public class ControlHelperFeature implements Feature{
         drillsValidator = new DrillsValidator(this::isEnabled);
         disconnectedPowerHighlighter = new DisconnectedPowerHighlighter(this::isEnabled);
         powerNetworkReconnector = new PowerNetworkReconnector(requestExecutor);
+        powerBridgeBuilder = new PowerBridgeBuilder(requestExecutor, powerNetworkReconnector, this::isEnabled);
 
         requestExecutor.Init();
         unitSplitter.Init();
@@ -99,6 +102,7 @@ public class ControlHelperFeature implements Feature{
         extinguishedRebuilder.Init();
         drillsValidator.Init();
         disconnectedPowerHighlighter.Init();
+        powerBridgeBuilder.Init();
         window = new ControlHelperWindow(factoriesDepowerer, producersDepowerer, disconnectedPowerHighlighter, powerNetworkReconnector);
     }
 
@@ -110,6 +114,7 @@ public class ControlHelperFeature implements Feature{
         table.checkPref("handMiner", true);
         table.checkPref("ignoreSupportUnits", true);
         table.checkPref("highlightDisconnectedPower", false);
+        table.checkPref("powerBridgeBuilder", true);
         table.sliderPref("splitAdd1.size", 0, 0, 100, i -> i + "%");
         table.sliderPref("splitAdd2.size", 0, 0, 100, i -> i + "%");
         table.sliderPref("splitAdd3.size", 0, 0, 100, i -> i + "%");

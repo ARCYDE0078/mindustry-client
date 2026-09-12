@@ -21,6 +21,15 @@ import static mindustry.Vars.state;
 public class HandMiner{
     public float delayBeforeStart = 0.5f;
     protected float curDelay;
+    /**
+     * Пауза стройки по E (Binding.pauseBuilding) - это тот же самый обычный тап-тоггл, которым игрок
+     * ставит стройку на паузу вручную (см. DesktopInput.keyTap(pauseBuilding) -> isBuilding ^= true).
+     * Раньше эта фича при добытом-по-требованию ресурсе снимала паузу (isBuilding = true) вообще
+     * не проверяя, кто её поставил - из-за этого добыча "сама" снимала паузу, которую игрок поставил
+     * тем же тапом E намеренно и по совсем другой причине (просто хотел приостановить стройку).
+     * pausedByUs помнит, что паузу поставили именно мы ради добычи - только такую паузу и снимаем.
+     */
+    protected boolean pausedByUs;
 
     final BooleanSupplier masterEnabled;
 
@@ -41,12 +50,14 @@ public class HandMiner{
             }else if(player.unit().mineTile != null){
                 Item mineItem = player.unit().mineTile.drop();
                 int neededAmount = GetNeededAmount(mineItem);
-                if(!control.input.isBuilding || GetCoreAmount(mineItem) <= 0){
-                    if(neededAmount > 0){
-                        if(control.input.isBuilding) control.input.isBuilding = false;
-                    }else if(!control.input.isBuilding){
-                        control.input.isBuilding = true;
+                if(neededAmount > 0){
+                    if(control.input.isBuilding){
+                        control.input.isBuilding = false;
+                        pausedByUs = true;
                     }
+                }else if(pausedByUs){
+                    if(!control.input.isBuilding) control.input.isBuilding = true;
+                    pausedByUs = false;
                 }
             }
         });
