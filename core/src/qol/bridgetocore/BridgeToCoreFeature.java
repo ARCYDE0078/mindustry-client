@@ -722,7 +722,9 @@ public class BridgeToCoreFeature implements Feature{
      * which for this mod would mean silently routing straight through and repurposing whatever the
      * player already built there, instead of routing around it like any other obstacle.
      */
-    static boolean canBuildOn(Block type, Team team, int x, int y, int rotation){
+    //public: qol.controlhelper.core.PowerBridgeBuilder reuses this exact obstacle/overlap check for its
+    //own node-chain placement instead of re-deriving the same Build.validPlace + air-tile logic
+    public static boolean canBuildOn(Block type, Team team, int x, int y, int rotation){
         Tile t = world.tile(x, y);
         return t != null && t.block() == Blocks.air && Build.validPlace(type, team, x, y, rotation);
     }
