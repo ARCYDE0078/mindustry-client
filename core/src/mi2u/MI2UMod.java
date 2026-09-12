@@ -13,7 +13,7 @@ import static mi2u.MI2UVars.*;
 import static mindustry.Vars.*;
 
 /**
- * Порт мода "MI2-Utilities Java" (BlackDeluxeCat, v1.15.2) как нативный пакет клиента.
+ * Порт мода "MI2-Utilities Java" (BlackDeluxeCat, v1.16.1) как нативный пакет клиента.
  * Оригинальный главный класс {@code mi2u.MI2Utilities extends Mod} превращён в оркестратор
  * по образцу QolSuiteMod/EUIMod: конструктор вызывается из mindustry.client.Main.init()
  * ДО Events.fire(ClientLoadEvent), поэтому здесь можно (и нужно) только вешать слушатели.
@@ -32,6 +32,18 @@ import static mindustry.Vars.*;
  *     и не на FileTreeInitEvent (он для вшитого кода уже отгремел), а в начале ClientLoadEvent;</li>
  * <li>ModUpdateChecker выброшен - вшитой копии нечего обновлять с GitHub мода.</li>
  * </ul>
+ * <p>
+ * Апстрим 1.16.0 требует minGameVersion 160 и на этой сборке переработал
+ * {@code mindustry.game.MapMarkers} (добавил предвычисленные {@code mapMarkers}/{@code worldMarkers}
+ * вместо плоского перебора с проверкой {@code marker.world}/{@code marker.minimap}) как часть фикса
+ * "objective marker render crash". Этот клиент собран на движке build=159.7, где MapMarkers - всё ещё
+ * плоский {@code Iterable<ObjectiveMarker>} без этих полей, поэтому правка НЕ портирована:
+ * RendererExt.drawMarkers()/MinimapMindow (циклы по FullAI.LogicMode.markers/state.markers с
+ * проверкой marker.world/marker.minimap) намеренно оставлены в дореформенном виде апстрима 1.15.2 -
+ * они и так корректны для здешнего MapMarkers. Остальные фиксы 1.16.0/1.16.1 (снятие logicMemory
+ * из списка добавляемых мониторов, пересборка кэша иконок PowerGraphTable на WorldLoadEvent вместо
+ * ContentInitEvent) не завязаны на движок и портированы как есть.
+ * </p>
  */
 public class MI2UMod{
     /** Оригинальные имена регионов атласа мода: префикс = имя мода из mod.hjson. */

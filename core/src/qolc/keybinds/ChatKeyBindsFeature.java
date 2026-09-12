@@ -29,6 +29,23 @@ import mindustry.ui.fragments.ChatFragment;
  * {@code /}-команды и обычный текст шлются на сервер с подписью клиента. Оригинал слал всё сырым
  * {@code Call.sendChatMessage}, из-за чего его биндами нельзя было дёргать команды самого мода -
  * в нативном порте это ограничение снято.
+ * <p>
+ * v6.6 -&gt; v7.1: оригинал (core/bind.js) переехал с хранения "один бинд на комбинацию" (JSON-объект
+ * {@code {"ctrl+K": "команда"}}) на список объектов - это разрешает НЕСКОЛЬКО биндов на одну и ту же
+ * комбинацию клавиш и добавляет чекбокс {@code enabled} у каждого бинда (выключить, не удаляя). Порт
+ * читает оба формата (старый JSON-объект молча мигрируется в список при первой загрузке) и всегда
+ * пишет новый формат - настройки от JS-мода (и наоборот) переживают переключение self-disable guard'ом.
+ * Здесь это далось даром: {@link Bind} и так хранился в {@link Seq}, а не в мапе, так что дублирующиеся
+ * комбинации технически не ломались - удалена только строчка, которая раньше СТИРАЛА старый бинд с той
+ * же комбинацией при добавлении нового (эмулировала объектную уникальность оригинала до v6.8).
+ * <p>
+ * НЕ портировано: привязка бинда к конкретным IP серверов (поле {@code ips} у оригинала, задаётся в
+ * форме редактирования) - оригинал определяет текущий IP через рефлексию в приватное поле
+ * {@code host} инстанса {@code NetClient} (или запасные варианты через настройки {@code qol-last-ip}/
+ * {@code ip}), это внутренности движка, которые рискованно портировать вслепую без компиляции в этом
+ * форке клиента. Поле {@code ips} читается/пишется в JSON (чтобы не терять данные игрока при
+ * миграции/переключении на реальный мод), но не проверяется и не показывается в форме редактирования -
+ * т.е. в этом порте ни один бинд не ограничен сервером, все выполняются везде, как раньше.
  */
 public final class ChatKeyBindsFeature{
     private static final String settingsKey = "qol-binds";
@@ -42,6 +59,10 @@ public final class ChatKeyBindsFeature{
         boolean ctrl, alt, shift;
         KeyCode key;
         String command;
+        /** v7.1: можно выключить бинд, не удаляя - галочка в списке. */
+        boolean enabled = true;
+        /** v7.1 оригинала: список разрешённых IP через запятую. Не проверяется в порте (см. javadoc класса) - хранится только для round-trip. */
+        String ips = "";
     }
 
     private ChatKeyBindsFeature(){
@@ -55,10 +76,24 @@ public final class ChatKeyBindsFeature{
     private static void load(){
         binds.clear();
         try{
-            Jval root = Jval.read(Core.settings.getString(settingsKey, "{}"));
-            for(var entry : root.asObject()){
-                Bind bind = parse(entry.key, entry.value.asString());
-                if(bind != null) binds.add(bind);
+            Jval root = Jval.read(Core.settings.getString(settingsKey, "[]"));
+            if(root.isArray()){
+                //текущий формат оригинала (v6.8+): массив объектов {key, cmd, enabled, ips}
+                for(Jval item : root.asArray()){
+                    Bind bind = parse(item.getString("key", ""), item.getString("cmd", ""));
+                    if(bind != null){
+                        bind.enabled = item.getBool("enabled", true);
+                        bind.ips = item.getString("ips", "");
+                        binds.add(bind);
+                    }
+                }
+            }else if(root.isObject()){
+                //старый формат (до v6.8): объект {"ctrl+K": "команда"} - одноразовая миграция в новый список
+                for(var entry : root.asObject()){
+                    Bind bind = parse(entry.key, entry.value.asString());
+                    if(bind != null) binds.add(bind);
+                }
+                save();
             }
         }catch(Throwable t){
             Log.err("[qol-control] failed to parse " + settingsKey, t);
@@ -86,9 +121,15 @@ public final class ChatKeyBindsFeature{
     }
 
     private static void save(){
-        Jval root = Jval.newObject();
+        //v7.1: пишем массив, а не объект - иначе несколько биндов на одну комбинацию схлопнутся в один ключ
+        Jval root = Jval.newArray();
         for(Bind bind : binds){
-            root.add(bind.raw, bind.command);
+            Jval obj = Jval.newObject();
+            obj.put("key", bind.raw);
+            obj.put("cmd", bind.command);
+            obj.put("enabled", bind.enabled);
+            obj.put("ips", bind.ips);
+            root.add(obj);
         }
         Core.settings.put(settingsKey, root.toString());
     }
@@ -98,6 +139,7 @@ public final class ChatKeyBindsFeature{
         if(Core.scene.hasKeyboard() || Core.scene.hasDialog() || Vars.ui.chatfrag.shown()) return;
 
         for(Bind bind : binds){
+            if(!bind.enabled) continue; //v7.1: выключенный бинд не отрабатывает, но остаётся в списке
             if(!Core.input.keyTap(bind.key)) continue;
             if(bind.ctrl != Core.input.ctrl() || bind.alt != Core.input.alt() || bind.shift != Core.input.shift()) continue;
             execute(bind.command);
@@ -134,7 +176,12 @@ public final class ChatKeyBindsFeature{
         }else{
             for(Bind bind : binds){
                 Table row = new Table();
-                row.add("[accent]" + bind.raw).width(160f).left().padRight(10f);
+                //v7.1: галочка вкл/выкл бинда, не удаляя его из списка
+                row.check("", bind.enabled, b -> {
+                    bind.enabled = b;
+                    save();
+                }).padRight(5f);
+                row.add("[accent]" + bind.raw).width(150f).left().padRight(10f);
                 var preview = row.add(bind.command.replace("\n", " | ")).left().growX().minWidth(0f).get();
                 preview.setEllipsis(true);
                 row.button(Icon.pencil, Styles.cleari, () -> showEdit(bind)).size(45f);
@@ -179,11 +226,24 @@ public final class ChatKeyBindsFeature{
                 Vars.ui.showInfo(Core.bundle.get("qolc.keybinds.incomplete"));
                 return;
             }
-            if(existing != null) binds.remove(existing);
-            //перезапись существующего бинда на ту же комбинацию
-            binds.remove(b -> b.raw.equals(combo[0]));
             Bind parsed = parse(combo[0], command.toString());
-            if(parsed != null) binds.add(parsed);
+            if(parsed == null){
+                Vars.ui.showInfo(Core.bundle.get("qolc.keybinds.incomplete"));
+                return;
+            }
+            if(existing != null){
+                //правка на месте (не remove+add) - сохраняет позицию в списке и enabled/ips существующего бинда;
+                //v7.1 оригинала специально разрешает НЕСКОЛЬКО биндов на одну комбинацию, поэтому больше не
+                //стираем другие бинды с тем же combo, как раньше (см. javadoc класса)
+                existing.raw = parsed.raw;
+                existing.ctrl = parsed.ctrl;
+                existing.alt = parsed.alt;
+                existing.shift = parsed.shift;
+                existing.key = parsed.key;
+                existing.command = parsed.command;
+            }else{
+                binds.add(parsed);
+            }
             save();
             d.hide();
             rebuild();

@@ -16,7 +16,7 @@ import tmi.util.KeyBinds
 import tmi.util.TmiAssets
 
 /**
- * Порт мода "Too Many Items" (EB-wilson, v3.2, Kotlin) как нативный пакет клиента - браузер
+ * Порт мода "Too Many Items" (EB-wilson, v3.3, Kotlin) как нативный пакет клиента - браузер
  * рецептов и производственных цепочек в духе NEI/JEI: для каждого предмета/жидкости/юнита/
  * блока - чем производится, где используется, что делает фабрика (парсеры для всех ванильных
  * типов блоков: крафтеры, дрели, насосы, генераторы, реакторы, фабрики юнитов, реконструкторы,
@@ -47,6 +47,21 @@ import tmi.util.TmiAssets
  * Items» вкладки «Моды» (оригинальные ключи tmi_*), хоткей tmi_hot_key в категории «tmi» меню
  * управления. Спрайты - core/assets/tmi/ui/ (пакуются в Core.atlas, см. TmiAssets.loadSprites),
  * документы - core/assets/tmi/documents/.
+ * <p>
+ * 2026-09-12: синк с upstream master (после тега 3.2 - fix для Mindustry 159 + мелкие правки).
+ * Портировано: баги ModAPI.readJsonAPI (return вместо continue рвал загрузку рецептов всех
+ * следующих модов; recipeInfos вместо it/recipeInfo - поля предмета/craftTime из recipes.json
+ * молча брались с "неправильного" уровня JSON и всегда уходили в дефолт), RecipeItem.compareTo
+ * (сравнение по typeTag вместо typeID), и новая фича RecipeGraph.requiredMods - калькулятор
+ * пишет в .shd список модов-источников рецептов графа и при загрузке кидает понятную
+ * MissingModException вместо мусора в интерфейсе, если нужного мода сейчас нет. НЕ портировано:
+ * upstream заодно переименовал RecipeItem.ownMod -> mod и поменял состав RecipeGraph.write/read
+ * (Vars.platform.showFileChooser -> FileChooser.FileChooserParams, Seq.groupBy/flatMap ->
+ * ObjectMap/Seq) - у нас это уже своё: tmi.util.showFileChooser и .asIterable() перед groupBy/
+ * flatMap (см. комментарии на местах) решают ту же проблему совместимости с движком этого
+ * форка, так что оставлено как есть. Также не тронут порядок/состав Recipe.flattenID (upstream
+ * убрал amount из ID и поменял местами materials/productions без объяснения в коммите - слишком
+ * рискованно трогать вслепую, т.к. flattenID - это ключ поиска рецепта при загрузке .shd).
  */
 class TooManyItems {
   companion object {

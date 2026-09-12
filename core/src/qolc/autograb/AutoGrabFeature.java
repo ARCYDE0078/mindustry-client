@@ -32,6 +32,13 @@ import arc.graphics.g2d.Draw;
  * {@code Call.requestItem}, тот же RPC, что клик по инвентарю здания, поэтому MP-безопасно.
  * <p>
  * Ключ подсветки {@code qol-grab-effects} оставлен как в оригинале - настройка игрока переживает порт.
+ * <p>
+ * v6.6 -&gt; v7.1: активность/предмет/минимум теперь переживают перезаход в мир И перезапуск клиента
+ * (ключи {@code qol-grab-active}/{@code qol-grab-item}/{@code qol-grab-min}, как в оригинале) - раньше
+ * авто-сбор сбрасывался на каждой загрузке карты. Разбор команды тоже приведён к оригиналу: явное
+ * слово {@code toggle}/{@code t} убрано, теперь голое {@code !grab} и {@code !grab <1/0/on/off>}
+ * переключают состояние напрямую (см. {@link #isBooleanArg}), а нераспознанный не-предмет аргумент
+ * показывает usage вместо "предмет не найден".
  */
 public final class AutoGrabFeature{
     /** Радиус поиска зданий в world-юнитах (27 тайлов, как в оригинале). */
@@ -48,11 +55,14 @@ public final class AutoGrabFeature{
     }
 
     public static void init(){
-        Events.on(WorldLoadEvent.class, e -> {
-            active = false;
-            item = null;
-            targets.clear();
-        });
+        //восстановление состояния между сессиями - оригинал с v6.8 больше не сбрасывает грэб на роспуск
+        active = Core.settings.getBool("qol-grab-active", false);
+        minAmount = Core.settings.getInt("qol-grab-min", 10);
+        String savedItem = Core.settings.getString("qol-grab-item", "");
+        if(!savedItem.isEmpty()) item = findItem(savedItem);
+
+        //цель ищется заново на каждой карте, но активность/предмет теперь переживают смену мира
+        Events.on(WorldLoadEvent.class, e -> targets.clear());
 
         Events.run(Trigger.update, AutoGrabFeature::update);
         Events.run(Trigger.draw, AutoGrabFeature::draw);
@@ -62,16 +72,15 @@ public final class AutoGrabFeature{
     }
 
     private static void runCommand(String[] args, Player player){
+        //голый вызов теперь переключает (было: показ usage) - оригинал v7.1, core/autograb.js
         if(args.length == 0){
-            player.sendMessage(Core.bundle.get("qolc.grab.usage"));
+            active = !active;
+            Core.settings.put("qol-grab-active", active);
+            player.sendMessage(Core.bundle.format("qolc.grab.toggled", onOff(active)));
             return;
         }
 
         switch(args[0]){
-            case "toggle", "t" -> {
-                active = args.length > 1 ? parseToggle(active, args[1]) : !active;
-                player.sendMessage(Core.bundle.format("qolc.grab.toggled", onOff(active)));
-            }
             case "effects", "e" -> {
                 boolean effects = !Core.settings.getBool("qol-grab-effects", true);
                 Core.settings.put("qol-grab-effects", effects);
@@ -83,6 +92,7 @@ public final class AutoGrabFeature{
                     return;
                 }
                 minAmount = Strings.parseInt(args[1]);
+                Core.settings.put("qol-grab-min", minAmount);
                 player.sendMessage(Core.bundle.format("qolc.grab.min-set", minAmount));
             }
             case "status", "s" -> player.sendMessage(Core.bundle.format("qolc.grab.status",
@@ -90,13 +100,21 @@ public final class AutoGrabFeature{
                 onOff(Core.settings.getBool("qol-grab-effects", true))));
             default -> {
                 Item found = findItem(args[0]);
-                if(found == null){
-                    player.sendMessage(Core.bundle.format("qolc.grab.item-not-found", args[0]));
-                    return;
+                if(found != null){
+                    item = found;
+                    active = true;
+                    Core.settings.put("qol-grab-item", found.name);
+                    Core.settings.put("qol-grab-active", active);
+                    player.sendMessage(Core.bundle.format("qolc.grab.enabled", found.emoji() + " " + found.localizedName));
+                }else if(isBooleanArg(args[0])){
+                    //явного "toggle"/"t" в оригинале с v6.8 больше нет - голый 1/0/on/off переключает сам
+                    active = parseToggle(active, args[0]);
+                    Core.settings.put("qol-grab-active", active);
+                    player.sendMessage(Core.bundle.format("qolc.grab.toggled", onOff(active)));
+                }else{
+                    //не предмет и не булево - раньше здесь было "item-not-found", оригинал v7.1 показывает usage
+                    player.sendMessage(Core.bundle.get("qolc.grab.usage"));
                 }
-                item = found;
-                active = true;
-                player.sendMessage(Core.bundle.format("qolc.grab.enabled", found.emoji() + " " + found.localizedName));
             }
         }
     }
@@ -113,6 +131,14 @@ public final class AutoGrabFeature{
             case "1", "true", "on" -> true;
             case "0", "false", "off" -> false;
             default -> !current;
+        };
+    }
+
+    /** Тот же набор литералов, что распознаёт {@link #parseToggle} - используется, чтобы отличить булев аргумент от имени предмета. */
+    private static boolean isBooleanArg(String arg){
+        return switch(arg){
+            case "1", "0", "true", "false", "on", "off" -> true;
+            default -> false;
         };
     }
 

@@ -10,7 +10,7 @@ import mindustry.mod.*;
 import rhino.*;
 
 /**
- * Порт мода "PatchEditor" (minRi2/Dustdustry, v1.13.1) как нативный пакет клиента: in-game GUI
+ * Порт мода "PatchEditor" (minRi2/Dustdustry, v1.14.0 + фиксы до da610e2c, 2026-09-04) как нативный пакет клиента: in-game GUI
  * для НАТИВНОЙ системы контент-патчей движка v8 (mindustry.mod.DataPatcher + DataManager,
  * PatchAsset/ContentAsset в правилах карты/сейва) - никакой внешней мод-зависимости у него нет,
  * build.gradle оригинала зависит только от ваниль-jar v159.7, т.е. ровно от версии этого движка.

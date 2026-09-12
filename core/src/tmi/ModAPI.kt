@@ -85,7 +85,7 @@ class ModAPI {
       else if (mod.root.child("plugin.json").exists()) mod.root.child("plugin.json")
       else mod.root.child("plugin.hjson")
 
-      if (!modMeta.exists()) return
+      if (!modMeta.exists()) continue
 
       readJsonAPI(mod)
       loadModJavaEntries(mod, Jval.read(modMeta.readString()))
@@ -202,14 +202,14 @@ class ModAPI {
         override val typeID = it.getInt("typeID", -1)
         override val ownMod = mod.name
         override val name = name
-        override val localizedName = Core.bundle[recipeInfos.getString(
+        override val localizedName = Core.bundle[it.getString(
           "localizeNamePath",
           "name.$name"
         )]
-        override val icon = Core.atlas.find(recipeInfos.getString("icon", "error"))
-        override val hidden = recipeInfos.getBool("hidden", false)
-        override val hasDetails = recipeInfos.getBool("hasDetails", false)
-        override val locked = recipeInfos.getBool("locked", false)
+        override val icon = Core.atlas.find(it.getString("icon", "error"))
+        override val hidden = it.getBool("hidden", false)
+        override val hasDetails = it.getBool("hasDetails", false)
+        override val locked = it.getBool("locked", false)
       })
     }
 
@@ -229,7 +229,7 @@ class ModAPI {
 
       val recipe = Recipe(
         recipeType = getRecipeType(recipeInfo.getString("type")),
-        craftTime = recipeInfos.getFloat("craftTime", 0f),
+        craftTime = recipeInfo.getFloat("craftTime", 0f),
         ownerBlock = TooManyItems.itemsManager.getByName<Block>(ownerBlock)
       ).setBaseEff(recipeInfo.getFloat("baseEfficiency", 1f))
 

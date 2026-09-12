@@ -17,8 +17,8 @@ import qolc.planrange.PlanRangeFeature;
 import qolc.wave.WaveSkipCommand;
 
 /**
- * Оркестратор порта стороннего JS-мода "QoL Control" (TyT-xexebe), вшитого в клиент нативным кодом -
- * тот же подход, что {@link qol.QolSuiteMod}/{@link eui.EUIMod}/{@link sectorstats.CampaignUtilsMod},
+ * Оркестратор порта стороннего JS-мода "QoL Control" (TyT-xexebe, v7.1), вшитого в клиент нативным
+ * кодом - тот же подход, что {@link qol.QolSuiteMod}/{@link eui.EUIMod}/{@link sectorstats.CampaignUtilsMod},
  * см. {@code mindustry.client.Main.init()} (место инстанцирования и почему именно там).
  * <p>
  * ВАЖНО: сюда портирован только реальный остаток мода. Большая часть его 37 модулей НЕ портирована,

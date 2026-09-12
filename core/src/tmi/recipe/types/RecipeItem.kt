@@ -19,7 +19,7 @@ abstract class RecipeItem<T> protected constructor(@JvmField val item: T) : Comp
   open fun displayDetails() {}
 
   override fun compareTo(other: RecipeItem<*>): Int {
-    val n = typeTag.compareTo(other.typeTag)
+    val n = typeID.compareTo(other.typeID)
 
     if (n == 0) {
       return ordinal - other.ordinal

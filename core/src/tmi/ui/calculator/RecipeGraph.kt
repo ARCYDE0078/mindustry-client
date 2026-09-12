@@ -7,10 +7,15 @@ import arc.struct.ObjectIntMap
 import arc.struct.Seq
 import arc.util.io.Reads
 import arc.util.io.Writes
+import mindustry.Vars
 import tmi.TooManyItems
 import tmi.recipe.types.RecipeItem
+import tmi.util.Consts
 import tmi.util.set
 import kotlin.math.max
+
+//формат файла калькулятора: версия + список требуемых модов перед основными данными графа
+const val SAVE_VERSION = 0
 
 class RecipeGraph: Iterable<RecipeGraphNode>{
   private val recipeNodes = Seq<RecipeGraphNode>()
@@ -89,6 +94,16 @@ class RecipeGraph: Iterable<RecipeGraphNode>{
   }
 
   fun write(writer: Writes){
+    writer.i(SAVE_VERSION)
+
+    //arc форка: Seq.flatMap -> Seq перекрывает Kotlin-овский Iterable.flatMap -> List, нужен
+    //через asIterable(); список модов пишем, чтобы при чтении на другой сборке модов не упасть,
+    //а показать явную ошибку "не хватает мода X" (см. MissingModException/read)
+    val requiredMods = recipeNodes.asIterable().flatMap { it.recipe.requiredMods }.toSet()
+
+    writer.i(requiredMods.size)
+    requiredMods.forEach { mod -> writer.str(mod) }
+
     writer.i(recipeNodes.size)
     recipeNodes.forEach { node ->
       writer.i(node.graphIndex)
@@ -109,8 +124,20 @@ class RecipeGraph: Iterable<RecipeGraphNode>{
     }
   }
 
-  fun read(reader: Reads){
+  fun read(reader: Reads, reversion: Int){
     clear()
+
+    val existedMods = mutableSetOf<String>()
+    Vars.mods.list().forEach { mod -> existedMods.add(mod.name) }
+
+    val modsCount = reader.i()
+    val requiredMods = mutableListOf<String>()
+    (0 until modsCount).forEach { _ -> requiredMods.add(reader.str()) }
+
+    requiredMods.forEach { mod ->
+      if (mod != Consts.VANILLA && !existedMods.contains(mod))
+        throw MissingModException("Mod $mod does not exist.", requiredMods)
+    }
 
     class Temp(val node: RecipeGraphNode){
       val children = ObjectIntMap<RecipeItem<*>>()
@@ -169,4 +196,6 @@ class RecipeGraph: Iterable<RecipeGraphNode>{
   }
 
   override fun iterator() = recipeNodes.iterator()
+
+  class MissingModException(msg: String, val requiredMods: List<String>) : Exception(msg)
 }

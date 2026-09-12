@@ -895,6 +895,14 @@ class CalculatorDialog: BaseDialog("") {
         }
 
         viewTable.add(viewPage.view).grow()
+      } catch (e: RecipeGraph.MissingModException) {
+        viewTable.table { t ->
+          t.left().defaults().fill().left()
+          t.add(Core.bundle["dialog.calculator.missingMod"]).fontScale(1.2f).color(Pal.accent)
+          t.row()
+          val mods = e.requiredMods.joinToString(";\n")
+          t.add(Core.bundle.format("dialog.calculator.mods", mods))
+        }.fill()
       } catch (e: Exception) {
         Log.err(e)
         viewTable.table{ t ->

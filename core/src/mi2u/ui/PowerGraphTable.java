@@ -55,12 +55,6 @@ public class PowerGraphTable extends Table{
 
     OrderedSet<PowerGraph> graphs = new OrderedSet<>();
 
-    static{
-        Events.on(EventType.ContentInitEvent.class, e -> {
-            blocksI = new Element[content.blocks().size][6];
-        });
-    }
-
     public PowerGraphTable(){
         super();
         detailTable.touchable = Touchable.disabled;
@@ -247,6 +241,17 @@ public class PowerGraphTable extends Table{
 
     public static Element getBlockImage(int id, int i3, Prov<Element> getter){
         return blocksI[id][i3] != null ? blocksI[id][i3] : (blocksI[id][i3] = getter.get());
+    }
+
+    /**
+     * Пересоздаёт кэш иконок по актуальному {@code content.blocks().size}.
+     * Раньше это делалось в статическом {@code Events.on(ContentInitEvent...)}, который
+     * на карте с data-патчем (добавляет контент ПОСЛЕ основной загрузки) отрабатывал со
+     * старым размером - обращение к blocksI[id] для патч-блока валилось IndexOutOfBounds.
+     * Теперь вызывается явно из CoreInfoMindow на WorldLoadEvent, когда патч уже применён.
+     */
+    public static void rebuildBlockImageCache(){
+        blocksI = new Element[content.blocks().size][6];
     }
 
     public class AlluvialDiagram extends WidgetGroup{

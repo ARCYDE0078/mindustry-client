@@ -4,13 +4,13 @@ import arc.func.Cons
 import arc.scene.ui.layout.Table
 import arc.struct.ObjectFloatMap
 import arc.struct.OrderedMap
+import arc.struct.OrderedSet
 import tmi.util.invoke
 import tmi.recipe.types.CalculateMethod
 import tmi.recipe.types.RecipeItem
 import tmi.recipe.types.RecipeItemType
 import tmi.util.set
 import tmi.util.mto
-import java.util.*
 import kotlin.math.max
 import kotlin.math.min
 
@@ -35,11 +35,15 @@ open class Recipe @JvmOverloads constructor(
 
   private var completed = false
 
+  //мод-источники всех айтемов рецепта (владелец + материалы + продукция) - для проверки при
+  //загрузке сохранённого калькулятора, что все нужные моды сейчас установлены (см. RecipeGraph)
+  private val _requiredMods = OrderedSet<String>()
   private val productionMap = OrderedMap<RecipeItem<*>, RecipeItemStack<*>>()
   private val materialMap = OrderedMap<RecipeItem<*>, RecipeItemStack<*>>()
 
   val productions get() = productionMap.values().toList()
   val materials get() = materialMap.values().toList()
+  val requiredMods get() = _requiredMods.toList()
 
   val materialGroups: List<List<RecipeItemStack<*>>> get() = run {
     var n = 0
@@ -81,6 +85,10 @@ open class Recipe @JvmOverloads constructor(
 
     val matValues = materialMap.orderedKeys().map { materialMap[it]!! }
     val prodValues = productionMap.orderedKeys().map { productionMap[it]!! }
+
+    _requiredMods.add(ownerBlock.ownMod)
+    productionMap.orderedKeys().forEach { i -> _requiredMods.add(i.ownMod) }
+    materialMap.orderedKeys().forEach { i -> _requiredMods.add(i.ownMod) }
 
     val idBuilder = StringBuilder()
     idBuilder.append("R-")
