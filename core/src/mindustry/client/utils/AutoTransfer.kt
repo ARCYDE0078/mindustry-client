@@ -36,8 +36,8 @@ class AutoTransfer {
         var debug = false
         @JvmField var minTransferTotal = -1
         @JvmField var minTransfer = -1
-        var drain = false
-        var drainToContainers = false
+        @JvmField var drain = false
+        @JvmField var drainToContainers = false
 
         /** Blocks whose [priority] is at (or below) this value are excluded from auto transfer entirely. */
         const val EXCLUDE_PRIORITY = -2
@@ -84,6 +84,21 @@ class AutoTransfer {
         @Suppress("UNCHECKED_CAST")
         fun loadAmmoMinCores(): ObjectMap<String, Any?> =
             Core.settings.getJson("eui.autofill.ammo.mincore", ObjectMap::class.java) { ObjectMap<String, Any?>() } as ObjectMap<String, Any?>
+
+        /**
+         * Which [StorageBlock] types [transfer]'s "no core in range" fallback may draw from (sonka's
+         * request, 2026-09-12), shared with [eui.interact.SourceBlocksDialog] (settings key
+         * `eui.autofill.sourceblocks`): keyed by block name, missing/true = eligible, false = excluded -
+         * so an unconfigured install still draws from every container, exactly as before this existed.
+         * Cores aren't in this list at all; they're gated by the separate [fromCores] toggle. Re-read
+         * once per transfer round like [loadPriorities].
+         */
+        @Suppress("UNCHECKED_CAST")
+        fun loadSourceBlocks(): ObjectMap<String, Any?> =
+            Core.settings.getJson("eui.autofill.sourceblocks", ObjectMap::class.java) { ObjectMap<String, Any?>() } as ObjectMap<String, Any?>
+
+        fun sourceAllowed(config: ObjectMap<String, Any?>, block: Block): Boolean =
+            (config.get(block.name) as? Boolean) ?: true
 
         private fun ammoKey(turret: Block, item: Item) = "${turret.name}|${item.name}"
 
@@ -147,7 +162,7 @@ class AutoTransfer {
             minCoreItems = Core.settings.getInt("autotransfer-mincoreitems", 100)
             minTransferTotal = Core.settings.getInt("autotransfer-mintransfertotal", 10)
             minTransfer = Core.settings.getInt("autotransfer-mintransfer", 2)
-            // Drain settings, undocumented for now as drain is still experimental
+            // Drain settings - exposed in Settings > Client 2026-09-12 (sonka's request)
             drain = Core.settings.getBool("autotransfer-drain", false)
             drainToContainers = Core.settings.getBool("autotransfer-draintocontainers", false)
         }
@@ -223,7 +238,10 @@ class AutoTransfer {
 
         buildTree.intersect(player.x - itemTransferRange, player.y - itemTransferRange, itemTransferRange * 2, itemTransferRange * 2, builds.clear()) // grab all buildings in range
 
-        if (fromContainers && (core == null || !player.within(core, itemTransferRange))) core = containers.selectFrom(builds) { it.block is StorageBlock && (item == null || it.items.has(item)) }.min { it -> it.dst(player) }
+        if (fromContainers && (core == null || !player.within(core, itemTransferRange))) {
+            val sourceBlocks = loadSourceBlocks()
+            core = containers.selectFrom(builds) { it.block is StorageBlock && sourceAllowed(sourceBlocks, it.block) && (item == null || it.items.has(item)) }.min { it -> it.dst(player) }
+        }
         val fetchCore = core
 
         val priorities = loadPriorities()

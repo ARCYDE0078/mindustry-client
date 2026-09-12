@@ -458,6 +458,16 @@ public class SettingsMenuDialog extends BaseDialog{
         client.sliderPref("autotransfer-mincoreitems", 100, 0, 2000, 10, s -> String.valueOf(s), i -> mindustry.client.utils.AutoTransfer.minCoreItems = i);
         client.sliderPref("autotransfer-mintransfer", 2, 0, 50, 1, s -> String.valueOf(s), i -> mindustry.client.utils.AutoTransfer.minTransfer = i);
         client.sliderPref("autotransfer-mintransfertotal", 10, 0, 200, 5, s -> String.valueOf(s), i -> mindustry.client.utils.AutoTransfer.minTransferTotal = i);
+        //which container types the "fromContainers" fallback above may draw from - the dialog is eui's,
+        //config drives the native AutoTransfer, same wiring as the priority dialogs (sonka's request, 2026-09-12)
+        client.pref(new qol.core.ButtonSetting("autotransfer-sourceblocks", () -> {
+            if(eui.interact.SourceBlocksDialog.instance != null) eui.interact.SourceBlocksDialog.instance.show();
+        }));
+        //drain: opposite direction of the transfer above - pulls full factories/drills into the core or
+        //(if enabled) into a configured container. Promoted out of "experimental, no UI" 2026-09-12 at
+        //sonka's request - see AutoTransfer.init()'s doc comment.
+        client.checkPref("autotransfer-drain", false, b -> mindustry.client.utils.AutoTransfer.drain = b);
+        client.checkPref("autotransfer-draintocontainers", false, b -> mindustry.client.utils.AutoTransfer.drainToContainers = b);
 
         client.category("graphics");
         client.sliderPref("minzoom", 0, 0, 100, s -> Strings.fixed(Mathf.pow(10, 0.0217f * s) / 100f, 2) + "x");
