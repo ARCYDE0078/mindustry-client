@@ -25,6 +25,7 @@ import qolc.QolControlMod
 import sectorstats.CampaignUtilsMod
 import scheme.SchemeSizeMod
 import mindustrytool.MindustryToolMod
+import mobilepause.MobilePauseMod
 import java.nio.file.Files
 import java.security.cert.*
 import java.util.Timer
@@ -166,6 +167,12 @@ object Main : ApplicationListener {
         // planner with balancing, statistics, PNG/text export). UniverseKit markdown/reflection
         // replaced by client StupidMarkupParser/arc Reflect - see TooManyItems' KDoc.
         tmi.TooManyItems()
+
+        // Port of the third-party "Mobile Pause" mod (Promiha27/ARCYDE, mobile-pause v1.2) -
+        // map-screenshot button next to the mobile pause button. The mod's actual pause-button
+        // fix was applied directly to HudFragment.java instead (root engine bug, not a mod
+        // feature) - see MobilePauseMod's javadoc for the full story and self-disable guard.
+        MobilePauseMod()
 
         if (Core.app.isDesktop) {
             communicationSystem = SwitchableCommunicationSystem(BlockCommunicationSystem, PluginCommunicationSystem) // FINISHME: Profile this, it takes ~40ms which it really shouldn't

@@ -415,13 +415,16 @@ public class HudFragment{
                     .name("schematics");
 
                     select.button(Icon.pause, style, () -> {
-                        if(net.active()){
+                        //sonka: net.client() matches desktop's own pause condition (Control.java) - a host
+                        //should still be able to pause, only an actual connected (non-host) client can't.
+                        //The old net.active() check made this button toggle the player list even for the host.
+                        if(net.client()){
                             ui.listfrag.toggle();
                         }else if(!state.rules.pauseDisabled){
                             state.set(state.isPaused() ? State.playing : State.paused);
                         }
                     }).name("pause").update(i -> {
-                        if(net.active()){
+                        if(net.client()){
                             i.setDisabled(false);
                             i.getStyle().imageUp = Icon.players;
                         }else{

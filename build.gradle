@@ -438,7 +438,6 @@ project(":core"){
         compileOnly arcModule("backends:backend-sdl")
         implementation 'commons-net:commons-net:3.8.0'
 
-        implementation 'org.jline:jline:4.0.0'
         compileOnly project(":annotations")
         if (!project.hasProperty("noKapt")) kapt project(":annotations")
     }
