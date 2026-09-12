@@ -11,6 +11,7 @@ import mindustry.game.EventType;
 import mindustry.gen.Building;
 import mindustry.gen.Groups;
 import mindustry.input.InputHandler;
+import mindustry.type.Category;
 import mindustry.world.Block;
 import mindustry.world.blocks.power.PowerGraph;
 import mindustry.world.blocks.power.PowerNode;
@@ -38,7 +39,7 @@ import static mindustry.Vars.ui;
  * whether the closest pair of graphs can already be joined by configuring an existing node - if so, that's
  * strictly cheaper than building anything, so it just queues that link exactly like the reconnect button
  * does. Only when that comes back empty does it fall back to laying a new chain of {@link
- * Blocks#powerNodeLarge} - at sonka's request, ported from the vendored Scheme mod's own node-connect tool
+ * Blocks#powerNode} - at sonka's request, ported from the vendored Scheme mod's own node-connect tool
  * ({@code scheme.tools.BuildingTools#connect}/{@code scheme.moded.SchemeInput}) rather than the from-scratch
  * hop-spacing/tile-snapping search this used to do: aim a line one tile short of each existing building
  * (same "px - 1 : px + 1" trick Scheme uses so the line's own endpoint doesn't land on the building's
@@ -52,7 +53,7 @@ import static mindustry.Vars.ui;
 public class PowerBridgeBuilder{
     public static final KeyBind connectPowerNetworksKey = KeyBind.add("connect_power_networks", KeyCode.n, "control-helper");
 
-    static final PowerNode NODE = (PowerNode)Blocks.powerNodeLarge;
+    static final PowerNode NODE = (PowerNode)Blocks.powerNode;
 
     final RequestExecutor requestExecutor;
     final PowerNetworkReconnector reconnector;
@@ -89,14 +90,19 @@ public class PowerBridgeBuilder{
 
         //closest PAIR of buildings across any two distinct graphs, not just vs the biggest one - same
         //reasoning as PowerNetworkReconnector's own javadoc: two small graphs near each other might both
-        //sit far from the biggest graph
+        //sit far from the biggest graph. Restricted to Category.power buildings (nodes/generators/
+        //batteries) on both sides - a plain consumer (turret, drill, factory...) is just as much a graph
+        //member but is usually tucked away inside the base rather than sitting at an accessible edge, so
+        //aiming the new chain at one produces an endpoint that's awkward to reach or outright unbuildable
         Building bestA = null, bestB = null;
         float bestDist = Float.MAX_VALUE;
         for(int i = 0; i < seenGraphs.size; i++){
             for(int j = i + 1; j < seenGraphs.size; j++){
                 PowerGraph ga = seenGraphs.get(i), gb = seenGraphs.get(j);
                 for(Building a : ga.all){
+                    if(a.block.category != Category.power) continue;
                     for(Building b : gb.all){
+                        if(b.block.category != Category.power) continue;
                         float d = a.dst2(b);
                         if(d < bestDist){
                             bestDist = d;
