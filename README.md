@@ -11,7 +11,7 @@ Extended UI++, MI2-Utilities, Agzam's Mod, Testing Utilities, Mapping Utilities,
 Все вшитые моды живут на общей вкладке **«Моды»** в настройках; обзор - кнопка **Features** в главном меню.
 
 ## Установка
-1. В обычном Mindustry положите в папку модов [`sonka-client-installer.jar`](https://github.com/Promiha27/mindustry-client-installer/releases/latest) и запустите игру.
+1. В обычном Mindustry положите в папку модов [`sonka-client-installer.jar`](https://github.com/ARCYDE0078/mindustry-client-installer/releases/latest) и запустите игру.
 2. Нажмите «Установить» - клиент скачается из [последнего релиза](../../releases/latest) и встанет на место jar-файла игры.
 3. Дальше клиент обновляется сам по каналу релизов `custom-b*` (настройки «Репозиторий обновлений» / «Автоматически проверять обновления клиента» на вкладке Client).
 
@@ -25,5 +25,5 @@ Extended UI++, MI2-Utilities, Agzam's Mod, Testing Utilities, Mapping Utilities,
 
 ## Ссылки
 - [Changelog](./core/assets/changelog)
-- [Установщик](https://github.com/Promiha27/mindustry-client-installer)
+- [Установщик](https://github.com/ARCYDE0078/mindustry-client-installer)
 - [Foo's Client](https://github.com/mindustry-antigrief/mindustry-client) - апстрим; лицензия GPL-3.0 сохранена.
