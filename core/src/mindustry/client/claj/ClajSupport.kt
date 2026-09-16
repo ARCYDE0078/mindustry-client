@@ -2,7 +2,6 @@ package mindustry.client.claj
 
 import arc.*
 import arc.net.*
-import arc.net.Server
 import arc.scene.ui.*
 import arc.struct.*
 import arc.util.*
@@ -22,7 +21,7 @@ object ClajSupport {
     private lateinit var dispatchListener: NetListener
     private var roomInt = 1
 
-    fun load() {
+    fun init() {
         Events.on(MenuReturnEvent::class.java) { clear() }
 
         val prov = Reflect.get<NetProvider>(Vars.net, "provider").let { if (Vars.steam) Reflect.get(it, "provider") else it }

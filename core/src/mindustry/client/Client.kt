@@ -60,7 +60,8 @@ object Client {
         // FINISHME is this secure?  what exactly does this mean?  test without this every so often with new bouncycastle versions
         System.setProperty("jdk.tls.namedGroups", "secp256r1")
 
-        ClajSupport.load()
+        ClajSupport.init()
+        NetworkChatButtons.init()
     }
 
     fun update() {

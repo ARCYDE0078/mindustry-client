@@ -109,7 +109,7 @@ class ClientMessageTransmission : Transmission {
         val prefix = "[accent]<[white]F[]>[] ${when (validity) { VALID -> Iconc.ok; INVALID -> Iconc.cancel; UNKNOWN_CERT -> "" }} ".replace("  ", " ") // No double spaces. Cursed
         val newMsg = NetClient.processCoords(message, true)
         val fullSender = sender.run { if (originalSender != null) this.plus(" (${originalSender}[white])") else this }
-        Vars.ui.chatfrag.addMessage(newMsg, fullSender, background, "$prefix$fullSender [white]", newMsg).findCoords().findLinks().findPlayerName(playerSender)
+        Vars.ui.chatfrag.addMessage(newMsg, fullSender, background, "$prefix[coral][[[]$fullSender[coral]]: [white]", newMsg).findCoords().findLinks().findPlayerName(playerSender)
     }
 
     override fun toString(): String {
