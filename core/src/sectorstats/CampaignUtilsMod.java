@@ -7,7 +7,9 @@ import arc.util.Log;
 import mindustry.Vars;
 import mindustry.client.ui.ModsSettings;
 import mindustry.game.EventType.ClientLoadEvent;
+import sonkaextras.CampaignRetry;
 
+import static mindustry.Vars.state;
 import static mindustry.Vars.ui;
 
 /**
@@ -54,7 +56,9 @@ public class CampaignUtilsMod{
                 preview = new SectorPreview();
 
                 attachStatsButton();
+                attachRestartButton();
                 preview.attachEyeButton();
+                LaunchPadAutoRedirect.init();
 
                 buildSettings();
             }catch(Throwable t){
@@ -100,11 +104,45 @@ public class CampaignUtilsMod{
         });
     }
 
+    /**
+     * Adds a "Restart Sector" button next to the production-stats one, calling the same
+     * {@link CampaignRetry#restartSector()} used by the pause-menu button ({@code PausedDialog}) - this is
+     * an additional access point for it, not a replacement, requested alongside the loadout bug fix on
+     * that same feature. Only meaningful while actually playing a sector, so it's gated on
+     * {@code state.rules.sector != null} same as the pause-menu button's {@code disabled()}.
+     */
+    private void attachRestartButton(){
+        Table row = new Table();
+        row.button(Core.bundle.get("client.sonka.restartsector"), CampaignRetry::restartSector).width(220).height(50).padRight(6)
+            .disabled(b -> state.rules.sector == null);
+
+        Table watcher = new Table();
+        Core.scene.add(watcher);
+
+        boolean[] broken = {false};
+        watcher.update(() -> {
+            row.visible = Core.settings.getBool("campaignutils-show-restart-button", true);
+
+            if(broken[0] || row.parent != null) return;
+
+            try{
+                Table buttons = ui.planet.buttons;
+                buttons.row();
+                buttons.add(row).padTop(6);
+            }catch(Throwable t){
+                broken[0] = true;
+                Log.err("[campaign-utils] failed to attach restart-sector button to campaign screen", t);
+            }
+        });
+    }
+
     /** The "Campaign Utils" section of the shared "Mods" settings tab, same convention as {@code QolSuiteMod}/{@code EUIMod} - see {@link ModsSettings}. */
     private void buildSettings(){
         ModsSettings.section("modsec-campaignutils", table -> {
             table.checkPref("campaignutils-show-stats-button", true);
+            table.checkPref("campaignutils-show-restart-button", true);
             table.checkPref("campaignutils-show-eye-button", true);
+            table.checkPref(LaunchPadAutoRedirect.settingKey, true);
         });
     }
 }
