@@ -18,7 +18,7 @@ object PluginCommunicationSystem : CommunicationSystem() {
     override fun init() {
         Vars.netClient.addPacketHandler("fooTransmission") { data ->
             val sender = Strings.parseInt(data.substringBefore(' '))
-            if (!Groups.player.contains { it.id == sender }) return@addPacketHandler
+            if (sender != -1 && !Groups.player.contains { it.id == sender }) return@addPacketHandler
             val input = data.substringAfter(' ').base64() ?: return@addPacketHandler
             Vars.player.locale
             listeners.forEach {

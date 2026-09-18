@@ -32,6 +32,7 @@ import mindustry.world.*;
 import mindustry.world.blocks.ConstructBlock.*;
 import mindustry.world.meta.*;
 
+import java.lang.ref.*;
 import java.util.*;
 
 import static mindustry.Vars.*;
@@ -323,7 +324,7 @@ public class PlacementFragment{
     public void build(Group parent){
         parent.fill(full -> {
             toggler = full;
-            full.bottom().right().visible(() -> ui.hudfrag.shown);
+            full.bottom().right().visible(() -> ui.hudfrag.shown());
 
             //sonka: пер-панельный масштаб блок-палитры (см. sonkaextras.PanelScale). Контент строится
             //в отдельную таблицу, а в full кладётся transform-обёртка; тело билдера не тронуто -
@@ -363,7 +364,7 @@ public class PlacementFragment{
 
                         button.update(() -> { //color unplacable things gray
                             Building core = player.core();
-                            Color color = (state.rules.infiniteResources || (core != null && (core.items.has(block.requirements, state.rules.buildCostMultiplier) || state.rules.infiniteResources))) && player.isBuilder() ? Color.white : Color.gray;
+                            Color color = (state.rules.isInfiniteResources(player.team()) || (core != null && (core.items.has(block.requirements, state.rules.buildCostMultiplier) || state.rules.infiniteResources))) && player.isBuilder() ? Color.white : Color.gray;
                             button.forEach(elem -> elem.setColor(color));
                             button.setChecked(control.input.block == block);
 
@@ -457,16 +458,16 @@ public class PlacementFragment{
                                         line.left();
                                         line.image(stack.item.uiIcon).size(8 * 2);
                                         line.add(stack.item.localizedName).maxWidth(140f).fillX().color(Color.lightGray).padLeft(2).left().get().setEllipsis(true);
-                                        line.labelWrap(() -> {
+                                        line.label(() -> {
                                             Building core = player.core();
                                             int stackamount = Math.round(stack.amount * state.rules.buildCostMultiplier);
-                                            if(core == null || state.rules.infiniteResources) return "*/" + stackamount;
+                                            if(core == null || state.rules.isInfiniteResources(player.team())) return "*/" + stackamount;
 
                                             int amount = core.items.get(stack.item);
                                             String color = (amount < stackamount / 2f ? "[scarlet]" : amount < stackamount ? "[accent]" : "[white]");
 
                                             return color + UI.formatAmount(amount) + "[white]/" + stackamount;
-                                        }).padLeft(5);
+                                        }).padLeft(5).wrap(true); //TODO: in practice wrapping does nothing and items will go offscreen, is this fine?
                                     }).left();
                                     req.row();
                                 }
@@ -483,18 +484,23 @@ public class PlacementFragment{
                                 }).width(190f).wrap();
                             }, () -> getUnplaceableReason(displayBlock) != null).left();
 
-                        }else if(hovered != null){
+                        }
+
+                        if(hovered != null && displayBlock == null){
                             //show hovered item, whatever that may be
                             hovered.display(topTable);
                         }
 
                         if (Core.settings.getBool("placementfragmentsearch")) {
+                            float rawMarginBot = Reflect.get(Table.class, topTable, "marginBot"); // Get the bottom margin set by some display() calls.
+                            float extraPadTop = rawMarginBot == Float.NEGATIVE_INFINITY ? 0 : rawMarginBot / Scl.scl(1f); // Since the margin is scaled already, we have to unscale it as it will be scaled again when we use this value to set pads.
+                            topTable.marginBottom(0); // Since we're adding a search bar, we move the marginBottom to padTop on the search bar instead to keep that same spacing
                             topTable.row();
                             topTable.table(s -> {
-                                s.image(Icon.zoom).size(32).padRight(8).left();
-                                search = s.field(null, text -> rebuildCategory.run()).growX().get();
+                                s.image(Icon.zoom).padRight(8).left();
+                                search = s.field(null, text -> rebuildCategory.run()).width(190f).get();
                                 search.setMessageText("@players.search");
-                            }).growX();
+                            }).growX().padTop(extraPadTop);
                         }
                     });
                 }).colspan(3).fillX().visible(this::hasInfoBox).touchable(Touchable.enabled).row();
@@ -579,15 +585,19 @@ public class PlacementFragment{
                         var stancesOut = new Seq<UnitStance>();
 
                         UnitCommand[] hoveredCommand = {null};
-                        int[][] countBox = new int[1][0];
+                        int[][] countBox = new int[2][0];
 
                         //For unit keybinds
                         Bits selectedUnitTypes = new Bits(content.units().size);
                         boolean[] isRemovingUnits = {false};
 
                         rebuildCommand = () -> {
-                            if(countBox[0].length != content.units().size) countBox[0] = new int[content.units().size];
+                            if(countBox[0].length != content.units().size){
+                                countBox[0] = new int[content.units().size];
+                                countBox[1] = new int[content.units().size];
+                            }
                             int[] counts = countBox[0];
+                            int[] logicedCounts = countBox[1];
 
                             u.clearChildren();
                             var units = control.input.selectedUnits;
@@ -597,9 +607,11 @@ public class PlacementFragment{
                                 commands.clear();
                                 stances.clear();
                                 Arrays.fill(counts, 0);
+                                Arrays.fill(logicedCounts, 0);
 
                                 for(var unit : units){
-                                    counts[unit.type.id] ++;
+                                    if(!unit.allowCommand()) logicedCounts[unit.type.id] ++;
+                                    else counts[unit.type.id] ++;
 
                                     stancesOut.clear();
                                     unit.type.getUnitStances(unit, stancesOut);
@@ -618,15 +630,17 @@ public class PlacementFragment{
                                 int col = 0;
                                 for(int i = 0; i < counts.length; i++){
                                     int fi = i;
-                                    if(counts[i] > 0){
+                                    if(counts[i] > 0 || logicedCounts[i] > 0){
                                         var type = content.unit(i);
-                                        unitlist.add(StatValues.stack(type, counts[i])).pad(4).with(b -> {
+                                        unitlist.add(StatValues.stack(type, 1 /* HACK */)).pad(4).with(b -> {
                                             b.clearListeners();
                                             b.addListener(Tooltips.getInstance().create(type.localizedName, false));
 
                                             Label amountLabel = b.find("stack amount");
                                             if(amountLabel != null){
-                                                amountLabel.setText(() -> counts[fi] + "");
+                                                amountLabel.setText(() -> (
+                                                    logicedCounts[fi] > 0 ? "[#bf99f9]" : ""
+                                                ) + String.valueOf(counts[fi]));
                                                 amountLabel.visible(() -> !Core.input.keyDown(Binding.selectUnitTypeModifier));
                                             }
 
@@ -745,8 +759,12 @@ public class PlacementFragment{
 
                         u.update(() -> {
                             {
-                                if(countBox[0].length != content.units().size) countBox[0] = new int[content.units().size];
+                                if(countBox[0].length != content.units().size){
+                                    countBox[0] = new int[content.units().size];
+                                    countBox[1] = new int[content.units().size];
+                                }
                                 int[] counts = countBox[0];
+                                int[] logicedCounts = countBox[1];
                                 activeCommands.clear();
                                 activeStances.clear();
                                 activeCommonStances.set(0, content.unitStances().size);
@@ -755,6 +773,7 @@ public class PlacementFragment{
                                 activeTypes.clear();
 
                                 Arrays.fill(counts, 0);
+                                Arrays.fill(logicedCounts, 0);
 
                                 //find the command that all units have, or null if they do not share one
                                 for(var unit : control.input.selectedUnits){
@@ -764,7 +783,8 @@ public class PlacementFragment{
                                         activeCommonStances.and(cmd.stances);
                                     }
 
-                                    counts[unit.type.id] ++;
+                                    if(unit.isCommandable()) counts[unit.type.id] ++;
+                                    else logicedCounts[unit.type.id] ++;
 
                                     activeTypes.set(unit.type.id);
 
@@ -850,7 +870,7 @@ public class PlacementFragment{
                             t.row();
                             control.input.buildPlacementUI(t);
                         }).name("inputTable").growX();
-                    }).fillY().bottom().touchable(Touchable.enabled);
+                    }).growX().fillY().bottom().touchable(Touchable.enabled);
                     blockCatTable.table(categories -> {
                         categories.bottom();
                         categories.add(new Image(Styles.black6){
@@ -973,7 +993,7 @@ public class PlacementFragment{
             }
 
             //if the tile has a drop, display the drop
-            if((hoverTile.drop() != null && hoverTile.block() == Blocks.air) || hoverTile.wallDrop() != null || hoverTile.floor().liquidDrop != null){
+            if(hoverTile.displayable()){
                 return hoverTile;
             }
         }

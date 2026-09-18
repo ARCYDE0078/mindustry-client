@@ -1,5 +1,6 @@
 package mindustry.client.navigation
 
+import arc.*
 import arc.math.geom.*
 import arc.struct.*
 import arc.util.*
@@ -106,13 +107,16 @@ abstract class Navigator {
                 }
                 if (ClientVars.ratelimitRemaining > 1 && player.dst2(best) > buildingRange * buildingRange && player.dst2(end) > best.dst2(end) && player.dst2(best) > unit.speed() * unit.speed() * 24 * 24) { // don't try to move if we're already close to that core
                     lastTp = Time.millis() // Try again in 3s
-                    when (best) {
-                        is CoreBlock.CoreBuild -> Call.buildingControlSelect(player, best)
-                        is Unit -> { // Control the closest unit then immediately respawn
-                            Call.unitControl(player, best)
-                            Call.unitClear(player)
-                            control.input.recentRespawnTimer = 1f // Need to set these so that the game doesn't attempt to control another unit as if we died
-                            control.input.controlledType = null
+                    // Needs to run on main thread
+                    Core.app.post {
+                        when (best) {
+                            is CoreBlock.CoreBuild -> Call.buildingControlSelect(player, best)
+                            is Unit -> { // Control the closest unit then immediately respawn
+                                Call.unitControl(player, best)
+                                Call.unitClear(player)
+                                control.input.recentRespawnTimer = 1f // Need to set these so that the game doesn't attempt to control another unit as if we died
+                                control.input.controlledType = null
+                            }
                         }
                     }
                 }

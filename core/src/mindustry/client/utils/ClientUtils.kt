@@ -5,9 +5,8 @@ package mindustry.client.utils
 
 import arc.*
 import arc.files.*
-import arc.func.Floatf
+import arc.func.*
 import arc.graphics.*
-import arc.input.*
 import arc.math.*
 import arc.math.geom.*
 import arc.scene.*
@@ -464,6 +463,19 @@ fun isDeveloper() = Main.keyStorage.cert() in Main.keyStorage.builtInCerts
 //    }
 //}
 
+/** Finds the newest chat message received within the last [withinMs] ms (default 10s) matching [predicate]. Searches newest first, stopping once messages are too old to match. */
+fun findRecentMessage(withinMs: Long = 10_000, predicate: (ChatMessage) -> Boolean): ChatMessage? {
+    val cutoff = Time.millis() - withinMs
+    val msgs = ui.chatfrag.messages
+    @Suppress("ReplaceManualRangeWithIndicesCalls") // Breaking out of a seq while iterating clogs the iterator
+    for (i in 0..<msgs.size) {
+        val msg = msgs[i]
+        if (msg.receivedAt < cutoff) break
+        if (predicate(msg)) return msg
+    }
+    return null
+}
+
 fun ChatMessage.findCoords(): ChatMessage = NetClient.findCoords(this)
 
 fun ChatMessage.findLinks(start: Int = 0): ChatMessage = NetClient.findLinks(this, start)
@@ -472,14 +484,12 @@ fun ChatMessage.findPlayerName(playerSender: Player): ChatMessage = NetClient.fi
 
 fun findItem(arg: String): Item = content.items().min { b -> biasedLevenshtein(arg, b.localizedName) }
 
-fun findUnit(arg: String): UnitType = content.units().min(
-    { u: UnitType -> !u.internal },
+fun findUnit(arg: String): UnitType {
+    val useLocalizedName = Core.settings.getBool("uselocalizedname", true)
+    val distance: Floatf<UnitType> = if (useLocalizedName) Floatf { u -> biasedLevenshtein(arg, u.localizedName) } else Floatf { u -> biasedLevenshtein(arg, u.name) }
     // Filter out internals as people will try spawning block entities and crash the game otherwise (all internals are filtered since they should likely never be manually spawned)
-    if (Core.settings.getBool("uselocalizedname", true))
-        fun(u: UnitType):Float = biasedLevenshtein(arg, u.localizedName)
-    else
-        fun(u: UnitType):Float = biasedLevenshtein(arg, u.name)
-)
+    return content.units().min({ u: UnitType -> !u.internal }, distance)
+}
 
 fun findBlock(arg: String): Block = content.blocks().min { b -> biasedLevenshtein(arg, b.localizedName) }
 

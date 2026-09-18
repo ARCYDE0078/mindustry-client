@@ -218,8 +218,14 @@ public class IndustryCalculator {
 				}
 				if(building instanceof MemoryBuild) {
 					MemoryBuild mb = (MemoryBuild) building;
-					for (int i = 0; i < mb.memory.length; i++) {
-						if(mb.memory[i] != 0) buildTooltip.line("[gray]" + i + ". [white]" + mb.memory[i]);
+					int capacity = ((mindustry.world.blocks.logic.MemoryBlock) mb.block).memoryCapacity;
+					mindustry.logic.LVar position = new mindustry.logic.LVar("tmp");
+					mindustry.logic.LVar output = new mindustry.logic.LVar("tmp");
+					for (int i = 0; i < capacity; i++) {
+						position.setnum(i);
+						mb.read(position, output);
+						Object value = output.isobj ? output.objval : output.numval;
+						if(value != null && !value.equals(0.0)) buildTooltip.line("[gray]" + i + ". [white]" + value);
 					}
 				}
 				if(building instanceof LogicBuild) {

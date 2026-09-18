@@ -382,13 +382,13 @@ public class MinimapMindow extends Mindow2{
                 });
 
                 for(var marker : state.markers){
-                    if(marker.minimap){
+                    if(marker.minimap != -1){
                         marker.draw(1f);
                     }
                 }
 
                 for(var marker : FullAI.LogicMode.markers){
-                    if(marker.minimap){
+                    if(marker.minimap != -1){
                         marker.draw(1);
                     }
                 }

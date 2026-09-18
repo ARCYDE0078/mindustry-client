@@ -124,7 +124,7 @@ public class RendererExt{
             drawBase();
 
             for(var marker : FullAI.LogicMode.markers){
-                if(marker.world){
+                if(marker.world != -1){
                     marker.draw(marker.autoscale ? 4f / renderer.getDisplayScale() : 1);
                 }
             }

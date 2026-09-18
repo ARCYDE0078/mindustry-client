@@ -45,6 +45,15 @@ public class ThermalGenerator extends PowerGenerator{
     }
 
     @Override
+    public void afterPatch(){
+        super.afterPatch();
+        if(outputLiquid != null){
+            outputsLiquid = true;
+            hasLiquids = true;
+        }
+    }
+
+    @Override
     public void setStats(){
         super.setStats();
 
@@ -97,7 +106,7 @@ public class ThermalGenerator extends PowerGenerator{
                 generateEffect.at(x + Mathf.range(3f), y + Mathf.range(3f));
             }
 
-            if(outputLiquid != null){
+            if(outputLiquid != null && hasLiquids){
                 float added = Math.min(productionEfficiency * delta() * outputLiquid.amount, liquidCapacity - liquids.get(outputLiquid.liquid));
                 liquids.add(outputLiquid.liquid, added);
                 dumpLiquid(outputLiquid.liquid);

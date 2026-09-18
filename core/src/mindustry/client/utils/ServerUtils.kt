@@ -8,7 +8,6 @@ import arc.util.*
 import mindustry.Vars.*
 import mindustry.client.*
 import mindustry.client.utils.CustomMode.*
-import mindustry.client.utils.Server.Companion.other
 import mindustry.content.*
 import mindustry.content.UnitTypes.*
 import mindustry.entities.*
