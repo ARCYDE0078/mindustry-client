@@ -144,7 +144,9 @@ public class RendererExt{
     }
 
     public static void updateSettings(){
-        animatedshields = Core.settings.getBool("animatedshields");
+        //апстрим убрал настройку "animatedshields" (теперь animateShields = animateWater) - читать её напрямую нельзя:
+        //без ключа всегда false, и зоны рисуются простыми кругами поверх друг друга вместо шейдера-слияния
+        animatedshields = renderer.animateShields;
 
         enPlayerCursor = mi2ui.settings.getBool("enPlayerCursor");
         enUnitHitbox = mi2ui.settings.getBool("enUnitHitbox");
