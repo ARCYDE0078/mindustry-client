@@ -717,6 +717,10 @@ public class SettingsMenuDialog extends BaseDialog{
         // graphics.checkPref("showweather", true); FINISHME: Move client weather alpha to this
         graphics.checkPref("animatedwater", true);
 
+        if(Shaders.shield != null){
+            graphics.checkPref("animatedshields", true);
+        }
+
         graphics.checkPref("bloom", true, val -> renderer.toggleBloom(val));
 
         graphics.checkPref("pixelate", false, val -> {
