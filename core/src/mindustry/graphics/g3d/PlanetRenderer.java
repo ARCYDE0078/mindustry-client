@@ -37,10 +37,14 @@ public class PlanetRenderer implements Disposable{
     //seed: 8kmfuix03fw
     public final CubemapMesh skybox = new CubemapMesh(new Cubemap("cubemaps/stars/"));
 
+    /** sonka: штатный near камеры, запоминаем чтобы вернуть после свободной камеры. */
+    private final float defaultNear;
+
     public PlanetRenderer(){
         projector.setScaling(1f / 150f);
         cam.fov = 60f;
         cam.far = 150f;
+        defaultNear = cam.near;
     }
 
     /** Render the entire planet scene to the screen. */
@@ -64,13 +68,22 @@ public class PlanetRenderer implements Disposable{
         cam.resize(w, h);
         params.camPos.setLength((params.planet.radius + params.planet.camRadius) * camLength + (params.zoom-1f) * (params.planet.radius + params.planet.camRadius) * 2);
 
-        if(params.otherCamPos != null){
-            cam.position.set(params.otherCamPos).lerp(params.planet.position, params.otherCamAlpha).add(params.camPos);
+        if(params.freeCamPos != null && params.freeCamDir != null){
+            //sonka: свободная камера - позиция и направление заданы напрямую, планета в центре не обязана быть
+            //ближний план придвигаем, иначе вблизи поверхности планета обрезается
+            cam.near = Math.min(defaultNear, 0.05f);
+            cam.position.set(params.freeCamPos);
+            cam.direction.set(params.freeCamDir).nor();
         }else{
-            cam.position.set(params.planet.position).add(params.camPos);
+            cam.near = defaultNear;
+            if(params.otherCamPos != null){
+                cam.position.set(params.otherCamPos).lerp(params.planet.position, params.otherCamAlpha).add(params.camPos);
+            }else{
+                cam.position.set(params.planet.position).add(params.camPos);
+            }
+            //cam.up.set(params.camUp); //TODO broken
+            cam.lookAt(params.planet.position);
         }
-        //cam.up.set(params.camUp); //TODO broken
-        cam.lookAt(params.planet.position);
         cam.update();
         //write back once it changes.
         params.camUp.set(cam.up);

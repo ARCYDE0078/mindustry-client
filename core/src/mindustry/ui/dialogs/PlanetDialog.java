@@ -55,6 +55,10 @@ public class PlanetDialog extends BaseDialog implements PlanetInterfaceRenderer{
 
     public PlanetParams state = new PlanetParams();
     public float zoom = 1f;
+    /** sonka: свободная камера (см. PlanetParams.freeCamPos): полёт вместо орбиты вокруг планеты. */
+    public boolean freeCam;
+    /** Углы взгляда свободной камеры в градусах: yaw вокруг Y, pitch вверх/вниз (зажат, чтобы up=Y не вырождался). */
+    private float freeYaw, freePitch;
     public @Nullable Sector selected, hovered, launchSector;
     /** Must not be null in planet launch mode. */
     public @Nullable Seq<Planet> launchCandidates;
@@ -107,6 +111,9 @@ public class PlanetDialog extends BaseDialog implements PlanetInterfaceRenderer{
         hoverLabel.setStyle(Styles.outlineLabel);
         hoverLabel.setAlignment(Align.center);
 
+        //свободная камера не должна пережить закрытие карты (в других режимах показа нужна обычная орбита)
+        hidden(() -> setFreeCam(false));
+
         rebuildButtons();
 
         onResize(this::rebuildButtons);
@@ -114,6 +121,14 @@ public class PlanetDialog extends BaseDialog implements PlanetInterfaceRenderer{
         dragged((cx, cy) -> {
             //no multitouch drag
             if(Core.input.getTouches() > 1) return;
+
+            if(freeCam){
+                //"схватить сцену": один пиксель = один пиксель угла обзора, так сцена едет за курсором как на орбите
+                float k = planets.cam.fov / Math.max(Core.graphics.getHeight(), 1);
+                freeYaw -= cx * k;
+                freePitch = Mathf.clamp(freePitch - cy * k, -88f, 88f);
+                return;
+            }
 
             if(showing() && newPresets.peek() != state.planet.getLastSector()) return;
 
@@ -141,17 +156,30 @@ public class PlanetDialog extends BaseDialog implements PlanetInterfaceRenderer{
             @Override
             public boolean scrolled(InputEvent event, float x, float y, float amountX, float amountY){
                 if(event.targetActor == PlanetDialog.this){
-                    zoom = Mathf.clamp(zoom + amountY / 10f, state.planet.minZoom, state.planet.maxZoom);
+                    if(freeCam){
+                        freeMove(-amountY * freeScale() * 0.15f, 0f, 0f);
+                    }else{
+                        zoom = Mathf.clamp(zoom + amountY / 10f, state.planet.minZoom, state.planet.maxZoom);
+                    }
                 }
                 return true;
             }
         });
 
         addCaptureListener(new ElementGestureListener(){
-            float lastZoom = -1f;
+            float lastZoom = -1f, lastPinch = -1f;
 
             @Override
             public void zoom(InputEvent event, float initialDistance, float distance){
+                if(freeCam){
+                    //щипок = ход вперёд/назад (на мобильных нет колеса и WASD)
+                    if(lastPinch > 0f){
+                        freeMove((distance - lastPinch) / Math.max(Core.graphics.getHeight(), 1) * freeScale() * 12f, 0f, 0f);
+                    }
+                    lastPinch = distance;
+                    return;
+                }
+
                 if(lastZoom < 0){
                     lastZoom = zoom;
                 }
@@ -162,6 +190,7 @@ public class PlanetDialog extends BaseDialog implements PlanetInterfaceRenderer{
             @Override
             public void touchUp(InputEvent event, float x, float y, int pointer, KeyCode button){
                 lastZoom = zoom;
+                lastPinch = -1f;
             }
 
             @Override
@@ -306,6 +335,7 @@ public class PlanetDialog extends BaseDialog implements PlanetInterfaceRenderer{
             addBack();
             addTech();
             addProfiles();
+            addFreeCam();
         }else{
             addBack();
             buttons.add().growX();
@@ -313,7 +343,14 @@ public class PlanetDialog extends BaseDialog implements PlanetInterfaceRenderer{
             buttons.add().growX();
             addTech();
             addProfiles();
+            addFreeCam();
         }
+    }
+
+    /** sonka: переключатель свободной камеры (то же делает Binding.planetFreeCam). */
+    void addFreeCam(){
+        buttons.button(Icon.eye, Styles.squareTogglei, this::toggleFreeCam).size(54f)
+            .update(b -> b.setChecked(freeCam)).visible(() -> mode != planetLaunch).pad(2).bottom().tooltip("@client.sonka.freecam");
     }
 
     /** sonka: профили кампании (sonkaextras.campaign) - рядом с техдеревом, тоже только в режиме look. */
@@ -409,6 +446,8 @@ public class PlanetDialog extends BaseDialog implements PlanetInterfaceRenderer{
     public void lookAt(Sector sector){
         if(sector.tile == Ptile.empty) return;
 
+        setFreeCam(false);
+
         //TODO should this even set `state.planet`? the other lookAt() doesn't, so...
         state.planet = sector.planet;
         sector.planet.lookAt(sector, state.camPos);
@@ -417,6 +456,9 @@ public class PlanetDialog extends BaseDialog implements PlanetInterfaceRenderer{
     }
 
     public void lookAt(Sector sector, float alpha){
+        //плавно вернёмся на орбиту из текущей точки полёта (лаунч/показ нового пресета требуют орбитальную камеру)
+        setFreeCam(false);
+
         float len = state.camPos.len();
         state.camPos.slerp(sector.planet.lookAt(sector, Tmp.v33).setLength(len), alpha);
     }
@@ -740,6 +782,8 @@ public class PlanetDialog extends BaseDialog implements PlanetInterfaceRenderer{
                 mode == planetLaunch ? "@sectors.launchselect" :
                 ""
             ).style(Styles.outlineLabel).color(Pal.accent);
+            t.row();
+            t.label(() -> freeCam ? bundle.get("client.sonka.freecam.hint") : "").style(Styles.outlineLabel).color(Color.lightGray).wrap().width(600f).labelAlign(Align.center);
         }),
         buttons,
 
@@ -908,6 +952,12 @@ public class PlanetDialog extends BaseDialog implements PlanetInterfaceRenderer{
             newPresets.clear();
             state.planet = planet;
 
+            //фокус на другой планете = обратно на орбиту, взгляд остаётся тем, каким был до полёта
+            if(freeCam){
+                freeCam = false;
+                state.freeCamPos = state.freeCamDir = null;
+            }
+
             clampZoom();
 
             selected = null;
@@ -940,6 +990,8 @@ public class PlanetDialog extends BaseDialog implements PlanetInterfaceRenderer{
     @Override
     public void act(float delta){
         super.act(delta);
+
+        updateFreeCam();
 
         //update lerp
         if(state.otherCamPos != null){
@@ -1034,7 +1086,83 @@ public class PlanetDialog extends BaseDialog implements PlanetInterfaceRenderer{
         }
 
         state.zoom = Mathf.lerpDelta(state.zoom, zoom, 0.4f);
-        state.uiAlpha = Mathf.lerpDelta(state.uiAlpha, Mathf.num(state.zoom < 1.9f), 0.1f);
+        //сетка секторов/UI видны, пока камера ближе, чем орбитальная на зуме 1.9 (при полёте зума нет - считаем по дистанции)
+        boolean close = freeCam && state.freeCamPos != null ?
+            state.freeCamPos.dst(state.planet.position) < (state.planet.radius + state.planet.camRadius) * (camLength + 1.8f) :
+            state.zoom < 1.9f;
+        state.uiAlpha = Mathf.lerpDelta(state.uiAlpha, Mathf.num(close), 0.1f);
+    }
+
+    void toggleFreeCam(){
+        //во время анимаций (запуск/показ нового пресета/пролёт между планетами) камерой управляет диалог
+        if(!freeCam && (launching || showing() || state.otherCamPos != null)) return;
+        setFreeCam(!freeCam);
+    }
+
+    /** Включает/выключает свободную камеру. Включение стартует ровно с текущего вида, выключение - переводит на орбиту вокруг state.planet из текущей точки. */
+    void setFreeCam(boolean on){
+        if(on == freeCam) return;
+
+        if(on){
+            Vec3 dir = planets.cam.direction;
+            freeYaw = (float)Math.toDegrees(Math.atan2(dir.z, dir.x));
+            freePitch = Mathf.clamp((float)Math.toDegrees(Math.asin(Mathf.clamp(dir.y, -1f, 1f))), -88f, 88f);
+            state.freeCamPos = new Vec3(planets.cam.position);
+            state.freeCamDir = new Vec3(dir);
+        }else if(state.freeCamPos != null){
+            Vec3 rel = Tmp.v31.set(state.freeCamPos).sub(state.planet.position);
+            float base = state.planet.radius + state.planet.camRadius, len = rel.len();
+            if(len < 0.01f){
+                rel.set(0f, 0f, 1f);
+            }else if(Math.abs(rel.x) + Math.abs(rel.z) < len * 0.02f){
+                //ровно над полюсом up=Y вырождается (lookAt даёт NaN), как и в орбитальном drag - отступаем на ~1 градус
+                rel.x += len * 0.02f;
+            }
+            state.camPos.set(rel);
+            //обратно из формулы длины в PlanetRenderer.render
+            zoom = Mathf.clamp(1f + (len / base - camLength) / 2f, state.planet.minZoom, state.planet.maxZoom);
+            state.freeCamPos = state.freeCamDir = null;
+        }
+
+        freeCam = on;
+    }
+
+    /** Масштаб скорости полёта: расстояние до поверхности ближайшей планеты, так что у планеты тихо, а между планетами быстро. */
+    float freeScale(){
+        if(state.freeCamPos == null) return 1f;
+        float min = Float.MAX_VALUE;
+        for(Planet p : content.planets()){
+            if(p.removed) continue;
+            min = Math.min(min, state.freeCamPos.dst(p.position) - p.radius);
+        }
+        return Math.max(min, 0.05f);
+    }
+
+    /** Двигает камеру относительно взгляда: вперёд по direction, вбок по right, вверх по мировому Y. */
+    void freeMove(float forward, float side, float up){
+        if(state.freeCamPos == null || state.freeCamDir == null) return;
+        Vec3 right = Tmp.v31.set(state.freeCamDir).crs(Vec3.Y).nor();
+        state.freeCamPos.mulAdd(state.freeCamDir, forward).mulAdd(right, side).mulAdd(Vec3.Y, up);
+    }
+
+    void updateFreeCam(){
+        //hasKeyboard() тут не годится: у открытого диалога клавиатурный фокус всегда есть (сам диалог), он бы глушил WASD; нам мешает только текстовое поле (поиск секторов)
+        boolean focused = scene.getDialog() == this && !scene.hasField();
+
+        if(focused && input.keyTap(Binding.planetFreeCam)){
+            toggleFreeCam();
+        }
+
+        if(!freeCam || state.freeCamPos == null || state.freeCamDir == null) return;
+
+        if(focused){
+            float speed = freeScale() * 0.02f * Time.delta * (input.shift() ? 3f : 1f);
+            float upAxis = (input.keyDown(KeyCode.e) ? 1f : 0f) - (input.keyDown(KeyCode.q) ? 1f : 0f);
+            freeMove(input.axis(Binding.moveY) * speed, input.axis(Binding.moveX) * speed, upAxis * speed);
+        }
+
+        float cp = Mathf.cosDeg(freePitch);
+        state.freeCamDir.set(cp * Mathf.cosDeg(freeYaw), Mathf.sinDeg(freePitch), cp * Mathf.sinDeg(freeYaw));
     }
 
     void displayItems(Table c, ObjectMap<Item, ExportStat> stats, String name){

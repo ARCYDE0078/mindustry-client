@@ -105,6 +105,7 @@ public class Binding{
     minimap = KeyBind.add("minimap", KeyCode.m),
     research = KeyBind.add("research", KeyCode.j),
     planetMap = KeyBind.add("planet_map", KeyCode.n),
+    planetFreeCam = KeyBind.add("planet_free_cam", KeyCode.f), //sonka: свободная камера в карте планет
     blockInfo = KeyBind.add("block_info", KeyCode.f1),
     toggleMenus = KeyBind.add("toggle_menus", KeyCode.c),
     screenshot = KeyBind.add("screenshot", KeyCode.f12),

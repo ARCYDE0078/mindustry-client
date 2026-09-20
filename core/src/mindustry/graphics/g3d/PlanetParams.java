@@ -18,6 +18,11 @@ public class PlanetParams{
     public Vec3 camUp = new Vec3(0f, 1f, 0f);
     /** the unit length direction vector of the camera **/
     public Vec3 camDir = new Vec3(0, 0, -1);
+    /**
+     * sonka: свободная камера. Если задана (обе), камера стоит в этой мировой точке (координаты солнечной системы,
+     * а не относительно planet) и смотрит по freeCamDir, вместо орбиты вокруг planet. Не сериализуется в правила.
+     */
+    public transient @Nullable Vec3 freeCamPos, freeCamDir;
     /** Planet being looked at. */
     public Planet planet = Planets.serpulo;
 
