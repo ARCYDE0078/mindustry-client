@@ -22,6 +22,14 @@ public class LabelSetting extends SettingsTable.Setting{
     public LabelSetting(String name, String text){
         super(name);
         this.text = text;
+        //title - то, что видит поиск по настройкам: без этого там торчало бы техническое имя ключа
+        this.title = text;
+    }
+
+    /** Подзаголовок, а не настройка: глобальный поиск использует его текст как «крошку» для строк ниже. */
+    @Override
+    public boolean isHeader(){
+        return true;
     }
 
     @Override

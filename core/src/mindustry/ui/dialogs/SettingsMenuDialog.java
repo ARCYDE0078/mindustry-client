@@ -60,6 +60,7 @@ public class SettingsMenuDialog extends BaseDialog{
     private BaseDialog planetDataDialog;
     private Planet planet = Planets.serpulo;
     private Seq<SettingsCategory> categories = new Seq<>();
+    private SettingsSearch globalSearch;
 
     public SettingsMenuDialog(){
         super(bundle.get("settings", "Settings"));
@@ -321,6 +322,8 @@ public class SettingsMenuDialog extends BaseDialog{
         add(buttons).fillX();
 
         addSettings();
+
+        globalSearch = new SettingsSearch(this);
     }
 
     String getLogs(){
@@ -357,6 +360,38 @@ public class SettingsMenuDialog extends BaseDialog{
         return categories;
     }
 
+    /** Вкладка настроек: её название, таблица и индекс для {@link #visible(int)} (0-4 - встроенные, дальше - {@link #getCategories()}). */
+    public static class Tab{
+        public final String name;
+        public final SettingsTable table;
+        public final int index;
+
+        Tab(String name, SettingsTable table, int index){
+            this.name = name;
+            this.table = table;
+            this.index = index;
+        }
+    }
+
+    /** Все вкладки с настройками в порядке индексов {@link #visible(int)} - для глобального поиска. */
+    public Seq<Tab> tabs(){
+        Seq<Tab> out = Seq.with(
+            new Tab(bundle.get("settings.game"), game, 0),
+            new Tab(bundle.get("settings.graphics"), graphics, 1),
+            new Tab(bundle.get("settings.sound"), sound, 2),
+            new Tab(bundle.get("settings.dev"), dev, 3),
+            new Tab(bundle.get("settings.client"), client, 4)
+        );
+        int i = 5;
+        for(var cat : categories) out.add(new Tab(cat.name, cat.table, i++));
+        return out;
+    }
+
+    /** Подпись-разделитель групп в левом меню настроек. */
+    private void menuGroup(String key){
+        menu.add(key, Pal.accent).size(300f, 26f).left().padTop(8f).padLeft(4f).row();
+    }
+
     void rebuildMenu(){
         menu.clearChildren();
 
@@ -365,18 +400,22 @@ public class SettingsMenuDialog extends BaseDialog{
         float marg = 8f, isize = iconMed;
 
         menu.defaults().size(300f, 60f);
+        //поиск по ВСЕМ вкладкам сразу - первой строкой: настройка может лежать в любой из шести вкладок
+        menu.button("@client.settings.searchall", Icon.zoom, style, isize, () -> {
+            prefs.clearChildren();
+            prefs.add(globalSearch.open());
+        }).marginLeft(marg).row();
+
+        //меню сгруппировано: ванильные вкладки / клиент и моды / прочее. Индексы visible() не меняются -
+        //порядок кнопок здесь на них не влияет
+        menuGroup("@client.settings.group.game");
         menu.button("@settings.game", Icon.settings, style, isize, () -> visible(0)).marginLeft(marg).row();
         menu.button("@settings.graphics", Icon.image, style, isize, () -> visible(1)).marginLeft(marg).row();
         menu.button("@settings.sound", Icon.filters, style, isize, () -> visible(2)).marginLeft(marg).row();
         menu.button("@settings.dev", Icon.fileCode, style, isize, () -> visible(3)).marginLeft(marg).row();
+
+        menuGroup("@client.settings.group.client");
         menu.button("@settings.client", Icon.wrench, style, isize, () -> visible(4)).marginLeft(marg).row();
-        menu.button("@settings.language", Icon.chat, style, isize, ui.language::show).marginLeft(marg).row();
-        if(!mobile || Core.settings.getBool("keyboard")){
-            menu.button("@settings.controls", Icon.move, style, isize, ui.controls::show).marginLeft(marg).row();
-        }
-
-        menu.button("@settings.data", Icon.save, style, isize, () -> dataDialog.show()).marginLeft(marg).row();
-
         int i = 5;
         for(var cat : categories){
             int index = i;
@@ -387,6 +426,14 @@ public class SettingsMenuDialog extends BaseDialog{
             }
             i++;
         }
+
+        menuGroup("@client.settings.group.system");
+        menu.button("@settings.language", Icon.chat, style, isize, ui.language::show).marginLeft(marg).row();
+        if(!mobile || Core.settings.getBool("keyboard")){
+            menu.button("@settings.controls", Icon.move, style, isize, ui.controls::show).marginLeft(marg).row();
+        }
+
+        menu.button("@settings.data", Icon.save, style, isize, () -> dataDialog.show()).marginLeft(marg).row();
     }
 
     void addSettings(){
@@ -395,7 +442,165 @@ public class SettingsMenuDialog extends BaseDialog{
         sound.sliderPref("sfxvol", 100, 0, 100, 1, i -> { mainExecutor.execute(() -> Sounds.load(false)); return i + "%"; });
         sound.sliderPref("ambientvol", 100, 0, 100, 1, i -> { mainExecutor.execute(() -> Sounds.load(false)); return i + "%"; });
 
-        // Client Settings, organized exactly the same as Bundle.properties: text first, sliders second, checked boxes third, unchecked boxes last
+        // Client Settings, organized by topic (sonka 2026-09-21: the old "misc" section was a ~50-item dumping ground). Sections go
+        // roughly in order of how often a player touches them; inside a section: buttons/text first, sliders second, checked boxes
+        // third, unchecked last. Setting KEYS never change when things move between sections - saved values carry over. Section
+        // titles are bundle keys client.setting.<name>.category. Anything can also be found through the search-all page of the menu.
+
+        //movement and input: what the player's own unit and camera do
+        client.category("controls");
+        client.sliderPref("minzoom", 0, 0, 100, s -> Strings.fixed(Mathf.pow(10, 0.0217f * s) / 100f, 2) + "x");
+        client.checkPref("blockreplace", true);
+        client.checkPref("instantturn", true);
+        client.checkPref("allowinvturrets", true);
+        client.checkPref("autoboost", false);
+        client.checkPref("assumeunstrict", false);
+        client.checkPref("returnonmove", false);
+        client.checkPref("nostrafepenalty", false);
+        client.checkPref("decreasedrift", false);
+        client.checkPref("zerodrift", false);
+        client.checkPref("fastrespawn", false);
+        client.checkPref("circleassist", false);
+        client.checkPref("betterenemyblocktapping", false);
+        client.checkPref("automega", false, i -> ui.unitPicker.type = i ? UnitTypes.mega : ui.unitPicker.type);
+
+        //autopilots: paths and what they switch between on their own
+        client.category("automation");
+        client.textPref("defaultbuildpathargs", "self"); // Keep it to just self. Skill issue players going afk make this too problematic otherwise. FINISHME: Add an afk detection system and revert this once we can reliably detect afk players and allow others to stop their pathing
+        client.textPref("defaultminepathargs", "all");
+        client.sliderPref("minepathcap", 5000, -100, 5000, 100, s -> s == 0 ? "Unlimited" : s == -100 ? "Never" : String.valueOf(s));
+        client.sliderPref("defaultbuildpathradius", 0, 0, 250, 5, s -> s == 0 ? "Unlimited" : String.valueOf(s));
+        client.sliderPref("automapvote", 0, 0, 4, s -> s == 0 ? "Never" : s == 4 ? "Random vote" : "Always " + new String[]{"downvote", "novote", "upvote"}[--s]);
+        client.checkPref("pathnav", true);
+
+        //no separate AutoTransfer delay slider here: 2026-08-27 it was rewired onto eui's own
+        //InteractTimer/"eui-action-delay" (Settings > Mods > Extended UI++, plus its Alt+=/Alt+- binds) -
+        //see AutoTransfer.update()'s doc comment
+        client.category("autotransfer");
+        //per-block Auto Transfer service priorities - the dialog is eui's, but since the dedupe pass its
+        //config drives the native AutoTransfer (see AutoTransfer.loadPriorities' doc)
+        client.pref(new qol.core.ButtonSetting("autotransfer-priority", () -> {
+            if(eui.interact.AutofillPriorityDialog.instance != null) eui.interact.AutofillPriorityDialog.instance.show();
+        }));
+        //per-turret ammo priority + min-core-to-feed-it overrides (sonka's request, 2026-09-12) - see
+        //AmmoPriorityDialog and AutoTransfer.loadAmmoPriorities()/loadAmmoMinCores()'s doc comments
+        client.pref(new qol.core.ButtonSetting("autotransfer-ammo-priority", () -> {
+            if(eui.interact.AmmoPriorityDialog.instance != null) eui.interact.AmmoPriorityDialog.instance.show();
+        }));
+        //which container types the "fromContainers" fallback below may draw from - the dialog is eui's,
+        //config drives the native AutoTransfer, same wiring as the priority dialogs (sonka's request, 2026-09-12)
+        client.pref(new qol.core.ButtonSetting("autotransfer-sourceblocks", () -> {
+            if(eui.interact.SourceBlocksDialog.instance != null) eui.interact.SourceBlocksDialog.instance.show();
+        }));
+        //exposed as sliders 2026-09-12 (sonka's request) - previously only settable by editing the raw
+        //settings keys AutoTransfer.init() already reads; wiring the changed-callback keeps the running
+        //instance in sync immediately instead of waiting for the next init() (e.g. a server rejoin)
+        client.sliderPref("autotransfer-mincoreitems", 100, 0, 2000, 10, s -> String.valueOf(s), i -> mindustry.client.utils.AutoTransfer.minCoreItems = i);
+        client.sliderPref("autotransfer-mintransfer", 2, 0, 50, 1, s -> String.valueOf(s), i -> mindustry.client.utils.AutoTransfer.minTransfer = i);
+        client.sliderPref("autotransfer-mintransfertotal", 10, 0, 200, 5, s -> String.valueOf(s), i -> mindustry.client.utils.AutoTransfer.minTransferTotal = i);
+        //fromContainers used to be silently hardcoded on (transfer() falls back to whichever storage
+        //block is nearest whenever it can't reach the core) with a "prefer the one near the core" guess
+        //bolted on top; sonka asked to drop the guessing entirely and just let the player decide instead
+        client.checkPref("autotransfer-fromcontainers", true, b -> mindustry.client.utils.AutoTransfer.fromContainers = b);
+        //drain: opposite direction of the transfer above - pulls full factories/drills into the core or
+        //(if enabled) into a configured container. Promoted out of "experimental, no UI" 2026-09-12 at
+        //sonka's request - see AutoTransfer.init()'s doc comment.
+        client.checkPref("autotransfer-drain", false, b -> mindustry.client.utils.AutoTransfer.drain = b);
+        client.checkPref("autotransfer-draintocontainers", false, b -> mindustry.client.utils.AutoTransfer.drainToContainers = b);
+
+        //how the world looks: rendering quality and cosmetic effects
+        client.category("graphics");
+        client.sliderPref("weatheropacity", 50, 0, 100, s -> s + "%");
+        client.sliderPref("beamdrillopacity", 100, 0, 100, 1, s -> s + "%");
+        client.sliderPref("formationopacity", 30, 10, 100, 5, s -> { UnitType.formationAlpha = s / 100f; return s + "%"; });
+        client.checkPref("lighting", true);
+        client.checkPref("drawwrecks", true);
+        client.checkPref("drawallitems", true, i -> UnitType.drawAllItems = i);
+        client.checkPref("enableunderwaterenv", true);
+
+        //extra information drawn over the world: ranges, paths, flows, graphs, hitboxes
+        client.category("overlays");
+        client.sliderPref("junctionview", 0, -1, 1, 1, s -> { Junction.setBaseOffset(s); return s == -1 ? "@client.left" : s == 1 ? "@client.right" : "Do not show"; });
+        client.sliderPref("spawntime", 5, -1, 60, s -> { ClientVars.spawnTime = 60 * s; if (Vars.pathfinder.thread == null) Vars.pathfinder.start(); return s == -1 ? "Solid Line" : s == 0 ? "@off" : String.valueOf(s); });
+        client.sliderPref("traveltime", 10, 0, 60, s -> { ClientVars.travelTime = 60f / s; return s == 0 ? "@off" : String.valueOf(s); });
+        client.sliderPref("hitboxopacity", 0, 0, 100, 5, s -> { UnitType.hitboxAlpha = s / 100f; return s == 0 ? "@off" : s + "%"; });
+        client.sliderPref("transferrangeopacity", 0, 0, 100, 5, s -> s == 0 ? "@off" : s + "%");
+        client.checkPref("drawpath", true);
+        client.checkPref("selectionsizeoncursor", true);
+        client.checkPref("highlightselectedgraph", true, i -> content.blocks().<BeamNode>each(b -> b instanceof BeamNode, b -> b.configurable = i));
+        client.checkPref("powerinfo", true);
+        client.checkPref("junctionflowratedirection", false, s -> Junction.flowRateByDirection = s);
+        client.checkPref("drawselectionvanilla", false);
+        client.checkPref("drawcursors", false);
+        client.checkPref("drawdisplayborder", false);
+        client.checkPref("tracelogicunits", false);
+        client.checkPref("enemyunitranges", false);
+        client.checkPref("allyunitranges", false);
+        client.checkPref("highlighthoveredgraph", false);
+        client.checkPref("showreactors", false);
+        client.checkPref("showdomes", false);
+        client.checkPref("showmassdriverdistance", false);
+        client.checkPref("unloaderview", false, i -> Unloader.drawUnloaderItems = i);
+        client.checkPref("customnullunloader", false, i -> Unloader.customNullLoader = i);
+
+        //HUD, menus, player list and the main-menu background
+        client.category("interface");
+        int[] lastCursednessLevelI = {Core.settings.getInt("cursednesslevel", 0)};
+        client.sliderPref("cursednesslevel", 1, 0, 4, s -> CursednessLevel.fromInteger(s).name(), s -> {
+            if(Vars.ui.menufrag.renderer != null && Vars.state.isMenu() && s != lastCursednessLevelI[0]){
+                Vars.ui.menufrag.renderer.refresh();
+                lastCursednessLevelI[0] = s;
+            }
+        });
+        // sonka: выбор юнита фона главного меню - рядом с cursednesslevel, второй настройкой этого фона
+        client.pref(new qol.core.ButtonSetting("menu-unit-configure", () -> new sonkaextras.MenuUnitDialog().show()));
+        client.checkPref("placementfragmentsearch", true);
+        client.checkPref("uselocalizedname", true);
+        client.checkPref("showtoasts", true);
+        client.checkPref("showcutscenes", true);
+        client.checkPref("activemodesdisplay", true);
+        client.checkPref("playerliststyle", true);
+        client.checkPref("mobileui", false, i -> mobile = !mobile);
+        client.checkPref("alwaysfullnumbers", false);
+        client.checkPref("alwaysshowteams", false);
+        client.checkPref("showuserid", false);
+        client.checkPref("hidebannedblocks", false);
+
+        client.category("chat");
+        client.sliderPref("shownmessagescount", 10, 1, 25, 1, s -> {
+            ChatFragment.setShownMessages();
+            return String.valueOf(s);
+        });
+        client.checkPref("clearchatonleave", true);
+        client.checkPref("logmsgstoconsole", true);
+        client.checkPref("clientjoinleave", true);
+        client.checkPref("highlightcryptomsg", true);
+        client.checkPref("showclientmsgsendername", true);
+        client.checkPref("displayasuser", true);
+        client.checkPref("showidinjoinleave", false);
+        client.checkPref("highlightclientmsg", false);
+        client.checkPref("enablechatlimit", false);
+
+        //text sent or run automatically: key-bound commands and join/win/lose messages
+        client.category("commands");
+        client.textPref("keybind1command", "");
+        client.textPref("keybind1shiftcommand", "");
+        client.textPref("keybind1ctrlcommand", "");
+        client.textPref("keybind1altcommand", "");
+        client.textPref("gamejointext", "");
+        client.textPref("gamewintext", "");
+        client.textPref("gamelosetext", "");
+
+        client.category("schematics");
+        client.sliderPref("maxschematicslisted", 300, 0, 3000, 150, s -> s == 0 ? "Unlimited" : String.valueOf(s));
+        client.sliderPref("processorstatementscale", 80, 10, 100, 1, s -> String.format("%.2fx", s/100f)); // This is the most scuffed setting you have ever seen
+        client.checkPref("forceallowschematics", true);
+        client.checkPref("schematicmenuexporttags", true);
+        client.checkPref("schematicbrowserimporttags", true);
+        client.checkPref("schematicuicarryover", false);
+        client.checkPref("processorconfigs", false);
+        client.checkPref("logiclinkorder", false);
+
         client.category("antigrief");
         client.sliderPref("reactorwarningdistance", 40, 0, 101, s -> s == 101 ? "Always" : s == 0 ? "Never" : Integer.toString(s));
         client.sliderPref("reactorsounddistance", 25, 0, 101, s -> s == 101 ? "Always" : s == 0 ? "Never" : Integer.toString(s));
@@ -408,161 +613,29 @@ public class SettingsMenuDialog extends BaseDialog{
         client.checkPref("viruswarnings", true, b -> LExecutor.virusWarnings = b);
         client.checkPref("removecorenukes", false);
 
-        client.category("chat");
-        client.checkPref("clearchatonleave", true);
-        client.checkPref("logmsgstoconsole", true);
-        client.checkPref("clientjoinleave", true);
-        client.checkPref("showidinjoinleave", false);
-        client.checkPref("highlightcryptomsg", true);
-        client.checkPref("highlightclientmsg", false);
-        client.checkPref("showclientmsgsendername", true);
-        client.checkPref("displayasuser", true);
-        client.checkPref("showuserid", false);
-        client.checkPref("hideserversbydefault", false); // Inverts behavior of server hiding
-        client.checkPref("enablechatlimit", false);
-        client.sliderPref("shownmessagescount", 10, 1, 25, 1, s -> {
-            ChatFragment.setShownMessages();
-            return String.valueOf(s);
-        });
-
-        client.category("controls");
-        client.checkPref("blockreplace", true);
-        client.checkPref("instantturn", true);
-        client.checkPref("autoboost", false);
-        client.checkPref("assumeunstrict", false);
-        client.checkPref("returnonmove", false);
-        client.checkPref("nostrafepenalty", false);
-        client.checkPref("decreasedrift", false);
-        client.checkPref("zerodrift", false);
-        client.checkPref("fastrespawn", false);
-        //no separate AutoTransfer delay slider here: 2026-08-27 it was rewired onto eui's own
-        //InteractTimer/"eui-action-delay" (Settings > Mods > Extended UI++, plus its Alt+=/Alt+- binds) -
-        //see AutoTransfer.update()'s doc comment
-        //per-block Auto Transfer service priorities - the dialog is eui's, but since the dedupe pass its
-        //config drives the native AutoTransfer (see AutoTransfer.loadPriorities' doc)
-        client.pref(new qol.core.ButtonSetting("autotransfer-priority", () -> {
-            if(eui.interact.AutofillPriorityDialog.instance != null) eui.interact.AutofillPriorityDialog.instance.show();
-        }));
-        //per-turret ammo priority + min-core-to-feed-it overrides (sonka's request, 2026-09-12) - see
-        //AmmoPriorityDialog and AutoTransfer.loadAmmoPriorities()/loadAmmoMinCores()'s doc comments
-        client.pref(new qol.core.ButtonSetting("autotransfer-ammo-priority", () -> {
-            if(eui.interact.AmmoPriorityDialog.instance != null) eui.interact.AmmoPriorityDialog.instance.show();
-        }));
-        //fromContainers used to be silently hardcoded on (transfer() falls back to whichever storage
-        //block is nearest whenever it can't reach the core) with a "prefer the one near the core" guess
-        //bolted on top; sonka asked to drop the guessing entirely and just let the player decide instead
-        client.checkPref("autotransfer-fromcontainers", true, b -> mindustry.client.utils.AutoTransfer.fromContainers = b);
-        //exposed as sliders 2026-09-12 (sonka's request) - previously only settable by editing the raw
-        //settings keys AutoTransfer.init() already reads; wiring the changed-callback keeps the running
-        //instance in sync immediately instead of waiting for the next init() (e.g. a server rejoin)
-        client.sliderPref("autotransfer-mincoreitems", 100, 0, 2000, 10, s -> String.valueOf(s), i -> mindustry.client.utils.AutoTransfer.minCoreItems = i);
-        client.sliderPref("autotransfer-mintransfer", 2, 0, 50, 1, s -> String.valueOf(s), i -> mindustry.client.utils.AutoTransfer.minTransfer = i);
-        client.sliderPref("autotransfer-mintransfertotal", 10, 0, 200, 5, s -> String.valueOf(s), i -> mindustry.client.utils.AutoTransfer.minTransferTotal = i);
-        //which container types the "fromContainers" fallback above may draw from - the dialog is eui's,
-        //config drives the native AutoTransfer, same wiring as the priority dialogs (sonka's request, 2026-09-12)
-        client.pref(new qol.core.ButtonSetting("autotransfer-sourceblocks", () -> {
-            if(eui.interact.SourceBlocksDialog.instance != null) eui.interact.SourceBlocksDialog.instance.show();
-        }));
-        //drain: opposite direction of the transfer above - pulls full factories/drills into the core or
-        //(if enabled) into a configured container. Promoted out of "experimental, no UI" 2026-09-12 at
-        //sonka's request - see AutoTransfer.init()'s doc comment.
-        client.checkPref("autotransfer-drain", false, b -> mindustry.client.utils.AutoTransfer.drain = b);
-        client.checkPref("autotransfer-draintocontainers", false, b -> mindustry.client.utils.AutoTransfer.drainToContainers = b);
-
-        client.category("graphics");
-        client.sliderPref("minzoom", 0, 0, 100, s -> Strings.fixed(Mathf.pow(10, 0.0217f * s) / 100f, 2) + "x");
-        client.sliderPref("weatheropacity", 50, 0, 100, s -> s + "%");
-        client.sliderPref("beamdrillopacity", 100, 0, 100, 1, s -> s + "%");
-        client.sliderPref("junctionview", 0, -1, 1, 1, s -> { Junction.setBaseOffset(s); return s == -1 ? "@client.left" : s == 1 ? "@client.right" : "Do not show"; });
-        client.sliderPref("spawntime", 5, -1, 60, s -> { ClientVars.spawnTime = 60 * s; if (Vars.pathfinder.thread == null) Vars.pathfinder.start(); return s == -1 ? "Solid Line" : s == 0 ? "@off" : String.valueOf(s); });
-        client.sliderPref("traveltime", 10, 0, 60, s -> { ClientVars.travelTime = 60f / s; return s == 0 ? "@off" : String.valueOf(s); });
-        client.sliderPref("formationopacity", 30, 10, 100, 5, s -> { UnitType.formationAlpha = s / 100f; return s + "%"; });
-        client.sliderPref("hitboxopacity", 0, 0, 100, 5, s -> { UnitType.hitboxAlpha = s / 100f; return s == 0 ? "@off" : s + "%"; });
-        client.sliderPref("transferrangeopacity", 0, 0, 100, 5, s -> s == 0 ? "@off" : s + "%");
-        client.checkPref("lighting", true);
-        client.checkPref("placementfragmentsearch", true);
-        client.checkPref("junctionflowratedirection", false, s -> Junction.flowRateByDirection = s);
-        client.checkPref("drawwrecks", true);
-        client.checkPref("drawallitems", true, i -> UnitType.drawAllItems = i);
-        client.checkPref("drawpath", true);
-        client.checkPref("selectionsizeoncursor", true);
-        client.checkPref("drawselectionvanilla", false);
-        client.checkPref("drawcursors", false);
-        client.checkPref("drawdisplayborder", false);
-        client.checkPref("tracelogicunits", false);
-        client.checkPref("enemyunitranges", false);
-        client.checkPref("allyunitranges", false);
-        client.checkPref("highlightselectedgraph", true, i -> content.blocks().<BeamNode>each(b -> b instanceof BeamNode, b -> b.configurable = i));
-        client.checkPref("highlighthoveredgraph", false);
-        client.checkPref("mobileui", false, i -> mobile = !mobile);
-        client.checkPref("showreactors", false);
-        client.checkPref("showdomes", false);
-        client.checkPref("allowinvturrets", true);
-        client.checkPref("showtoasts", true);
-        client.checkPref("unloaderview", false, i -> Unloader.drawUnloaderItems = i);
-        client.checkPref("customnullunloader", false, i -> Unloader.customNullLoader = i);
-        int[] lastCursednessLevelI = {Core.settings.getInt("cursednesslevel", 0)};
-        client.sliderPref("cursednesslevel", 1, 0, 4, s -> CursednessLevel.fromInteger(s).name(), s -> {
-            if(Vars.ui.menufrag.renderer != null && Vars.state.isMenu() && s != lastCursednessLevelI[0]){
-                Vars.ui.menufrag.renderer.refresh();
-                lastCursednessLevelI[0] = s;
-            }
-        });
-        // sonka: выбор юнита фона главного меню - рядом с cursednesslevel, второй настройкой этого фона
-        client.pref(new qol.core.ButtonSetting("menu-unit-configure", () -> new sonkaextras.MenuUnitDialog().show()));
-        client.checkPref("logiclinkorder", false);
-        client.checkPref("showcutscenes", true);
-        client.checkPref("powerinfo", true);
-        client.checkPref("activemodesdisplay", true);
-        client.checkPref("showmassdriverdistance", false);
-        client.checkPref("alwaysfullnumbers", false);
-        client.checkPref("enableunderwaterenv", true);
-        client.checkPref("alwaysshowteams", false);
-        client.checkPref("playerliststyle", true);
-
-        client.category("misc");
+        //client and mod updates, servers and server-specific workarounds, files and the launcher
+        client.category("system");
         client.updatePref();
-        client.textPref("keybind1shiftcommand", "");
-        client.textPref("keybind1ctrlcommand", "");
-        client.textPref("keybind1altcommand", "");
-        client.textPref("keybind1command", "");
-        client.sliderPref("minepathcap", 5000, -100, 5000, 100, s -> s == 0 ? "Unlimited" : s == -100 ? "Never" : String.valueOf(s));
-        client.sliderPref("defaultbuildpathradius", 0, 0, 250, 5, s -> s == 0 ? "Unlimited" : String.valueOf(s));
         client.sliderPref("modautoupdate", 1, 0, 2, s -> s == 0 ? "@off" : s == 1 ? "In Background" : "Restart Game");
-        client.sliderPref("processorstatementscale", 80, 10, 100, 1, s -> String.format("%.2fx", s/100f)); // This is the most scuffed setting you have ever seen
-        client.sliderPref("automapvote", 0, 0, 4, s -> s == 0 ? "Never" : s == 4 ? "Random vote" : "Always " + new String[]{"downvote", "novote", "upvote"}[--s]);
         client.sliderPref("pingexecutorthreads", OS.isWindows && !OS.is64Bit ? 5 : 65, 5, 105, 5, s -> s > 100 ? "Unlimited" : String.valueOf(s));
-        client.sliderPref("maxschematicslisted", 300, 0, 3000, 150, s -> s == 0 ? "Unlimited" : String.valueOf(s));
-        client.textPref("defaultbuildpathargs", "self"); // Keep it to just self. Skill issue players going afk make this too problematic otherwise. FINISHME: Add an afk detection system and revert this once we can reliably detect afk players and allow others to stop their pathing
-        client.textPref("defaultminepathargs", "all");
-        client.textPref("gamejointext", "");
-        client.textPref("gamewintext", "");
-        client.textPref("gamelosetext", "");
         client.checkPref("autoupdate", true, i -> becontrol.checkUpdates = i);
         client.checkPref("discordrpc", true, i -> platform.toggleDiscord(i));
         client.checkPref("confirmexit", true, i -> Vars.confirmExit = i);
-        client.checkPref("pathnav", true);
-        client.checkPref("nyduspadpatch", true);
-        client.checkPref("forceallowschematics", true);
-        client.checkPref("blockfishannoyances", true, i -> Fish.blockAnnoyances = i);
         client.checkPref("autorestart", true);
         client.checkPref("realautorestart", true);
         client.checkPref("downloadmusic", true);
         client.checkPref("downloadsound", true);
-        client.checkPref("schematicmenuexporttags", true);
-        client.checkPref("schematicbrowserimporttags", true);
-        client.checkPref("schematicuicarryover", false);
-        client.checkPref("uselocalizedname", true);
-        client.checkPref("hidebannedblocks", false);
+        client.checkPref("nyduspadpatch", true);
+        client.checkPref("blockfishannoyances", true, i -> Fish.blockAnnoyances = i);
+        client.checkPref("hideserversbydefault", false); // Inverts behavior of server hiding
         client.checkPref("allowjoinany", false);
+        client.checkPref("autoohno", false);
+
+        //rarely needed: debugging, compatibility overrides and unfinished features
+        client.category("advanced");
         client.checkPref("debug", false, i -> Log.level = i ? Log.LogLevel.debug : Log.LogLevel.info); // Sets the log level to debug
         if (steam) client.checkPref("unlockallachievements", false, i -> { Structs.each(Achievement::complete, Achievement.all); Core.settings.remove("unlockallachievements"); });
-        client.checkPref("automega", false, i -> ui.unitPicker.type = i ? UnitTypes.mega : ui.unitPicker.type);
-        client.checkPref("processorconfigs", false);
-        client.checkPref("circleassist", false);
         client.checkPref("ignoremodminversion", false);
-        client.checkPref("betterenemyblocktapping", false);
-        client.checkPref("autoohno", false);
         client.checkPref("client-experimentals", false);
 
         if (settings.getBool("client-experimentals") || OS.hasProp("policone")) {
@@ -860,7 +933,11 @@ public class SettingsMenuDialog extends BaseDialog{
         Seq<Table> tables = Seq.with(game, graphics, sound, dev, client);
         categories.each(c -> tables.add(c.table));
 
-        prefs.add(tables.get(index));
+        Table table = tables.get(index);
+        //таблица могла быть построена до того, как настройку поменяли на странице глобального поиска (слайдеры берут
+        //значение при сборке) или до программного разворота секции - перестроить, чтобы показывала актуальное
+        if(table instanceof SettingsTable st) st.rebuild();
+        prefs.add(table);
     }
 
     @Override
@@ -928,11 +1005,39 @@ public class SettingsMenuDialog extends BaseDialog{
                     search = res;
                     rebuild();
                 }).growX().get();
+                //развернуть/свернуть ВСЕ секции разом - только там, где секции вообще есть (Client, «Моды»:
+                //там их семнадцать, открывать по одной в поисках нужного было мучением)
+                s.button(Icon.downOpen, Styles.cleari, 28f, () -> setAllCollapsed(false)).size(40f).padLeft(6f).visible(this::hasCategories).tooltip("@client.settings.expandall");
+                s.button(Icon.upOpen, Styles.cleari, 28f, () -> setAllCollapsed(true)).size(40f).visible(this::hasCategories).tooltip("@client.settings.collapseall");
             });
         }
 
         public Seq<Setting> getSettings(){
             return list;
+        }
+
+        /** Есть ли в таблице секции ({@link #category}) - только тогда имеют смысл кнопки «развернуть/свернуть всё». */
+        public boolean hasCategories(){
+            return list.contains(s -> s instanceof Category);
+        }
+
+        /** Сворачивает/разворачивает все секции таблицы; состояние запоминается так же, как при клике по заголовку. */
+        public void setAllCollapsed(boolean collapsed){
+            for(Setting s : list){
+                if(s instanceof Category c) c.setCollapsed(collapsed);
+            }
+            rebuild(); //стрелки в заголовках рисуются при сборке
+        }
+
+        /**
+         * Пустая таблица-приёмник для отрисовки настроек ВНЕ их родной вкладки (глобальный поиск по
+         * всем вкладкам - {@link mindustry.client.ui.SettingsSearch}). Как и {@code tempTable}, не
+         * следит за «чужими» add() и сама себя не перестраивает: Setting.add(table) просто дописывает в неё свои строки.
+         */
+        public static SettingsTable detached(){
+            SettingsTable t = new SettingsTable();
+            t.canRebuild = false;
+            return t;
         }
 
         public void pref(Setting setting){
@@ -1130,6 +1235,15 @@ public class SettingsMenuDialog extends BaseDialog{
 
             public abstract void add(SettingsTable table);
 
+            /**
+             * Неинтерактивная строка-подзаголовок (например, название фичи мода внутри общей секции), а не
+             * настоящая настройка: глобальный поиск не выдаёт её строкой, а берёт её текст как «хлебную
+             * крошку» для настроек, идущих следом ({@code qol.core.LabelSetting}/{@code eui.core.LabelSetting}).
+             */
+            public boolean isHeader(){
+                return false;
+            }
+
             public void addDesc(Element elem){
                 ui.addDescTooltip(elem, description);
             }
@@ -1254,6 +1368,17 @@ public class SettingsMenuDialog extends BaseDialog{
             Category(String name){
                 super(name);
                 title = bundle.get("client.setting." + name + ".category");
+            }
+
+            /** Программно свернуть/развернуть секцию (без анимации - таблица всё равно перестраивается) и запомнить это. */
+            public void setCollapsed(boolean collapsed){
+                collapser.setCollapsed(collapsed, false);
+                settings.put("settingscategory-" + name + "-enabled", collapsed);
+            }
+
+            @Override
+            public boolean isHeader(){
+                return true; //секция - не настройка: в результаты поиска не идёт, но даёт крошку
             }
 
             @Override
