@@ -1674,18 +1674,18 @@ public class SchematicsTableUi{
                 schem.left();
                 String cur = cell != null ? cell.schematic : "";
                 schem.labelWrap(currentSchematicLabelText(cur)).width(mobile ? 220f : 420f).color(Pal.accent).padRight(8f);
+                //ЛКМ - выбрать схему, ПКМ - очистить (без отдельной кнопки-корзины)
                 schem.button(Core.bundle.get(isMulti ? "schematics-table.dialog.change-center-preview" : "schematics-table.dialog.pick-schematic"), () ->
                     showSchematicPickerDialog(name -> {
                         page().cellForWrite(row, col).schematic = name;
                         data().save();
                         rebuild.run();
                     })
-                ).width(200f).height(44f).pad(4f);
-                schem.button(Icon.trash, Styles.clearNonei, () -> {
+                ).width(200f).height(44f).pad(4f).get().clicked(KeyCode.mouseRight, () -> {
                     page().cellForWrite(row, col).schematic = "";
                     data().save();
                     rebuild.run();
-                }).size(44f).pad(4f);
+                });
             }).growX().row();
 
             //режим ячейки: одна схема / несколько по кругу
@@ -1706,7 +1706,7 @@ public class SchematicsTableUi{
                 t.button(Core.bundle.get("schematics-table.dialog.manage-multi"), Icon.list, () -> showMultiManageDialog(row, col, rebuild))
                     .width(280f).height(50f).padTop(6f).row();
 
-                t.add(Core.bundle.get("schematics-table.dialog.radial-preview") + ":").padTop(20f).row();
+                t.add(Core.bundle.get("schematics-table.dialog.radial-preview") + ":").padTop(50f).row();
                 WidgetGroup radial = buildRadialLayout(page().cell(row, col), mobile ? 26f : 34f, mobile ? 46f : 58f,
                     () -> showSchematicPickerDialog(name -> {
                         page().cellForWrite(row, col).schematic = name;
@@ -1723,9 +1723,19 @@ public class SchematicsTableUi{
                         entry.schematic = name;
                         data().save();
                         rebuild.run();
-                    })
+                    }),
+                    () -> { //ПКМ по центру - очистить центральную схему
+                        page().cellForWrite(row, col).schematic = "";
+                        data().save();
+                        rebuild.run();
+                    },
+                    (idx, s, me) -> { //ПКМ по спице - убрать схему из этой секции
+                        page().cellForWrite(row, col).multiEntries.remove(idx);
+                        data().save();
+                        rebuild.run();
+                    }
                 );
-                t.table(rp -> rp.add(radial).size(radial.getWidth(), radial.getHeight())).padTop(10f).padBottom(20f).row();
+                t.table(rp -> rp.add(radial).size(radial.getWidth(), radial.getHeight())).padTop(24f).padBottom(20f).row();
             }
 
             //подпись
@@ -1818,6 +1828,11 @@ public class SchematicsTableUi{
      * поведение клика передаётся коллбэками, разметка - общая.
      */
     WidgetGroup buildRadialLayout(CellData cell, float radius, float btnSize, Runnable onCenter, RadialClick onSection){
+        return buildRadialLayout(cell, radius, btnSize, onCenter, onSection, null, null);
+    }
+
+    /** То же самое + ПКМ по спице/центру для быстрой очистки без отдельной кнопки-корзины (null - без очистки, как в живом picker'е). */
+    WidgetGroup buildRadialLayout(CellData cell, float radius, float btnSize, Runnable onCenter, RadialClick onSection, Runnable onCenterRemove, RadialClick onSectionRemove){
         int n = Math.max(CellData.MIN_SECTIONS, Math.min(cell.sections, CellData.MAX_SECTIONS));
         float centerSize = btnSize * 1.25f;
         //при большом числе секций (и вплотную к центру при малом) кнопки иначе накладываются друг
@@ -1846,6 +1861,7 @@ public class SchematicsTableUi{
             b.setPosition(bx, by, Align.center);
             int idx = i;
             b.clicked(() -> onSection.get(idx, s, me));
+            if(onSectionRemove != null) b.clicked(KeyCode.mouseRight, () -> onSectionRemove.get(idx, s, me));
             g.addChild(b);
         }
 
@@ -1854,6 +1870,7 @@ public class SchematicsTableUi{
         centerBtn.setSize(centerSize, centerSize);
         centerBtn.setPosition(cx, cy, Align.center);
         centerBtn.clicked(onCenter);
+        if(onCenterRemove != null) centerBtn.clicked(KeyCode.mouseRight, onCenterRemove);
         g.addChild(centerBtn);
 
         return g;
