@@ -1706,7 +1706,7 @@ public class SchematicsTableUi{
                 t.button(Core.bundle.get("schematics-table.dialog.manage-multi"), Icon.list, () -> showMultiManageDialog(row, col, rebuild))
                     .width(280f).height(50f).padTop(6f).row();
 
-                t.add(Core.bundle.get("schematics-table.dialog.radial-preview") + ":").padTop(24f).row();
+                t.add(Core.bundle.get("schematics-table.dialog.radial-preview") + ":").padTop(14f).row();
                 WidgetGroup radial = buildRadialLayout(page().cell(row, col), mobile ? 26f : 34f, mobile ? 46f : 58f,
                     () -> showSchematicPickerDialog(name -> {
                         page().cellForWrite(row, col).schematic = name;
