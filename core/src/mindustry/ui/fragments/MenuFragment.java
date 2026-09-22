@@ -190,7 +190,7 @@ public class MenuFragment{
         TextureRegion[] regs;
         TextureRegion stockLogo;
         TextureRegion chevronLeft, chevronRight;
-        float width, height, scale, spacing;
+        float width, height, scale, spacing, letterSpacing;
     }
 
     /** sonka: считает размеры и раскладку лого без отрисовки (нужно заранее, чтобы узнать logoh и посчитать fy).
@@ -209,6 +209,7 @@ public class MenuFragment{
         }
 
         l.spacing = 6f;
+        l.letterSpacing = 1.5f;
         l.regs = new TextureRegion[l.custom.length()];
         l.chevronLeft = Core.atlas.find("logofont-chevron-left");
         l.chevronRight = Core.atlas.find("logofont-chevron-right");
@@ -227,7 +228,7 @@ public class MenuFragment{
                 nativeW += reg.width;
                 nativeH = Math.max(nativeH, reg.height);
             }
-            if(i < l.custom.length() - 1) nativeW += l.spacing;
+            if(i < l.custom.length() - 1) nativeW += l.letterSpacing;
         }
         if(l.chevronRight.found()){
             nativeW += l.spacing + l.chevronRight.width;
@@ -276,7 +277,7 @@ public class MenuFragment{
                 Draw.rect(reg, dx + gw / 2f, fy - l.height / 2f + gh / 2f, gw, gh);
                 dx += gw;
             }
-            if(i < l.custom.length() - 1) dx += l.spacing * l.scale;
+            if(i < l.custom.length() - 1) dx += l.letterSpacing * l.scale;
         }
         if(l.chevronRight.found()){
             dx += l.spacing * l.scale;
