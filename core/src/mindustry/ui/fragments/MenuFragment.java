@@ -189,6 +189,7 @@ public class MenuFragment{
         String custom;
         TextureRegion[] regs;
         TextureRegion stockLogo;
+        TextureRegion chevronLeft, chevronRight;
         float width, height, scale, spacing;
     }
 
@@ -209,7 +210,13 @@ public class MenuFragment{
 
         l.spacing = 6f;
         l.regs = new TextureRegion[l.custom.length()];
-        float nativeW = 0f, nativeH = 0f, logoscl = Scl.scl(1);
+        l.chevronLeft = Core.atlas.find("logofont-chevron-left");
+        l.chevronRight = Core.atlas.find("logofont-chevron-right");
+        float nativeW = 0f, nativeH = 0f;
+        if(l.chevronLeft.found()){
+            nativeW += l.chevronLeft.width + l.spacing;
+            nativeH = Math.max(nativeH, l.chevronLeft.height);
+        }
         for(int i = 0; i < l.custom.length(); i++){
             char c = l.custom.charAt(i);
             if(c == ' '){
@@ -217,13 +224,27 @@ public class MenuFragment{
             }else{
                 TextureRegion reg = Core.atlas.find("logofont-" + Character.toLowerCase(c));
                 l.regs[i] = reg;
-                logoscl = Scl.scl(1) * reg.scale;
                 nativeW += reg.width;
                 nativeH = Math.max(nativeH, reg.height);
             }
             if(i < l.custom.length() - 1) nativeW += l.spacing;
         }
-        l.scale = nativeW <= 0f ? 1f : Math.min(nativeW * logoscl, maxWidth) / nativeW;
+        if(l.chevronRight.found()){
+            nativeW += l.spacing + l.chevronRight.width;
+            nativeH = Math.max(nativeH, l.chevronRight.height);
+        }
+
+        // sonka: масштабируем свой текст под высоту стандартного лого "Mindustry" (а не под родной пиксельный
+        // размер спрайтов), чтобы буквы не выглядели мельче оригинала - и только потом ужимаем по ширине, если не влезает.
+        TextureRegion stockLogo = Core.atlas.find("logo");
+        float stockLogoScl = Scl.scl(1) * stockLogo.scale;
+        float stockW = Math.min(stockLogo.width * stockLogoScl, maxWidth);
+        float stockH = stockW * (float)stockLogo.height / stockLogo.width;
+
+        l.scale = nativeH <= 0f ? 1f : stockH / nativeH;
+        if(nativeW * l.scale > maxWidth){
+            l.scale = maxWidth / nativeW;
+        }
         l.width = nativeW * l.scale;
         l.height = nativeH * l.scale;
         return l;
@@ -240,6 +261,11 @@ public class MenuFragment{
         if(l.width <= 0f) return;
 
         float dx = fx - l.width / 2f;
+        if(l.chevronLeft.found()){
+            float gw = l.chevronLeft.width * l.scale, gh = l.chevronLeft.height * l.scale;
+            Draw.rect(l.chevronLeft, dx + gw / 2f, fy - l.height / 2f + gh / 2f, gw, gh);
+            dx += gw + l.spacing * l.scale;
+        }
         for(int i = 0; i < l.custom.length(); i++){
             char c = l.custom.charAt(i);
             if(c == ' '){
@@ -251,6 +277,11 @@ public class MenuFragment{
                 dx += gw;
             }
             if(i < l.custom.length() - 1) dx += l.spacing * l.scale;
+        }
+        if(l.chevronRight.found()){
+            dx += l.spacing * l.scale;
+            float gw = l.chevronRight.width * l.scale, gh = l.chevronRight.height * l.scale;
+            Draw.rect(l.chevronRight, dx + gw / 2f, fy - l.height / 2f + gh / 2f, gw, gh);
         }
     }
 
