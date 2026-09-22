@@ -167,24 +167,102 @@ public class MenuFragment{
         parent.fill((x, y, w, h) -> {
             String versionText = ((Version.build == -1) ? "[#fc8140aa]" : "[#ffffffba]") + Version.combined() + Strings.format("\n[gray]Don't press H[]\nCursedness Level: @", CursednessLevel.fromInteger(Core.settings.getInt("cursednesslevel")).name());
 
-            TextureRegion logo = Core.atlas.find("logo");
             float width = Core.graphics.getWidth(), height = Core.graphics.getHeight() - Core.scene.marginTop;
-            float logoscl = Scl.scl(1) * logo.scale;
-            float logow = Math.min(logo.width * logoscl, Core.graphics.getWidth() - Scl.scl(20));
-            float logoh = logow * (float)logo.height / logo.width;
+            float maxLogoWidth = Core.graphics.getWidth() - Scl.scl(20);
 
             float fx = (int)(width / 2f);
-            float fy = (int)(height - 6 - logoh) + logoh / 2 - (Core.graphics.isPortrait() ? Scl.scl(30f) : 0f);
+            LogoLayout logo = measureLogo(maxLogoWidth);
+            float fy = (int)(height - 6 - logo.height) + logo.height / 2 - (Core.graphics.isPortrait() ? Scl.scl(30f) : 0f);
             if(Core.settings.getBool("macnotch") ){
                 fy -= Scl.scl(macNotchHeight);
             }
-
-            Draw.color();
-            Draw.rect(logo, fx, fy, logow, logoh);
+            drawLogo(logo, fx, fy);
 
             Fonts.outline.setColor(Color.white);
-            Fonts.outline.draw(versionText, fx, fy - logoh/2f - Scl.scl(2f), Align.center);
+            Fonts.outline.draw(versionText, fx, fy - logo.height/2f - Scl.scl(2f), Align.center);
         }).touchable = Touchable.disabled;
+    }
+
+    /** sonka: описывает, что и с каким масштабом рисовать в качестве лого главного меню - либо
+     * стандартную картинку "Mindustry", либо буквы из своего текста (см. measureLogo/drawLogo). */
+    private static class LogoLayout{
+        String custom;
+        TextureRegion[] regs;
+        TextureRegion stockLogo;
+        float width, height, scale, spacing;
+    }
+
+    /** sonka: считает размеры и раскладку лого без отрисовки (нужно заранее, чтобы узнать logoh и посчитать fy).
+     * Если в настройках задан свой текст (customlogotext), раскладывает его из спрайтов logofont-*
+     * вместо стандартной картинки "Mindustry" (только A-Z и 0-9, пробел = отступ). */
+    private LogoLayout measureLogo(float maxWidth){
+        LogoLayout l = new LogoLayout();
+        l.custom = sanitizeLogoText(Core.settings.getString("customlogotext", ""));
+
+        if(l.custom.isEmpty()){
+            l.stockLogo = Core.atlas.find("logo");
+            float logoscl = Scl.scl(1) * l.stockLogo.scale;
+            l.width = Math.min(l.stockLogo.width * logoscl, maxWidth);
+            l.height = l.width * (float)l.stockLogo.height / l.stockLogo.width;
+            return l;
+        }
+
+        l.spacing = 6f;
+        l.regs = new TextureRegion[l.custom.length()];
+        float nativeW = 0f, nativeH = 0f, logoscl = Scl.scl(1);
+        for(int i = 0; i < l.custom.length(); i++){
+            char c = l.custom.charAt(i);
+            if(c == ' '){
+                nativeW += 40f;
+            }else{
+                TextureRegion reg = Core.atlas.find("logofont-" + Character.toLowerCase(c));
+                l.regs[i] = reg;
+                logoscl = Scl.scl(1) * reg.scale;
+                nativeW += reg.width;
+                nativeH = Math.max(nativeH, reg.height);
+            }
+            if(i < l.custom.length() - 1) nativeW += l.spacing;
+        }
+        l.scale = nativeW <= 0f ? 1f : Math.min(nativeW * logoscl, maxWidth) / nativeW;
+        l.width = nativeW * l.scale;
+        l.height = nativeH * l.scale;
+        return l;
+    }
+
+    /** sonka: рисует лого, уже посчитанное через measureLogo, с центром по X в fx и по Y в fy. */
+    private void drawLogo(LogoLayout l, float fx, float fy){
+        Draw.color();
+
+        if(l.custom.isEmpty()){
+            Draw.rect(l.stockLogo, fx, fy, l.width, l.height);
+            return;
+        }
+        if(l.width <= 0f) return;
+
+        float dx = fx - l.width / 2f;
+        for(int i = 0; i < l.custom.length(); i++){
+            char c = l.custom.charAt(i);
+            if(c == ' '){
+                dx += 40f * l.scale;
+            }else{
+                TextureRegion reg = l.regs[i];
+                float gw = reg.width * l.scale, gh = reg.height * l.scale;
+                Draw.rect(reg, dx + gw / 2f, fy - l.height / 2f + gh / 2f, gw, gh);
+                dx += gw;
+            }
+            if(i < l.custom.length() - 1) dx += l.spacing * l.scale;
+        }
+    }
+
+    /** sonka: оставляет только A-Z/0-9/пробел (для этих есть спрайты logofont-*), капс, обрезает пробелы по краям. */
+    private String sanitizeLogoText(String text){
+        StringBuilder out = new StringBuilder();
+        for(char c : text.toUpperCase().toCharArray()){
+            if((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == ' '){
+                out.append(c);
+            }
+        }
+        return out.toString().trim();
     }
 
     private void buildMobile(){
