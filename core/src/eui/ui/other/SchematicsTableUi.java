@@ -1813,15 +1813,21 @@ public class SchematicsTableUi{
      * поведение клика передаётся коллбэками, разметка - общая.
      */
     WidgetGroup buildRadialLayout(CellData cell, float radius, float btnSize, Runnable onCenter, RadialClick onSection){
+        int n = Math.max(CellData.MIN_SECTIONS, Math.min(cell.sections, CellData.MAX_SECTIONS));
         float centerSize = btnSize * 1.25f;
+        //при большом числе секций (и вплотную к центру при малом) кнопки иначе накладываются друг
+        //на друга - радиус должен обеспечивать зазор и между соседними спицами, и между спицей и центром
+        float gap = 6f;
+        float minRadiusSpokes = (btnSize + gap) / (2f * Mathf.sin(Mathf.pi / n));
+        float minRadiusCenter = btnSize / 2f + centerSize / 2f + gap;
+        radius = Math.max(radius, Math.max(minRadiusSpokes, minRadiusCenter));
+
         float pad = 6f;
         float span = radius * 2f + Math.max(btnSize, centerSize) + pad * 2f;
 
         WidgetGroup g = new WidgetGroup();
         g.setSize(span, span);
         float cx = span / 2f, cy = span / 2f;
-
-        int n = Math.max(CellData.MIN_SECTIONS, Math.min(cell.sections, CellData.MAX_SECTIONS));
         for(int i = 0; i < n; i++){
             MultiEntry me = cell.multiEntries.get(i);
             Schematic s = me == null || me.schematic.isEmpty() ? null : findSchematic(me.schematic);
