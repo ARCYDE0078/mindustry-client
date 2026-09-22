@@ -62,7 +62,26 @@ public class SchemTableData{
         }
     }
 
+    /** Одна секция radial-меню multi-ячейки: своя схема + своя ротация (та же семантика, что у {@link CellData#rotation}). */
+    public static class MultiEntry{
+        public String schematic = "";
+        public int rotation;
+
+        public MultiEntry(){}
+
+        public MultiEntry(String schematic, int rotation){
+            this.schematic = schematic;
+            this.rotation = rotation;
+        }
+
+        public MultiEntry copy(){
+            return new MultiEntry(schematic, rotation);
+        }
+    }
+
     public static class CellData{
+        public static final int MIN_SECTIONS = 2, MAX_SECTIONS = 8, DEFAULT_SECTIONS = 8;
+
         public String schematic = "";
         /** Пользовательская подпись ячейки (тултип); пустая - показывается имя схемы. */
         public String label = "";
@@ -72,8 +91,21 @@ public class SchemTableData{
         /** Угловые иконки: 0=верх-лево, 1=верх-право, 2=низ-лево, 3=низ-право. */
         public final IconRef[] corners = new IconRef[4];
 
+        /**
+         * "Несколько схем по кругу" (идея sonka, скрины 2026-09-22): вместо одной схемы ячейка
+         * открывает radial-меню на {@link #sections} секций, каждая - своя {@link MultiEntry}
+         * (ключ карты - индекс 0..sections-1, дыры допустимы - секция без записи рисуется пустой
+         * "+"). Центр колеса - ТА ЖЕ пара {@link #schematic}/{@link #rotation}, что у обычной ячейки
+         * (в диалоге редактирования кнопка выбора просто переименовывается в "Сменить центральную
+         * схему" - см. {@link eui.ui.other.SchematicsTableUi#buildCellDialogContent}), поэтому
+         * отдельного поля под центр не заведено.
+         */
+        public boolean multi;
+        public int sections = DEFAULT_SECTIONS;
+        public final IntMap<MultiEntry> multiEntries = new IntMap<>();
+
         public boolean isEmpty(){
-            if(!schematic.isEmpty() || !label.isEmpty() || rotation != 0 || main != null) return false;
+            if(!schematic.isEmpty() || !label.isEmpty() || rotation != 0 || main != null || multi) return false;
             for(IconRef c : corners) if(c != null) return false;
             return true;
         }
@@ -85,6 +117,9 @@ public class SchemTableData{
             c.rotation = rotation;
             c.main = main == null ? null : main.copy();
             for(int i = 0; i < 4; i++) c.corners[i] = corners[i] == null ? null : corners[i].copy();
+            c.multi = multi;
+            c.sections = sections;
+            for(IntMap.Entry<MultiEntry> e : multiEntries) c.multiEntries.put(e.key, e.value.copy());
             return c;
         }
     }
@@ -250,6 +285,20 @@ public class SchemTableData{
                 Jval cornersArr = Jval.newArray();
                 for(int i = 0; i < 4; i++) if(c.corners[i] != null) cornersArr.add(iconJson(c.corners[i], i));
                 if(cornersArr.asArray().size > 0) cj.put("corners", cornersArr);
+                if(c.multi){
+                    cj.put("multi", true);
+                    cj.put("sections", c.sections);
+                    Jval multiArr = Jval.newArray();
+                    for(IntMap.Entry<MultiEntry> me : c.multiEntries){
+                        if(me.value.schematic.isEmpty()) continue;
+                        Jval mj = Jval.newObject();
+                        mj.put("i", me.key);
+                        mj.put("n", me.value.schematic);
+                        if(me.value.rotation != 0) mj.put("r", me.value.rotation);
+                        multiArr.add(mj);
+                    }
+                    cj.put("msch", multiArr);
+                }
                 cellsArr.add(cj);
             }
             pj.put("cells", cellsArr);
@@ -309,6 +358,16 @@ public class SchemTableData{
                             c.corners[corner] = new IconRef(kj.getString("n", ""), kj.getInt("s", CORNER_ICON_DEFAULT_SIZE));
                         }
                     }
+                    c.multi = cj.getBool("multi", false);
+                    c.sections = clamp(cj.getInt("sections", CellData.DEFAULT_SECTIONS), CellData.MIN_SECTIONS, CellData.MAX_SECTIONS);
+                    if(cj.has("msch")){
+                        for(Jval mj : cj.get("msch").asArray()){
+                            int idx = mj.getInt("i", -1);
+                            String name = mj.getString("n", "");
+                            if(idx < 0 || name.isEmpty()) continue;
+                            c.multiEntries.put(idx, new MultiEntry(name, ((mj.getInt("r", 0) % 4) + 4) % 4));
+                        }
+                    }
                     if(!c.isEmpty()){
                         p.cells.put(pos(row, col), c);
                         //ячейка за пределами объявленного размера страницу растягивает, а не теряется
@@ -334,6 +393,10 @@ public class SchemTableData{
 
     static int clampSize(int v, int max){
         return Math.max(1, Math.min(v, max));
+    }
+
+    static int clamp(int v, int min, int max){
+        return Math.max(min, Math.min(v, max));
     }
 
     // ---------------------------------------------------------------- миграция легаси-ключей

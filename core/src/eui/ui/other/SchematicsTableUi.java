@@ -10,9 +10,11 @@ import arc.graphics.Color;
 import arc.graphics.g2d.Draw;
 import arc.graphics.g2d.TextureRegion;
 import arc.input.KeyCode;
+import arc.math.Mathf;
 import arc.scene.Element;
 import arc.scene.event.InputEvent;
 import arc.scene.event.InputListener;
+import arc.scene.event.Touchable;
 import arc.scene.style.Drawable;
 import arc.scene.style.TextureRegionDrawable;
 import arc.scene.ui.Button;
@@ -21,6 +23,7 @@ import arc.scene.ui.ScrollPane;
 import arc.scene.ui.TextField;
 import arc.scene.ui.layout.Cell;
 import arc.scene.ui.layout.Table;
+import arc.scene.ui.layout.WidgetGroup;
 import arc.struct.IntIntMap;
 import arc.struct.IntMap;
 import arc.struct.IntSeq;
@@ -39,6 +42,7 @@ import eui.ui.other.SchemTableData.CellData;
 import eui.ui.other.SchemTableData.ClipEntry;
 import eui.ui.other.SchemTableData.Group;
 import eui.ui.other.SchemTableData.IconRef;
+import eui.ui.other.SchemTableData.MultiEntry;
 import eui.ui.other.SchemTableData.Page;
 import mindustry.content.Blocks;
 import mindustry.game.EventType.ClientLoadEvent;
@@ -225,6 +229,8 @@ public class SchematicsTableUi{
     }
 
     void update(){
+        if(radialOverlay != null && Core.input.keyTap(KeyCode.escape)) closeRadialPicker();
+
         if(!Core.settings.getBool("eui-ShowSchematicsTable", true)){
             if(built) clearTable();
             chordStage = 0;
@@ -245,7 +251,7 @@ public class SchematicsTableUi{
 
         updatePosition();
 
-        pollChord();
+        if(radialOverlay == null) pollChord();
 
         if(hovered != null && contentTable.hasMouse()){
             //перф: контент превью статичен по идентичности схемы (лейблы требований - живые супплаеры),
@@ -295,7 +301,7 @@ public class SchematicsTableUi{
     public static boolean digitChordActive(){
         SchematicsTableUi in = instance;
         if(in == null) return false;
-        return in.chordStage > 0 || (in.chordDigitFrame >= 0 && Core.graphics.getFrameId() == in.chordDigitFrame);
+        return in.chordStage > 0 || in.radialOverlay != null || (in.chordDigitFrame >= 0 && Core.graphics.getFrameId() == in.chordDigitFrame);
     }
 
     void pollChord(){
@@ -360,6 +366,10 @@ public class SchematicsTableUi{
             return;
         }
         CellData c = p.cell(row, col);
+        if(c != null && c.multi){
+            openRadialPicker(c);
+            return;
+        }
         Schematic s = c == null ? null : findSchematic(c.schematic);
         if(s == null){
             ui.announce(Core.bundle.get("schematics-table.chord.empty-cell"), 2f);
@@ -368,10 +378,23 @@ public class SchematicsTableUi{
         useCell(c, s);
     }
 
+    /** Точка входа и для клика по ячейке, и для чорда: multi-ячейка открывает radial-меню вместо немедленного взятия схемы в руку. */
+    void activateCell(CellData c, Schematic s){
+        if(c != null && c.multi){
+            openRadialPicker(c);
+        }else if(s != null){
+            useCell(c, s);
+        }
+    }
+
     /** Взять схему ячейки в руку с её сохранённой ротацией (тот же путь, что ручной клик + N раз "повернуть"). */
     void useCell(CellData c, Schematic s){
+        placeSchematic(s, c == null ? 0 : c.rotation);
+    }
+
+    void placeSchematic(Schematic s, int rotation){
         control.input.useSchematic(s);
-        int rot = c == null ? 0 : ((c.rotation % 4) + 4) % 4;
+        int rot = ((rotation % 4) + 4) % 4;
         for(int i = 0; i < rot; i++){
             control.input.rotatePlans(control.input.selectPlans, 1);
         }
@@ -580,9 +603,7 @@ public class SchematicsTableUi{
                 }else{
                     CellData finalCell = cellData;
                     Schematic finalSchematic = schematic;
-                    btn.clicked(() -> {
-                        if(finalSchematic != null) useCell(finalCell, finalSchematic);
-                    });
+                    btn.clicked(() -> activateCell(finalCell, finalSchematic));
                 }
 
                 cellButtons.add(new CellButton(btn, row, col));
@@ -1643,16 +1664,17 @@ public class SchematicsTableUi{
     void buildCellDialogContent(Table cont, int row, int col, Runnable rebuild){
         Page p = page();
         CellData cell = p.cell(row, col);
+        boolean isMulti = cell != null && cell.multi;
 
         cont.pane(t -> {
             t.defaults().left();
 
-            //схема
+            //схема (в multi-режиме центр колеса - см. javadoc CellData.multi)
             t.table(schem -> {
                 schem.left();
                 String cur = cell != null ? cell.schematic : "";
                 schem.labelWrap(currentSchematicLabelText(cur)).width(mobile ? 220f : 420f).color(Pal.accent).padRight(8f);
-                schem.button(Core.bundle.get("schematics-table.dialog.pick-schematic"), () ->
+                schem.button(Core.bundle.get(isMulti ? "schematics-table.dialog.change-center-preview" : "schematics-table.dialog.pick-schematic"), () ->
                     showSchematicPickerDialog(name -> {
                         page().cellForWrite(row, col).schematic = name;
                         data().save();
@@ -1660,6 +1682,46 @@ public class SchematicsTableUi{
                     })
                 ).width(200f).height(44f).pad(4f);
             }).growX().row();
+
+            //режим ячейки: одна схема / несколько по кругу
+            t.button(Core.bundle.get(isMulti ? "schematics-table.dialog.mode.multi" : "schematics-table.dialog.mode.single"), () -> {
+                CellData cc = page().cellForWrite(row, col);
+                cc.multi = !cc.multi;
+                data().save();
+                rebuild.run();
+            }).width(260f).height(44f).padTop(6f).row();
+
+            if(isMulti){
+                stepperRow(t, Core.bundle.get("schematics-table.dialog.sections"), () -> page().cell(row, col).sections, v -> {
+                    page().cellForWrite(row, col).sections = v;
+                    data().save();
+                    rebuild.run();
+                }, CellData.MIN_SECTIONS, CellData.MAX_SECTIONS);
+
+                t.button(Core.bundle.get("schematics-table.dialog.manage-multi"), Icon.list, () -> showMultiManageDialog(row, col, rebuild))
+                    .width(280f).height(50f).padTop(6f).row();
+
+                t.add(Core.bundle.get("schematics-table.dialog.radial-preview") + ":").padTop(10f).row();
+                WidgetGroup radial = buildRadialLayout(page().cell(row, col), mobile ? 26f : 34f, mobile ? 46f : 58f,
+                    () -> showSchematicPickerDialog(name -> {
+                        page().cellForWrite(row, col).schematic = name;
+                        data().save();
+                        rebuild.run();
+                    }),
+                    (idx, s, me) -> showSchematicPickerDialog(name -> {
+                        CellData cc = page().cellForWrite(row, col);
+                        MultiEntry entry = cc.multiEntries.get(idx);
+                        if(entry == null){
+                            entry = new MultiEntry();
+                            cc.multiEntries.put(idx, entry);
+                        }
+                        entry.schematic = name;
+                        data().save();
+                        rebuild.run();
+                    })
+                );
+                t.table(rp -> rp.add(radial).size(radial.getWidth(), radial.getHeight())).padTop(6f).row();
+            }
 
             //подпись
             t.table(lr -> {
@@ -1720,6 +1782,210 @@ public class SchematicsTableUi{
                 rebuild.run();
             }).width(240f).height(50f).padTop(12f).row();
         }).size(mobile ? 420f : 800f, mobile ? 620f : 820f);
+    }
+
+    // ---------------------------------------------------------------- multi-ячейка: radial-меню
+
+    interface RadialClick{
+        void get(int index, Schematic schematic, MultiEntry entry);
+    }
+
+    /** Кнопка одной "спицы" колеса - превью схемы (как в пикере) или пустой "+", если секция не назначена. */
+    Button buildRadialButton(Schematic s){
+        Button b = new Button(Styles.defaulti);
+        if(s != null){
+            try{
+                b.add(new SchematicImage(s)).grow().pad(4f);
+            }catch(Throwable t){
+                b.image(defaultSchematicImage()).grow().pad(6f);
+            }
+        }else{
+            b.image(Icon.add).grow().pad(mobile ? 8f : 12f);
+        }
+        return b;
+    }
+
+    /**
+     * Раскладка колеса выбора - секции {@link CellData#sections} штук по кругу (12 часов, далее по
+     * часовой) + центр (та же пара {@link CellData#schematic}/{@link CellData#rotation}, что у
+     * обычной ячейки). Один и тот же билдер используется и для статичного превью в диалоге ячейки
+     * (клик по спице/центру там же меняет назначение), и для живого picker'а в игре (openRadialPicker) -
+     * поведение клика передаётся коллбэками, разметка - общая.
+     */
+    WidgetGroup buildRadialLayout(CellData cell, float radius, float btnSize, Runnable onCenter, RadialClick onSection){
+        float centerSize = btnSize * 1.25f;
+        float pad = 6f;
+        float span = radius * 2f + Math.max(btnSize, centerSize) + pad * 2f;
+
+        WidgetGroup g = new WidgetGroup();
+        g.setSize(span, span);
+        float cx = span / 2f, cy = span / 2f;
+
+        int n = Math.max(CellData.MIN_SECTIONS, Math.min(cell.sections, CellData.MAX_SECTIONS));
+        for(int i = 0; i < n; i++){
+            MultiEntry me = cell.multiEntries.get(i);
+            Schematic s = me == null || me.schematic.isEmpty() ? null : findSchematic(me.schematic);
+            float angle = 90f - i * (360f / n);
+            float rad = angle * Mathf.degRad;
+            float bx = cx + Mathf.cos(rad) * radius;
+            float by = cy + Mathf.sin(rad) * radius;
+
+            Button b = buildRadialButton(s);
+            b.setSize(btnSize, btnSize);
+            b.setPosition(bx, by, Align.center);
+            int idx = i;
+            b.clicked(() -> onSection.get(idx, s, me));
+            g.addChild(b);
+        }
+
+        Schematic centerS = findSchematic(cell.schematic);
+        Button centerBtn = buildRadialButton(centerS);
+        centerBtn.setSize(centerSize, centerSize);
+        centerBtn.setPosition(cx, cy, Align.center);
+        centerBtn.clicked(onCenter);
+        g.addChild(centerBtn);
+
+        return g;
+    }
+
+    /** Список секций с подробным управлением (выбор/поворот/очистка каждой) - то, что клик по спице превью не даёт. */
+    void showMultiManageDialog(int row, int col, Runnable parentRebuild){
+        BaseDialog dialog = new BaseDialog(Core.bundle.get("schematics-table.dialog.manage-multi.title"));
+        dialog.addCloseButton();
+
+        Runnable[] rebuild = {null};
+        rebuild[0] = () -> {
+            dialog.cont.clearChildren();
+            CellData cell = page().cellForWrite(row, col);
+            Table t = dialog.cont;
+            t.pane(list -> {
+                list.defaults().left().padBottom(6f);
+                int n = Math.max(CellData.MIN_SECTIONS, Math.min(cell.sections, CellData.MAX_SECTIONS));
+                for(int i = 0; i < n; i++){
+                    int idx = i;
+                    MultiEntry me = cell.multiEntries.get(idx);
+                    Schematic s = me == null || me.schematic.isEmpty() ? null : findSchematic(me.schematic);
+
+                    list.table(row2 -> {
+                        row2.left();
+                        row2.add(Core.bundle.format("schematics-table.dialog.manage-multi.section", idx + 1)).width(110f);
+                        try{
+                            if(s != null) row2.add(new SchematicImage(s)).size(40f).pad(2f);
+                        }catch(Throwable ex){
+                            //превью не критично - строка со схемой всё равно рабочая
+                        }
+
+                        String name = s != null ? s.name() : Core.bundle.get("schematics-table.dialog.manage-multi.empty");
+                        row2.label(() -> name).width(mobile ? 160f : 260f).padLeft(6f).padRight(6f);
+
+                        row2.button(Core.bundle.get("schematics-table.dialog.cell.pick"), () -> showSchematicPickerDialog(picked -> {
+                            CellData cc = page().cellForWrite(row, col);
+                            MultiEntry entry = cc.multiEntries.get(idx);
+                            if(entry == null){
+                                entry = new MultiEntry();
+                                cc.multiEntries.put(idx, entry);
+                            }
+                            entry.schematic = picked;
+                            data().save();
+                            rebuild[0].run();
+                            parentRebuild.run();
+                        })).size(90f, 40f).padRight(6f);
+
+                        row2.button("[accent]<", () -> {
+                            MultiEntry entry = page().cellForWrite(row, col).multiEntries.get(idx);
+                            if(entry != null){
+                                entry.rotation = (entry.rotation + 3) % 4;
+                                data().save();
+                                rebuild[0].run();
+                            }
+                        }).size(36f);
+                        row2.label(() -> {
+                            MultiEntry e = page().cell(row, col) == null ? null : page().cell(row, col).multiEntries.get(idx);
+                            return (e == null ? 0 : e.rotation) + "x90";
+                        }).padLeft(4f).padRight(4f);
+                        row2.button("[accent]>", () -> {
+                            CellData cc = page().cellForWrite(row, col);
+                            MultiEntry entry = cc.multiEntries.get(idx);
+                            if(entry == null){
+                                entry = new MultiEntry();
+                                cc.multiEntries.put(idx, entry);
+                            }
+                            entry.rotation = (entry.rotation + 1) % 4;
+                            data().save();
+                            rebuild[0].run();
+                        }).size(36f);
+
+                        row2.button(Icon.trash, Styles.clearNonei, () -> {
+                            page().cellForWrite(row, col).multiEntries.remove(idx);
+                            data().save();
+                            rebuild[0].run();
+                            parentRebuild.run();
+                        }).size(40f).padLeft(6f);
+                    }).growX().row();
+                }
+            }).grow();
+        };
+        rebuild[0].run();
+        dialog.show();
+    }
+
+    // ---------------------------------------------------------------- multi-ячейка: рантайм picker
+
+    private WidgetGroup radialOverlay;
+
+    void openRadialPicker(CellData cell){
+        closeRadialPicker();
+
+        {
+            boolean any = !cell.schematic.isEmpty();
+            if(!any){
+                for(IntMap.Entry<MultiEntry> e : cell.multiEntries) if(!e.value.schematic.isEmpty()){ any = true; break; }
+            }
+            if(!any){
+                ui.announce(Core.bundle.get("schematics-table.radial.empty"), 2f);
+                return;
+            }
+        }
+
+        WidgetGroup overlay = new WidgetGroup();
+        overlay.setFillParent(true);
+        overlay.touchable = Touchable.childrenOnly;
+
+        Image dim = new Image(Tex.whiteui);
+        dim.setColor(0f, 0f, 0f, 0.35f);
+        dim.setFillParent(true);
+        dim.clicked(this::closeRadialPicker);
+        overlay.addChild(dim);
+
+        WidgetGroup radial = buildRadialLayout(cell, 120f, 84f,
+            () -> {
+                Schematic s = findSchematic(cell.schematic);
+                if(s != null){
+                    placeSchematic(s, cell.rotation);
+                }
+                closeRadialPicker();
+            },
+            (idx, s, me) -> {
+                if(s != null){
+                    placeSchematic(s, me.rotation);
+                }
+                closeRadialPicker();
+            });
+
+        float cx = Mathf.clamp(Core.input.mouseX(), radial.getWidth() / 2f + 10f, Core.graphics.getWidth() - radial.getWidth() / 2f - 10f);
+        float cy = Mathf.clamp(Core.input.mouseY(), radial.getHeight() / 2f + 10f, Core.graphics.getHeight() - radial.getHeight() / 2f - 10f);
+        radial.setPosition(cx, cy, Align.center);
+        overlay.addChild(radial);
+
+        Core.scene.add(overlay);
+        radialOverlay = overlay;
+    }
+
+    void closeRadialPicker(){
+        if(radialOverlay != null){
+            radialOverlay.remove();
+            radialOverlay = null;
+        }
     }
 
     /**
@@ -2106,6 +2372,10 @@ public class SchematicsTableUi{
     }
 
     String cellTooltip(CellData c, Schematic schematic){
+        if(c != null && c.multi){
+            String display = !c.label.isEmpty() ? c.label : Core.bundle.get("schematics-table.dialog.mode.multi");
+            return Core.bundle.get("schematics-table.use-schematic") + " " + display;
+        }
         if(schematic == null) return Core.bundle.get("schematics-table.default-cathegory-desktop-name");
         String display = c != null && !c.label.isEmpty() ? c.label : schematic.name();
         return Core.bundle.get("schematics-table.use-schematic") + " " + display;
