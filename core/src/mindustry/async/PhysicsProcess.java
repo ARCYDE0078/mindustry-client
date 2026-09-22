@@ -1,5 +1,6 @@
 package mindustry.async;
 
+import arc.*;
 import arc.math.*;
 import arc.math.geom.*;
 import arc.math.geom.QuadTree.*;
@@ -101,6 +102,7 @@ public class PhysicsProcess implements AsyncProcess{
                 ref.startX = ref.body.x = ref.entity.x;
                 ref.startY = ref.body.y = ref.entity.y;
                 ref.body.local = local || ref.entity.isLocal();
+                ref.body.noclip = ref.entity.isLocal() && Core.settings.getBool("unitnoclip");
             }
         }
 
@@ -194,7 +196,8 @@ public class PhysicsProcess implements AsyncProcess{
                 for(int i = 0; i < bodySize; i++){
                     PhysicsBody body = bodyItems[i];
                     //for clients, the only body that collides is the local one; all other physics simulations are handled by the server.
-                    if(!body.local) continue;
+                    //noclip bodies neither push nor get pushed
+                    if(!body.local || body.noclip) continue;
 
                     seq.size = 0;
                     tree.intersect(body.x - body.radius, body.y - body.radius, body.radius * 2, body.radius * 2, seq);
@@ -204,7 +207,7 @@ public class PhysicsProcess implements AsyncProcess{
                     for(int j = 0; j < size; j++){
                         PhysicsBody other = items[j];
 
-                        if(other == body || other.collided) continue;
+                        if(other == body || other.collided || other.noclip) continue;
 
                         float rs = body.radius + other.radius;
                         float dx = body.x - other.x, dy = body.y - other.y;
@@ -245,7 +248,7 @@ public class PhysicsProcess implements AsyncProcess{
 
         public static class PhysicsBody implements QuadTreeObject{
             public float x, y, radius, mass;
-            public boolean collided = false, local = true;
+            public boolean collided = false, local = true, noclip = false;
 
             @Override
             public void hitbox(Rect out){

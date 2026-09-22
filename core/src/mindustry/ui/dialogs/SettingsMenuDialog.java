@@ -452,6 +452,7 @@ public class SettingsMenuDialog extends BaseDialog{
         client.sliderPref("minzoom", 0, 0, 100, s -> Strings.fixed(Mathf.pow(10, 0.0217f * s) / 100f, 2) + "x");
         client.checkPref("blockreplace", true);
         client.checkPref("instantturn", true);
+        client.checkPref("unitnoclip", false);
         client.checkPref("allowinvturrets", true);
         client.checkPref("autoboost", false);
         client.checkPref("assumeunstrict", false);
