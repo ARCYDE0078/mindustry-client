@@ -1681,6 +1681,11 @@ public class SchematicsTableUi{
                         rebuild.run();
                     })
                 ).width(200f).height(44f).pad(4f);
+                schem.button(Icon.trash, Styles.clearNonei, () -> {
+                    page().cellForWrite(row, col).schematic = "";
+                    data().save();
+                    rebuild.run();
+                }).size(44f).pad(4f);
             }).growX().row();
 
             //режим ячейки: одна схема / несколько по кругу
@@ -1701,7 +1706,7 @@ public class SchematicsTableUi{
                 t.button(Core.bundle.get("schematics-table.dialog.manage-multi"), Icon.list, () -> showMultiManageDialog(row, col, rebuild))
                     .width(280f).height(50f).padTop(6f).row();
 
-                t.add(Core.bundle.get("schematics-table.dialog.radial-preview") + ":").padTop(10f).row();
+                t.add(Core.bundle.get("schematics-table.dialog.radial-preview") + ":").padTop(20f).row();
                 WidgetGroup radial = buildRadialLayout(page().cell(row, col), mobile ? 26f : 34f, mobile ? 46f : 58f,
                     () -> showSchematicPickerDialog(name -> {
                         page().cellForWrite(row, col).schematic = name;
@@ -1720,7 +1725,7 @@ public class SchematicsTableUi{
                         rebuild.run();
                     })
                 );
-                t.table(rp -> rp.add(radial).size(radial.getWidth(), radial.getHeight())).padTop(6f).row();
+                t.table(rp -> rp.add(radial).size(radial.getWidth(), radial.getHeight())).padTop(10f).padBottom(20f).row();
             }
 
             //подпись
