@@ -1735,7 +1735,7 @@ public class SchematicsTableUi{
                         rebuild.run();
                     }
                 );
-                t.table(rp -> rp.add(radial).size(radial.getWidth(), radial.getHeight())).padTop(24f).padBottom(20f).row();
+                t.table(rp -> rp.add(radial).size(radial.getWidth(), radial.getHeight())).padTop(44f).padBottom(20f).row();
             }
 
             //подпись
