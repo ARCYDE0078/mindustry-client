@@ -557,6 +557,7 @@ public class SettingsMenuDialog extends BaseDialog{
         client.pref(new qol.core.ButtonSetting("menu-unit-configure", () -> new sonkaextras.MenuUnitDialog().show()));
         client.checkPref("placementfragmentsearch", true);
         client.checkPref("uselocalizedname", true);
+        client.checkPref("showhiddenresources", true);
         client.checkPref("showtoasts", true);
         client.checkPref("showcutscenes", true);
         client.checkPref("activemodesdisplay", true);

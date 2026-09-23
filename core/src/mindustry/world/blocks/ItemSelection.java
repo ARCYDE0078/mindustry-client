@@ -67,8 +67,11 @@ public class ItemSelection{
             Seq<T> list = items.select(Core.settings.getBool("uselocalizedname", true) ?
                 u -> (text.isEmpty() || u.localizedName.toLowerCase().contains(text.toLowerCase()))
             :   u -> (text.isEmpty() || u.name.toLowerCase().contains(text.toLowerCase())));
+            boolean showAll = Core.settings.getBool("showhiddenresources", true);
             for(T item : list){
-                if((!item.unlockedNow() || !item.isOnPlanet(state.getPlanet()) || item.isHidden())
+                if(showAll && (item instanceof Item || item instanceof Liquid)){
+                    // клиент: в сортировщике/источнике доступен любой ресурс, даже скрытый/не изученный/чужой планеты
+                }else if((!item.unlockedNow() || !item.isOnPlanet(state.getPlanet()) || item.isHidden())
                     && !(item instanceof Item it && player != null && player.team() != null && player.team().items().has(it))) continue;
 
                 ImageButton button = cont.button(Tex.whiteui, Styles.clearNoneTogglei, Mathf.clamp(item.selectionSize, 0f, 40f), () -> {
