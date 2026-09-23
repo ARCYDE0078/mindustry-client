@@ -271,6 +271,7 @@ public class MI2UI extends Mindow2{
         settings.title("graphics.overlay");
 
         settings.checkPref("enBlockHpBar", true).tag(false, false, true);
+        settings.checkPref("enTurretReloadBar", false).tag(false, false, true);
         settings.checkPref("enUnitHpBar", true).tag(false, false, true);
         settings.checkPref("unitHpBarDamagedOnly", true);
         settings.checkPref("enUnitHitbox", false).tag(false, false, true);

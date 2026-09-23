@@ -71,6 +71,7 @@ public class RendererExt{
     public static boolean enTurretZone;
     public static boolean turretZoneAAColor;
     public static boolean enBlockHpBar;
+    public static boolean enTurretReloadBar;
     public static boolean enDistributionReveal;
     public static boolean drevealBridge;
     public static boolean drevealJunction;
@@ -162,6 +163,7 @@ public class RendererExt{
         turretZoneAAColor = mi2ui.settings.getInt("turretZoneColorStyle") == 1;
         rangeZoneTransparency = mi2ui.settings.getInt("rangeZoneTransparency") / 100f;
         enBlockHpBar = mi2ui.settings.getBool("enBlockHpBar");
+        enTurretReloadBar = mi2ui.settings.getBool("enTurretReloadBar");
         enDistributionReveal = mi2ui.settings.getBool("enDistributionReveal");
         drevealBridge = mi2ui.settings.getBool("drevealBridge");
         drevealJunction = mi2ui.settings.getBool("drevealJunction");
@@ -183,7 +185,7 @@ public class RendererExt{
         //когда нет и остаточного состояния (спрятанные юниты/чанки, следы distribution reveal) -
         //иначе даём обычному пути его восстановить/дочистить, как раньше
         if(!enPlayerCursor && !enUnitHitbox && !enUnitHpBar && !enUnitLogic && !enUnitPath && !enUnitRangeZone
-            && !enOverdriveZone && !enMenderZone && !enTurretZone && !enBlockHpBar && !enDistributionReveal
+            && !enOverdriveZone && !enMenderZone && !enTurretZone && !enBlockHpBar && !enTurretReloadBar && !enDistributionReveal
             && !enSpawnZone && !disableWreck && !disableUnit && !disableBuilding && !disableBullet
             && hiddenUnit.isEmpty() && removedFromCache.isEmpty() && BuildingInventory.ids.isEmpty()) return;
 
@@ -278,6 +280,7 @@ public class RendererExt{
             for(var build : tileViewBuildingCollection){
                 if(build == null) continue;
                 if(enBlockHpBar) drawBlockHpBar(build);
+                if(enTurretReloadBar && build instanceof Turret.TurretBuild tb) drawTurretReloadBar(tb);
                 if(enDistributionReveal){
                     BuildingInventory.ids.add(build.id);
                     boolean transport = drawBlackboxBuilding(build);
@@ -596,6 +599,23 @@ public class RendererExt{
             drawText((uf.unit() == null ? "":uf.unit().emoji()) + (Strings.autoFixed(uf.plan().time * (1 - uf.progress) / (60f * state.rules.unitBuildSpeed(uf.team) * uf.timeScale()), 1) + "% | " + Strings.autoFixed(uf.plan().time * (1 - uf.progress) / (60f * state.rules.unitBuildSpeed(uf.team) * uf.timeScale()), 1)), uf.x, barDrawer.getBarCenterY(Align.bottom), Pal.accent, uf.block.size > 3 ? 1.0f : 0.8f, Align.center);
             barDrawer.addPad(Align.bottom, 2f);
         }
+
+        Draw.color();
+        Draw.z(z);
+    }
+
+    //перезарядка турели: reloadCounter/reload уже считает сама турель (Turret.progress()), просто рисуем её
+    public static void drawTurretReloadBar(Turret.TurretBuild build){
+        float progress = build.progress();
+        if(progress >= 1f) return;
+
+        final float lenMul = 0.8f;
+        float z = Draw.z();
+        Draw.z(Layer.overlayUI);
+        barDrawer.reset().set(build.x, build.y, build.hitSize() * 0.8f, build.hitSize() * 0.8f);
+
+        Draw.color(Pal.accent, 0.8f);
+        barDrawer.fill(Align.bottom, progress, lenMul, 2f).addPad(Align.bottom, 2f);
 
         Draw.color();
         Draw.z(z);
