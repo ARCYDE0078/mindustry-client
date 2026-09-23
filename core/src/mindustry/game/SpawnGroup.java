@@ -172,7 +172,11 @@ public class SpawnGroup implements JsonSerializable, Cloneable{
 
     public SpawnGroup copy(){
         try{
-            return (SpawnGroup)clone();
+            SpawnGroup out = (SpawnGroup)clone();
+            //клон поверхностный: изменяемые поля должны быть свои у каждой копии
+            if(items != null) out.items = items.copy();
+            if(payloads != null) out.payloads = payloads.copy();
+            return out;
         }catch(CloneNotSupportedException how){
             throw new RuntimeException("If you see this, what did you even do?", how);
         }

@@ -290,6 +290,50 @@ public class WaveInfoDialog extends BaseDialog{
                             buildGroups();
                         }).padTop(4).update(b -> b.setChecked(group.effect == StatusEffects.boss)).padBottom(8f).row();
 
+                        //предмет в трюме юнита при спавне (юнит вмещает один тип предмета)
+                        t.table(a -> {
+                            a.add("@waves.items").padRight(8);
+                            a.button(b -> {
+                                if(group.items != null){
+                                    b.image(group.items.item.uiIcon).size(iconSmall).scaling(Scaling.fit);
+                                }else{
+                                    b.image(Icon.none).size(iconSmall).scaling(Scaling.fit);
+                                }
+                            }, Styles.squarei, () -> showItems(group)).size(38f).tooltip(group.items != null ? group.items.item.localizedName : "@none");
+                            if(group.items != null){
+                                a.field(group.items.amount + "", TextFieldFilter.digitsOnly, text -> {
+                                    if(Strings.canParsePositiveInt(text) && group.items != null){
+                                        group.items.amount = Strings.parseInt(text);
+                                    }
+                                }).width(80f).padLeft(6f);
+                            }
+                        }).padTop(4).row();
+
+                        //груз (юниты внутри юнита, как у токсопидов), только для юнитов с вместимостью
+                        if(group.type.payloadCapacity > 0){
+                            t.table(a -> {
+                                a.left();
+                                a.add("@waves.payloads").padRight(8);
+                                if(group.payloads != null){
+                                    for(int pi = 0; pi < group.payloads.size; pi++){
+                                        int index = pi;
+                                        UnitType pt = group.payloads.get(pi);
+                                        if(pt == null) continue;
+                                        a.button(new TextureRegionDrawable(pt.uiIcon), Styles.emptyi, () -> {
+                                            group.payloads.remove(index);
+                                            if(group.payloads.isEmpty()) group.payloads = null;
+                                            buildGroups();
+                                        }).size(38f).scaling(Scaling.fit).tooltip(pt.localizedName);
+                                    }
+                                }
+                                a.button(Icon.add, Styles.emptyi, () -> showUnits(type -> {
+                                    if(type == null) return;
+                                    if(group.payloads == null) group.payloads = new Seq<>();
+                                    group.payloads.add(type);
+                                }, false)).size(38f).tooltip("@waves.payloads.add");
+                            }).padTop(4).growX().row();
+                        }
+
                         t.table(a -> {
                             a.add("@waves.team").padRight(8);
 
@@ -389,6 +433,38 @@ public class WaveInfoDialog extends BaseDialog{
                     t.add(type.localizedName);
                 }, () -> {
                     cons.get(type);
+                    dialog.hide();
+                    buildGroups();
+                }).margin(12f);
+                if(++i % 3 == 0) p.row();
+            }
+        }).growX().scrollX(false);
+        dialog.addCloseButton();
+        dialog.show();
+    }
+
+    void showItems(SpawnGroup group){
+        BaseDialog dialog = new BaseDialog("");
+        dialog.cont.pane(p -> {
+            p.defaults().pad(2).fillX();
+            p.button(t -> {
+                t.left();
+                t.image(Icon.none).size(8 * 4).scaling(Scaling.fit).padRight(2f);
+                t.add("@settings.resetKey");
+            }, () -> {
+                group.items = null;
+                dialog.hide();
+                buildGroups();
+            }).margin(12f);
+            int i = 1;
+            //все предметы, включая скрытые
+            for(Item item : content.items()){
+                p.button(t -> {
+                    t.left();
+                    t.image(item.uiIcon).size(8 * 4).scaling(Scaling.fit).padRight(2f);
+                    t.add(item.localizedName);
+                }, () -> {
+                    group.items = new ItemStack(item, group.items != null ? group.items.amount : Math.max(group.type.itemCapacity, 1));
                     dialog.hide();
                     buildGroups();
                 }).margin(12f);
