@@ -28,8 +28,10 @@ import mindustry.world.blocks.defense.turrets.*;
 import mindustry.world.blocks.distribution.*;
 import mindustry.world.blocks.heat.*;
 import mindustry.world.blocks.logic.*;
+import mindustry.world.blocks.production.*;
 import mindustry.world.blocks.storage.*;
 import mindustry.world.blocks.units.*;
+import mindustry.world.consumers.*;
 
 import java.lang.reflect.*;
 
@@ -74,6 +76,7 @@ public class RendererExt{
     public static boolean enBlockHpBar;
     public static boolean enTurretReloadBar;
     public static boolean enHeatBar;
+    public static boolean enDrillBoostBar;
     public static boolean enDistributionReveal;
     public static boolean drevealBridge;
     public static boolean drevealJunction;
@@ -167,6 +170,7 @@ public class RendererExt{
         enBlockHpBar = mi2ui.settings.getBool("enBlockHpBar");
         enTurretReloadBar = mi2ui.settings.getBool("enTurretReloadBar");
         enHeatBar = mi2ui.settings.getBool("enHeatBar");
+        enDrillBoostBar = mi2ui.settings.getBool("enDrillBoostBar");
         enDistributionReveal = mi2ui.settings.getBool("enDistributionReveal");
         drevealBridge = mi2ui.settings.getBool("drevealBridge");
         drevealJunction = mi2ui.settings.getBool("drevealJunction");
@@ -188,7 +192,7 @@ public class RendererExt{
         //когда нет и остаточного состояния (спрятанные юниты/чанки, следы distribution reveal) -
         //иначе даём обычному пути его восстановить/дочистить, как раньше
         if(!enPlayerCursor && !enUnitHitbox && !enUnitHpBar && !enUnitLogic && !enUnitPath && !enUnitRangeZone
-            && !enOverdriveZone && !enMenderZone && !enTurretZone && !enBlockHpBar && !enTurretReloadBar && !enHeatBar && !enDistributionReveal
+            && !enOverdriveZone && !enMenderZone && !enTurretZone && !enBlockHpBar && !enTurretReloadBar && !enHeatBar && !enDrillBoostBar && !enDistributionReveal
             && !enSpawnZone && !disableWreck && !disableUnit && !disableBuilding && !disableBullet
             && hiddenUnit.isEmpty() && removedFromCache.isEmpty() && BuildingInventory.ids.isEmpty()) return;
 
@@ -293,6 +297,7 @@ public class RendererExt{
                         drawHeatBar(build, Mathf.clamp(build.calculateHeat(hc.sideHeat()) / hc.heatRequirement()));
                     }
                 }
+                if(enDrillBoostBar && build instanceof Drill.DrillBuild db && db.block instanceof Drill drill && drill.liquidBoostIntensity != 1f) drawDrillBoostBar(db, drill);
                 if(enDistributionReveal){
                     BuildingInventory.ids.add(build.id);
                     boolean transport = drawBlackboxBuilding(build);
@@ -645,6 +650,24 @@ public class RendererExt{
 
         Draw.color(Pal.lightOrange, 0.8f);
         barDrawer.fill(Align.bottom, frac, lenMul, 2f).addPad(Align.bottom, 2f);
+
+        Draw.color();
+        Draw.z(z);
+    }
+
+    //буст сверла жидкостью: optionalEfficiency (0..1) - та же величина, что drill.speed = lerp(1, liquidBoostIntensity, optionalEfficiency)
+    //использует внутри себя; полоска пустая/неполная = сверлу не хватает бустящей жидкости, скрываем только когда буст уже максимальный
+    public static void drawDrillBoostBar(Drill.DrillBuild build, Drill drill){
+        if(build.optionalEfficiency >= 0.999f) return;
+
+        final float lenMul = 0.8f;
+        float z = Draw.z();
+        Draw.z(Layer.overlayUI);
+        barDrawer.reset().set(build.x, build.y, build.hitSize() * 0.8f, build.hitSize() * 0.8f);
+
+        ConsumeLiquid boost = drill.findConsumer(f -> f.booster && f instanceof ConsumeLiquid);
+        Draw.color(boost != null ? boost.liquid.color : Pal.accent, 0.85f);
+        barDrawer.fill(Align.bottom, Mathf.clamp(build.optionalEfficiency), lenMul, 2f).addPad(Align.bottom, 2f);
 
         Draw.color();
         Draw.z(z);

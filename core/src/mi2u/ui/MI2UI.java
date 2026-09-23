@@ -273,6 +273,7 @@ public class MI2UI extends Mindow2{
         settings.checkPref("enBlockHpBar", true).tag(false, false, true);
         settings.checkPref("enTurretReloadBar", false).tag(false, false, true);
         settings.checkPref("enHeatBar", false).tag(false, false, true);
+        settings.checkPref("enDrillBoostBar", false).tag(false, false, true);
         settings.checkPref("enUnitHpBar", true).tag(false, false, true);
         settings.checkPref("unitHpBarDamagedOnly", true);
         settings.checkPref("enUnitHitbox", false).tag(false, false, true);
