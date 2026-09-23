@@ -77,7 +77,7 @@ public class WaveApproachingDialog extends BaseDialog{
             waveHealth += group.type.health * amount;
             waveShield += group.getShield(state.wave - 1);
             waveUnits.put(group.type, amount);
-            if(group.effect == StatusEffects.boss) waveBosses.put(group.type, amount);
+            if(group.hasEffect(StatusEffects.boss)) waveBosses.put(group.type, amount);
         });
     }
 

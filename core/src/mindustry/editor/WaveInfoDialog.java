@@ -187,10 +187,11 @@ public class WaveInfoDialog extends BaseDialog{
                             buildGroups();
                         }).pad(-6).size(46f).tooltip("@editor.copy");
 
-                        b.button(group.effect != null ?
-                            new TextureRegionDrawable(group.effect.uiIcon) :
+                        Seq<StatusEffect> effs = group.effects();
+                        b.button(!effs.isEmpty() ?
+                            new TextureRegionDrawable(effs.first().uiIcon) :
                             Icon.logicSmall,
-                        Styles.emptyi, () -> showEffects(group)).pad(-6).size(46f).scaling(Scaling.fit).tooltip(group.effect != null ? group.effect.localizedName : "@none");
+                        Styles.emptyi, () -> showEffects(group)).pad(-6).size(46f).scaling(Scaling.fit).tooltip(!effs.isEmpty() ? effs.map(e -> e.localizedName).toString(", ") : "@none");
 
                         b.button(Icon.unitsSmall, Styles.emptyi, () -> showUnits(type -> group.type = type, false)).pad(-6).size(46f).tooltip("@stat.unittype");
                         b.button(Icon.cancel, Styles.emptyi, () -> {
@@ -288,9 +289,11 @@ public class WaveInfoDialog extends BaseDialog{
                         }).row();
 
                         t.check("@waves.guardian", b -> {
-                            group.effect = (b ? StatusEffects.boss : null);
+                            Seq<StatusEffect> list = group.effects();
+                            if(b) list.addUnique(StatusEffects.boss); else list.remove(StatusEffects.boss);
+                            group.setEffects(list);
                             buildGroups();
-                        }).padTop(4).update(b -> b.setChecked(group.effect == StatusEffects.boss)).padBottom(8f).row();
+                        }).padTop(4).update(b -> b.setChecked(group.hasEffect(StatusEffects.boss))).padBottom(8f).row();
 
                         //предмет в трюме юнита при спавне (юнит вмещает один тип предмета)
                         t.table(a -> {
@@ -546,7 +549,7 @@ public class WaveInfoDialog extends BaseDialog{
                         h.add("x" + n + " " + g.type.localizedName).color(Pal.accent);
                     }).row();
                     t.add(Core.bundle.format("waves.stats.unit", (int)g.type.health, (int)g.getShield(w), (int)g.type.armor)).row();
-                    t.add(Core.bundle.get("waves.stats.status") + " " + (g.effect != null ? g.effect.localizedName : Core.bundle.get("none"))).row();
+                    t.add(Core.bundle.get("waves.stats.status") + " " + (g.effects().isEmpty() ? Core.bundle.get("none") : g.effects().map(e -> e.localizedName).toString(", "))).row();
                     if(g.items != null && g.items.amount > 0){
                         t.add(Core.bundle.format("waves.stats.carry", g.items.item.localizedName, g.items.amount, g.items.amount * n)).row();
                     }
@@ -614,8 +617,10 @@ public class WaveInfoDialog extends BaseDialog{
         dialog.show();
     }
 
+    /** Мультивыбор: клик включает/выключает эффект, диалог остаётся открытым. */
     void showEffects(SpawnGroup group){
         BaseDialog dialog = new BaseDialog("");
+        dialog.hidden(this::buildGroups);
         dialog.cont.pane(p -> {
             p.defaults().pad(2).fillX();
             p.button(t -> {
@@ -623,23 +628,21 @@ public class WaveInfoDialog extends BaseDialog{
                 t.image(Icon.none).size(8 * 4).scaling(Scaling.fit).padRight(2f);
                 t.add("@settings.resetKey");
             }, () -> {
-                group.effect = null;
+                group.setEffects(new Seq<>());
                 dialog.hide();
-                buildGroups();
             }).margin(12f);
             int i = 1;
             for(StatusEffect effect : content.statusEffects()){
-                // if(effect != StatusEffects.none && (effect.isHidden() || effect.reactive)) continue;
-
+                if(effect == StatusEffects.none) continue;
                 p.button(t -> {
                     t.left();
                     t.image(effect.uiIcon).size(8 * 4).scaling(Scaling.fit).padRight(2f);
                     t.add(effect.localizedName);
-                }, () -> {
-                    group.effect = effect;
-                    dialog.hide();
-                    buildGroups();
-                }).margin(12f);
+                }, Styles.flatTogglet, () -> {
+                    Seq<StatusEffect> list = group.effects();
+                    if(!list.remove(effect)) list.add(effect);
+                    group.setEffects(list);
+                }).margin(12f).update(b -> b.setChecked(group.hasEffect(effect)));
                 if(++i % 3 == 0) p.row();
             }
         }).growX().scrollX(false);

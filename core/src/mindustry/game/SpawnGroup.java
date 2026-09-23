@@ -46,6 +46,8 @@ public class SpawnGroup implements JsonSerializable, Cloneable{
     public @Nullable Seq<UnitType> payloads;
     /** Status effect applied to the spawned unit. Null to disable. */
     public @Nullable StatusEffect effect;
+    /** Additional status effects applied on top of {@link #effect}. Kept separate so old saves/clients still read the primary one. */
+    public @Nullable Seq<StatusEffect> extraEffects;
     /** Items this unit spawns with. Null to disable. */
     public @Nullable ItemStack items;
     /** Team that units spawned use. Null for default wave team. */
@@ -77,12 +79,33 @@ public class SpawnGroup implements JsonSerializable, Cloneable{
         return Math.max(shields + shieldScaling*(wave - begin), 0);
     }
 
+    /** @return all status effects of this group, primary first. */
+    public Seq<StatusEffect> effects(){
+        Seq<StatusEffect> out = new Seq<>();
+        if(effect != null && effect != StatusEffects.none) out.add(effect);
+        if(extraEffects != null) for(var e : extraEffects) if(e != null && e != StatusEffects.none && !out.contains(e)) out.add(e);
+        return out;
+    }
+
+    public void setEffects(Seq<StatusEffect> list){
+        effect = list.isEmpty() ? null : list.first();
+        extraEffects = null;
+        if(list.size > 1){
+            extraEffects = list.copy();
+            extraEffects.remove(0);
+        }
+    }
+
+    public boolean hasEffect(StatusEffect e){
+        return effect == e || (extraEffects != null && extraEffects.contains(e));
+    }
+
     /** Creates a unit, and assigns correct values based on this group's data. */
     public Unit createUnit(Team team, float x, float y, float rotation, int wave, Cons<Unit> cons){
         Unit unit = type.spawn(team, x, y, rotation, cons);
 
-        if(effect != null){
-            unit.apply(effect, 999999f);
+        for(StatusEffect e : effects()){
+            unit.apply(e, 999999f);
         }
 
         if(items != null){
@@ -121,6 +144,7 @@ public class SpawnGroup implements JsonSerializable, Cloneable{
         if(shieldScaling != 0) json.writeValue("shieldScaling", shieldScaling);
         if(unitAmount != 1) json.writeValue("amount", unitAmount);
         if(effect != null) json.writeValue("effect", effect.name);
+        if(extraEffects != null && extraEffects.any()) json.writeValue("effects", extraEffects.map(e -> e.name).toArray(String.class));
         if(spawn != -1) json.writeValue("spawn", spawn);
         if(payloads != null && payloads.any()) json.writeValue("payloads", payloads.map(u -> u.name).toArray(String.class));
         if(items != null && items.amount > 0) json.writeValue("items", items);
@@ -153,6 +177,10 @@ public class SpawnGroup implements JsonSerializable, Cloneable{
         }else{
             effect = content.statusEffect(data.has("effect") && data.get("effect").isString() ? data.getString("effect", "none") : "none");
         }
+        if(data.has("effects")){
+            extraEffects = Seq.with(json.readValue(String[].class, data.get("effects"))).map(content::statusEffect).removeAll(e -> e == null);
+            if(extraEffects.isEmpty()) extraEffects = null;
+        }
     }
 
     @Override
@@ -176,6 +204,7 @@ public class SpawnGroup implements JsonSerializable, Cloneable{
             //клон поверхностный: изменяемые поля должны быть свои у каждой копии
             if(items != null) out.items = items.copy();
             if(payloads != null) out.payloads = payloads.copy();
+            if(extraEffects != null) out.extraEffects = extraEffects.copy();
             return out;
         }catch(CloneNotSupportedException how){
             throw new RuntimeException("If you see this, what did you even do?", how);
@@ -190,11 +219,11 @@ public class SpawnGroup implements JsonSerializable, Cloneable{
         return end == group.end && begin == group.begin && spacing == group.spacing && max == group.max
             && Float.compare(group.unitScaling, unitScaling) == 0 && Float.compare(group.shields, shields) == 0
             && Float.compare(group.shieldScaling, shieldScaling) == 0 && unitAmount == group.unitAmount &&
-            type == group.type && effect == group.effect && Structs.eq(items, group.items);
+            type == group.type && effect == group.effect && Structs.eq(items, group.items) && Structs.eq(extraEffects, group.extraEffects);
     }
 
     @Override
     public int hashCode(){
-        return Arrays.hashCode(new Object[]{type, end, begin, spacing, max, unitScaling, shields, shieldScaling, unitAmount, effect, items});
+        return Arrays.hashCode(new Object[]{type, end, begin, spacing, max, unitScaling, shields, shieldScaling, unitAmount, effect, items, extraEffects});
     }
 }

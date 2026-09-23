@@ -173,19 +173,25 @@ public class WaveGraph extends Table{
                 Draw.color(1f, 0f, 0f, 0.2f);
                 Fill.crect((selcol+from) * spacing + graphX - spacing/2f, graphY, spacing, graphH);
                 Draw.color();
-                font.getData().setScale(1.5f);
-                for(UnitType type : used.orderedItems()){
-                    int amount = values[Mathf.clamp(selcol, 0, values.length - 1)][type.id];
-                    if(amount > 0){
-                        countStr.append(type.emoji()).append(" ").append(amount).append("\n");
-                    }
-                }
-                float pad = Scl.scl(5f);
-                font.draw(countStr, (selcol+from) * spacing + graphX - spacing/2f + pad, graphY + graphH - pad);
-                font.getData().setScale(1f);
             }
 
             clipEnd();
+
+            //панель полной статистики выбранной волны, прижата к стороне, противоположной курсору
+            if(selcol >= 0 && selcol < values.length){
+                float pad = Scl.scl(6f);
+                font.getData().markupEnabled = true;
+                font.getData().setScale(0.8f);
+                lay.setText(font, WaveStats.describe(groups, selcol + from));
+                float bw = lay.width + pad * 2f, bh = lay.height + pad * 2f;
+                float bx = mouse.x < x + width / 2f ? x + width - bw - pad : x + pad;
+                float by = y + height - bh - pad;
+                Draw.color(0f, 0f, 0f, 0.8f);
+                Fill.crect(bx, by, bw, bh);
+                Draw.color();
+                font.draw(lay, bx + pad, by + bh - pad);
+                font.getData().setScale(1f);
+            }
 
             //how many numbers can fit here
             float totalMarks = Mathf.clamp(maxY, 1, 10);

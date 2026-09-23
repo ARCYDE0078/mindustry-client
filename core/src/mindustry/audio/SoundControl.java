@@ -56,7 +56,7 @@ public class SoundControl{
         Events.on(WaveEvent.class, e -> Time.run(Mathf.random(8f, 15f) * 60f, () -> {
             if(state.rules.disableMusic) return;
 
-            boolean boss = state.rules.spawns.contains(group -> group.getSpawned(state.wave - 2) > 0 && group.effect == StatusEffects.boss);
+            boolean boss = state.rules.spawns.contains(group -> group.getSpawned(state.wave - 2) > 0 && group.hasEffect(StatusEffects.boss));
 
             if(boss){
                 playOnce(getBossMusic().random(lastRandomPlayed));
