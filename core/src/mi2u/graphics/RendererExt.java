@@ -656,9 +656,10 @@ public class RendererExt{
     }
 
     //буст сверла жидкостью: optionalEfficiency (0..1) - та же величина, что drill.speed = lerp(1, liquidBoostIntensity, optionalEfficiency)
-    //использует внутри себя; полоска пустая/неполная = сверлу не хватает бустящей жидкости, скрываем только когда буст уже максимальный
+    //использует внутри себя; буфер жидкости в буре наполняется почти мгновенно, так что "полный буст" - это обычное
+    //устойчивое состояние, а не мимолётный момент (в отличие от перезарядки турели) - скрываем, только когда буста вообще нет
     public static void drawDrillBoostBar(Drill.DrillBuild build, Drill drill){
-        if(build.optionalEfficiency >= 0.999f) return;
+        if(build.optionalEfficiency <= 0.001f) return;
 
         final float lenMul = 0.8f;
         float z = Draw.z();
