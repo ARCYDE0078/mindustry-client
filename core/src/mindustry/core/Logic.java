@@ -2,6 +2,7 @@ package mindustry.core;
 
 import arc.*;
 import arc.math.*;
+import arc.math.geom.*;
 import arc.util.*;
 import mindustry.*;
 import mindustry.ai.*;
@@ -490,7 +491,17 @@ public class Logic implements ApplicationListener{
         PerfCounter.powerUpdate.end();
 
         PerfCounter.buildingUpdate.begin();
-        if(!editor) Groups.build.update();
+        if(!editor){
+            //non-host clients only render/predict buildings locally; the server is authoritative, so buildings outside the camera don't need per-tick prediction
+            if(net.client() && !headless){
+                Groups.build.update(b -> {
+                    b.hitbox(Tmp.r1);
+                    return ClientVars.cameraBounds.overlaps(Tmp.r1);
+                });
+            }else{
+                Groups.build.update();
+            }
+        }
         PerfCounter.buildingUpdate.end();
 
         PerfCounter.bulletUpdate.begin();
