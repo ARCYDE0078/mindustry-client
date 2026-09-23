@@ -284,7 +284,15 @@ public class RendererExt{
                 if(build == null) continue;
                 if(enBlockHpBar) drawBlockHpBar(build);
                 if(enTurretReloadBar && build instanceof Turret.TurretBuild tb) drawTurretReloadBar(tb);
-                if(enHeatBar && build instanceof HeatBlock hb) drawHeatBar(build, hb);
+                if(enHeatBar){
+                    //HeatBlock - собственный/проходящий нагрев (реакторы, теплопровод); HeatConsumer без HeatBlock -
+                    //заводы вроде HeatCrafter/VariableReactor, у них нет heatFrac(), считаем сами через ту же calculateHeat()
+                    if(build instanceof HeatBlock hb){
+                        drawHeatBar(build, hb.heatFrac());
+                    }else if(build instanceof HeatConsumer hc && hc.heatRequirement() > 0f){
+                        drawHeatBar(build, Mathf.clamp(build.calculateHeat(hc.sideHeat()) / hc.heatRequirement()));
+                    }
+                }
                 if(enDistributionReveal){
                     BuildingInventory.ids.add(build.id);
                     boolean transport = drawBlackboxBuilding(build);
@@ -625,10 +633,9 @@ public class RendererExt{
         Draw.z(z);
     }
 
-    //нагрев: heatFrac() уже считают сами блоки (HeatProducer/HeaterGenerator/NuclearReactor/HeatConductor),
-    //рисуем поверх постоянно - vanilla-бар в addBar виден только при выделении постройки
-    public static void drawHeatBar(Building build, HeatBlock heatBlock){
-        float frac = Mathf.clamp(heatBlock.heatFrac());
+    //нагрев: рисуем поверх постоянно - vanilla-бар в addBar виден только при выделении постройки
+    public static void drawHeatBar(Building build, float frac){
+        frac = Mathf.clamp(frac);
         if(frac <= 0.001f) return;
 
         final float lenMul = 0.8f;
