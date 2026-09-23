@@ -92,6 +92,8 @@ public class WaveInfoDialog extends BaseDialog{
             dialog.show();
         }).size(250f, 64f);
 
+        buttons.button("@waves.stats", Icon.list, this::showStats).width(200f);
+
         buttons.button(Core.bundle.get("waves.random"), Icon.refresh, () -> {
             groups.clear();
             groups = Waves.generate(1f / 10f);
@@ -319,18 +321,18 @@ public class WaveInfoDialog extends BaseDialog{
                                         int index = pi;
                                         UnitType pt = group.payloads.get(pi);
                                         if(pt == null) continue;
-                                        a.button(new TextureRegionDrawable(pt.uiIcon), Styles.emptyi, () -> {
+                                        a.button(b -> b.image(pt.uiIcon).size(iconSmall).scaling(Scaling.fit), Styles.emptyi, () -> {
                                             group.payloads.remove(index);
                                             if(group.payloads.isEmpty()) group.payloads = null;
                                             buildGroups();
-                                        }).size(38f).scaling(Scaling.fit).tooltip(pt.localizedName);
+                                        }).size(32f).tooltip(pt.localizedName);
                                     }
                                 }
                                 a.button(Icon.add, Styles.emptyi, () -> showUnits(type -> {
                                     if(type == null) return;
                                     if(group.payloads == null) group.payloads = new Seq<>();
                                     group.payloads.add(type);
-                                }, false)).size(38f).tooltip("@waves.payloads.add");
+                                }, false)).size(32f).tooltip("@waves.payloads.add");
                             }).padTop(4).growX().row();
                         }
 
@@ -439,6 +441,143 @@ public class WaveInfoDialog extends BaseDialog{
                 if(++i % 3 == 0) p.row();
             }
         }).growX().scrollX(false);
+        dialog.addCloseButton();
+        dialog.show();
+    }
+
+    /** Полная статистика одной волны: юниты, груз, предметы, статусы, ХП и щиты. */
+    void showStats(){
+        BaseDialog dialog = new BaseDialog("@waves.stats");
+        int[] wave = {Math.max(search, 0)};
+        Table out = new Table();
+
+        Runnable rebuild = () -> {
+            out.clear();
+            out.top().left().defaults().left();
+
+            int w = wave[0];
+            int spawnPoints = Math.max(spawner.countSpawns(), 1);
+            ObjectIntMap<UnitType> unitCount = new ObjectIntMap<>(), payloadCount = new ObjectIntMap<>();
+            ObjectIntMap<Item> itemCount = new ObjectIntMap<>();
+            float hp = 0f, payloadHp = 0f, shield = 0f;
+            int units = 0, payloadUnits = 0;
+            Seq<SpawnGroup> active = new Seq<>();
+
+            for(SpawnGroup g : groups){
+                int n = g.getSpawned(w);
+                if(n <= 0) continue;
+                active.add(g);
+                //группа без выбранной точки спавнится на каждой точке
+                int mult = g.spawn == -1 ? spawnPoints : 1;
+                int total = n * mult;
+
+                units += total;
+                unitCount.increment(g.type, 0, total);
+                hp += g.type.health * total;
+                shield += g.getShield(w) * total;
+
+                if(g.items != null && g.items.amount > 0) itemCount.increment(g.items.item, 0, g.items.amount * total);
+
+                if(g.payloads != null && g.type.payloadCapacity > 0){
+                    for(UnitType pt : g.payloads){
+                        if(pt == null) continue;
+                        payloadUnits += total;
+                        payloadCount.increment(pt, 0, total);
+                        payloadHp += pt.health * total;
+                    }
+                }
+            }
+
+            out.add(Core.bundle.format("waves.stats.wave", w + 1, spawnPoints)).color(Pal.accent).padBottom(6f).row();
+
+            if(active.isEmpty()){
+                out.add("@waves.stats.empty").color(Color.lightGray).row();
+                return;
+            }
+
+            out.add(Core.bundle.format("waves.stats.units", units)).row();
+            out.table(t -> {
+                t.left();
+                for(var e : unitCount){
+                    t.image(e.key.uiIcon).size(iconSmall).scaling(Scaling.fit).padLeft(2f);
+                    t.add("x" + e.value).padLeft(2f).padRight(6f);
+                }
+            }).row();
+
+            out.add(Core.bundle.format("waves.stats.payloads", payloadUnits)).padTop(6f).row();
+            if(payloadUnits > 0){
+                out.table(t -> {
+                    t.left();
+                    for(var e : payloadCount){
+                        t.image(e.key.uiIcon).size(iconSmall).scaling(Scaling.fit).padLeft(2f);
+                        t.add("x" + e.value).padLeft(2f).padRight(6f);
+                    }
+                }).row();
+            }
+
+            out.add("@waves.stats.items").padTop(6f).row();
+            if(itemCount.isEmpty()){
+                out.add("@none").color(Color.lightGray).row();
+            }else{
+                out.table(t -> {
+                    t.left();
+                    for(var e : itemCount){
+                        t.image(e.key.uiIcon).size(iconSmall).scaling(Scaling.fit).padLeft(2f);
+                        t.add("x" + e.value).padLeft(2f).padRight(6f);
+                    }
+                }).row();
+            }
+
+            out.image().color(Pal.gray).height(3f).growX().pad(8f, 0f, 8f, 0f).row();
+            out.add(Core.bundle.format("waves.stats.hp", mindustry.core.UI.formatAmount((long)hp))).row();
+            out.add(Core.bundle.format("waves.stats.hp.payload", mindustry.core.UI.formatAmount((long)payloadHp))).row();
+            out.add(Core.bundle.format("waves.stats.shield", mindustry.core.UI.formatAmount((long)shield))).row();
+            out.add(Core.bundle.format("waves.stats.total", mindustry.core.UI.formatAmount((long)(hp + payloadHp + shield)))).color(Pal.accent).row();
+            out.image().color(Pal.gray).height(3f).growX().pad(8f, 0f, 8f, 0f).row();
+
+            //по каждой группе: что несёт каждый юнит, статус, щит
+            for(SpawnGroup g : active){
+                int n = g.getSpawned(w) * (g.spawn == -1 ? spawnPoints : 1);
+                out.table(Tex.button, t -> {
+                    t.margin(6f).left().defaults().left();
+                    t.table(h -> {
+                        h.left();
+                        h.image(g.type.uiIcon).size(32f).scaling(Scaling.fit).padRight(4f);
+                        h.add("x" + n + " " + g.type.localizedName).color(Pal.accent);
+                    }).row();
+                    t.add(Core.bundle.format("waves.stats.unit", (int)g.type.health, (int)g.getShield(w), (int)g.type.armor)).row();
+                    t.add(Core.bundle.get("waves.stats.status") + " " + (g.effect != null ? g.effect.localizedName : Core.bundle.get("none"))).row();
+                    if(g.items != null && g.items.amount > 0){
+                        t.add(Core.bundle.format("waves.stats.carry", g.items.item.localizedName, g.items.amount, g.items.amount * n)).row();
+                    }
+                    if(g.payloads != null && g.payloads.any() && g.type.payloadCapacity > 0){
+                        ObjectIntMap<UnitType> per = new ObjectIntMap<>();
+                        for(UnitType pt : g.payloads) if(pt != null) per.increment(pt, 0, 1);
+                        t.table(pl -> {
+                            pl.left();
+                            pl.add("@waves.payloads").padRight(4f);
+                            for(var e : per){
+                                pl.image(e.key.uiIcon).size(iconSmall).scaling(Scaling.fit);
+                                pl.add("x" + e.value + " (" + e.value * n + ")").padLeft(2f).padRight(6f);
+                            }
+                        }).row();
+                    }
+                }).growX().padBottom(4f).row();
+            }
+        };
+
+        dialog.cont.table(t -> {
+            t.add("@waves.stats.wavenum").padRight(8f);
+            t.field((wave[0] + 1) + "", TextFieldFilter.digitsOnly, text -> {
+                if(Strings.canParsePositiveInt(text)){
+                    wave[0] = Math.max(Strings.parseInt(text) - 1, 0);
+                    rebuild.run();
+                }
+            }).width(100f);
+        }).padBottom(6f).row();
+        dialog.cont.pane(out).grow().minWidth(420f).scrollX(false);
+
+        rebuild.run();
         dialog.addCloseButton();
         dialog.show();
     }
