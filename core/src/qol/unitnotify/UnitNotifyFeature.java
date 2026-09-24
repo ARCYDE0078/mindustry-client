@@ -280,7 +280,10 @@ public class UnitNotifyFeature implements Feature{
         Item bestAmmo = getBestAmmo(turret, core);
         if(bestAmmo == null) return;
 
-        ItemStack playerItem = player.unit().stack;
+        Unit unit = player.unit();
+        if(unit == null) return; // спектейт/без юнита - брать нечем
+
+        ItemStack playerItem = unit.stack;
         if(playerItem.amount != 0 && playerItem.item != bestAmmo){
             Call.transferInventory(player, core);
         }else{
