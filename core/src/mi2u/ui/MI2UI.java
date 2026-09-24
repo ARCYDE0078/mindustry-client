@@ -110,6 +110,15 @@ public class MI2UI extends Mindow2{
         titlePane.button(b -> {
             b.add(new CombinationIcon(t -> t.add("" + Iconc.map)).bottomRight(t -> t.add("" + Iconc.infoCircle).pad(2f).fontScale(0.7f).get())).grow();
         }, textbtoggle, () -> mapInfo.show()).checked(tb -> mapInfo.hasParent());
+
+        titlePane.button(b -> {
+            b.add(new CombinationIcon(t -> t.add("" + Iconc.map)).bottomRight(t -> t.add("" + Iconc.chartBar).pad(2f).fontScale(0.7f).get())).grow();
+        }, textbtoggle, () -> {
+            if(mapAnalyzer.closed()){
+                mapAnalyzer.addTo(this.parent);
+                mapAnalyzer.rebuild();
+            }else mapAnalyzer.close();
+        }).checked(tb -> !mapAnalyzer.closed());
     }
 
     @Override
