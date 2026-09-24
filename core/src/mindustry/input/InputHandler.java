@@ -2298,6 +2298,8 @@ public abstract class InputHandler implements InputProcessor, GestureListener{
 
     /** true, если текущая линия построена режимом bridgeModifier (Alt): при отпускании такую линию нельзя ставить с force. */
     public boolean bridgeModLine;
+    /** true, если текущая линия - Shift-цепочка мостов в обход препятствий (автопостройка схем её не забирает, пока сидит на Shift). */
+    public boolean bridgePathLine;
 
     /** Мосты (item/liquid/duct/direction), для которых работают Shift-обход препятствий и Alt-лесенка. */
     private static boolean isBridgePlacement(Block b){
@@ -2321,6 +2323,7 @@ public abstract class InputHandler implements InputProcessor, GestureListener{
     public void updateLine(int x1, int y1, int x2, int y2){ //scheme-size port: public for building tools (square/connect modes)
         linePlans.clear();
         bridgeModLine = false;
+        bridgePathLine = false;
         Block old = block;
         if(old == null){
             updateLineDefault(x1, y1, x2, y2);
@@ -2336,6 +2339,7 @@ public abstract class InputHandler implements InputProcessor, GestureListener{
             if(Core.input.shift()) Placement.buildBridgePath(x1, y1, x2, y2, range, old, rotation, nodes);
             else Placement.diagonalBridgeNodes(x1, y1, x2, y2, range, old, rotation, nodes);
             bridgeModLine = bridgeMod && !Core.input.shift();
+            bridgePathLine = Core.input.shift();
             fillBridgeLinePlans(nodes);
             return;
         }

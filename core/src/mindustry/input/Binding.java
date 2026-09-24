@@ -172,6 +172,7 @@ public class Binding{
     showMassdriverConfigs = KeyBind.add("show_massdriver_configs", KeyCode.f3),
     forcePlaceModifier = KeyBind.add("force_place_modifier", KeyCode.altLeft),
     bridgeModifier = KeyBind.add("bridge_modifier", KeyCode.altLeft),
+    autoBuildModifier = KeyBind.add("auto_build_modifier", KeyCode.shiftLeft),
     clearFrozenPlans = KeyBind.add("clear_frozen_plans", KeyCode.q, KeyCode.shiftLeft),
     toggleFreezeQueueing = KeyBind.add("toggle_freeze_queueing", KeyCode.e, KeyCode.shiftLeft),
     flushFrozenPlans = KeyBind.add("flush_frozen_plans", KeyCode.e, KeyCode.controlLeft),

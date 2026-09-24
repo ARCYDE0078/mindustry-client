@@ -18,6 +18,7 @@ import mindustry.game.Teams.BlockPlan;
 import mindustry.gen.Call;
 import mindustry.gen.Groups;
 import mindustry.gen.Unit;
+import mindustry.input.Binding;
 import mindustry.ui.dialogs.BaseDialog;
 import mindustry.ui.dialogs.SettingsMenuDialog.SettingsTable;
 import mindustry.world.Block;
@@ -146,8 +147,16 @@ public class AutoBuildSchematicFeature implements Feature{
         table.pref(new ButtonSetting("qol-autobuild-configure", this::showConfigDialog));
     }
 
+    /** Бинд автопостройки (по умолчанию Shift, настраивается в управлении). Пока он на левом Shift, правый работает как раньше. */
     boolean shiftDown(){
-        return Core.input.keyDown(KeyCode.shiftLeft) || Core.input.keyDown(KeyCode.shiftRight);
+        return Core.input.keyDown(Binding.autoBuildModifier)
+            || (Binding.autoBuildModifier.value.key == KeyCode.shiftLeft && Core.input.keyDown(KeyCode.shiftRight));
+    }
+
+    /** Бинд автопостройки совпал с Shift - тем же, что запускает обход препятствий у мостов. */
+    boolean sharesShift(){
+        KeyCode key = Binding.autoBuildModifier.value.key;
+        return key == KeyCode.shiftLeft || key == KeyCode.shiftRight;
     }
 
     void update(){
@@ -203,6 +212,8 @@ public class AutoBuildSchematicFeature implements Feature{
         syncKnownPlans();
 
         if(freshPlans.isEmpty() || !shiftDown() || net.client()) return;
+        // Shift-цепочка мостов (обход препятствий) строится самим игроком, пока автопостройка сидит на том же Shift; перебиндишь - будет уходить помощникам
+        if(control.input.bridgePathLine && sharesShift()) return;
 
         for(BuildPlan p : freshPlans) player.unit().plans.remove(p);
 
