@@ -22,6 +22,12 @@ import mindustry.world.meta.*;
 import static mindustry.Vars.*;
 
 public class StackConveyor extends Block implements Autotiler{
+    /** Crossed conveyors, ducts and conduits get a bridge over the new line instead of being cut. */
+    @Override
+    public void handlePlacementLine(Seq<BuildPlan> plans){
+        mindustry.client.utils.PlastaniumCrossings.handleLine(plans);
+    }
+
     protected static final int stateMove = 0, stateLoad = 1, stateUnload = 2;
 
     public @Load(value = "@-#", length = 3) TextureRegion[] regions;

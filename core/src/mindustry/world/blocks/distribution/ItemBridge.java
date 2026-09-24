@@ -239,6 +239,9 @@ public class ItemBridge extends Block{
         public void playerPlaced(Object config){
             super.playerPlaced(config);
 
+            // мосты, поставленные PlastaniumCrossings, держат только связь из своего плана и не становятся lastBuild
+            if(mindustry.client.utils.PlastaniumCrossings.skipAutoLink(tile)) return;
+
             Tile link = findLink(tile.x, tile.y);
             if(linkValid(tile, link) && this.link != link.pos() && !proximity.contains(link.build)){
                 link.build.configure(tile.pos());

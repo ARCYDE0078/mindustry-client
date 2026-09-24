@@ -1974,6 +1974,8 @@ public abstract class InputHandler implements InputProcessor, GestureListener{
         IntSet toBreak = force ? new IntSet() : null;
         for(BuildPlan plan : plans){
             if (plan.block == null) continue;
+            // мосты и отложенные конвейеры подтверждённой пластаниевой линии; пока планы лишь замораживаются - не трогаем
+            if(!freeze && mindustry.client.utils.PlastaniumCrossings.flushed(plan)) continue;
 
             if (removeFrozen) {
                 plan.bounds(Tmp.r1);
@@ -2305,7 +2307,7 @@ public abstract class InputHandler implements InputProcessor, GestureListener{
             linePlans.add(plan);
         });
 
-        if(Core.settings.getBool("blockreplace") != conveyorPlaceNormal || block instanceof ItemBridge){ // Bridges need this for weaving, I'm too lazy to fix this properly
+        if(Core.settings.getBool("blockreplace") != conveyorPlaceNormal || block instanceof ItemBridge || block instanceof StackConveyor){ // Bridges need this for weaving, I'm too lazy to fix this properly
             linePlans.each(plan -> {
                 Block replace = plan.block.getReplacement(plan, linePlans);
                 if(replace.unlockedNow()){
