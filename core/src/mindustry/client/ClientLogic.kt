@@ -32,6 +32,13 @@ class ClientLogic {
     private var turretVoidWarnCount = 0
     private var turretVoidWarnPlayer: Player? = null
     private var lastTurretVoidWarn = 0L
+    // стек предупреждений о разрыве линий питания: один игрок за окно 20 с сливается в одно сообщение
+    private var powerWarnMsg: ChatFragment.ChatMessage? = null
+    private var powerWarnPlayer: Player? = null
+    private var powerWarnLinks = 0
+    private val powerWarnNodes = IntSet()
+    private var lastPowerWarn = 0L
+    private val powerWarnWindow = 20000L
 
     /** Create event listeners */
     init {
@@ -218,18 +225,39 @@ class ClientLogic {
                     prev.count { !((event.value as? Array<Point2>)?.contains(it)?: true) }
                 }
                 if (count == 0) return@on // No need to warn
+
+                val msg = powerWarnMsg
+                val stack = msg != null && powerWarnPlayer == event.player && !msg.message.isNullOrEmpty() &&
+                    Time.timeSinceMillis(lastPowerWarn) < powerWarnWindow && ui.chatfrag.messages.indexOf(msg) in 0..8
+                if (!stack) {
+                    powerWarnLinks = 0
+                    powerWarnNodes.clear()
+                    powerWarnMsg = null
+                }
+                powerWarnPlayer = event.player
+                powerWarnLinks += count
+                powerWarnNodes.add(event.tile.pos())
+                lastPowerWarn = Time.millis()
                 event.tile.disconnections += count
 
-                val message: String = bundle.format("client.powerwarn", Strings.stripColors(event.player.name), event.tile.disconnections, event.tile.tileX().toString(), event.tile.tileY().toString()) // FINISHME: Awful way to circumvent arc formatting numerics with commas at thousandth places
+                val name = Strings.stripColors(event.player.name)
+                val x = event.tile.tileX().toString()
+                val y = event.tile.tileY().toString()
+                val message: String = if (powerWarnNodes.size > 1) {
+                    bundle.format("client.powerwarn.many", name, powerWarnLinks.toString(), powerWarnNodes.size.toString(), x, y)
+                } else bundle.format("client.powerwarn", name, powerWarnLinks.toString(), x, y)
                 lastWarnPos.set(event.tile.tileX().toFloat(), event.tile.tileY().toFloat())
-                if (event.tile.message == null || ui.chatfrag.messages.indexOf(event.tile.message) > 8) {
+                if (!stack) {
                     event.tile.disconnections = count
                     event.tile.message = ui.chatfrag.addMsg(message)
+                    powerWarnMsg = event.tile.message
                     NetClient.findCoords(event.tile.message)
                 } else {
                     ui.chatfrag.doFade(2f)
-                    event.tile.message!!.message = message
-                    event.tile.message!!.format()
+                    msg!!.message = message
+                    msg.format()
+                    msg.buttons?.clear()
+                    NetClient.findCoords(msg)
                 }
             }
         }
