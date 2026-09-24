@@ -1303,7 +1303,7 @@ public class DesktopInput extends InputHandler{
 //                if(input.keyDown(Binding.boost)){
 //                    flushPlansReverse(linePlans);
 //                }else{
-                    flushPlans(linePlans, isFreezeQueueing, input.alt(), isFreezeQueueing);
+                    flushPlans(linePlans, isFreezeQueueing, input.alt() && !bridgeModLine, isFreezeQueueing); // Alt в режиме мостов - это bridgeModifier, а не force
 //                }
 
                 linePlans.clear();

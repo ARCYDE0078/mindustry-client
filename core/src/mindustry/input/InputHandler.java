@@ -2296,7 +2296,97 @@ public abstract class InputHandler implements InputProcessor, GestureListener{
         }
     }
 
+    /** true, если текущая линия построена режимом bridgeModifier (Alt): при отпускании такую линию нельзя ставить с force. */
+    public boolean bridgeModLine;
+
+    /** Мосты (item/liquid/duct/direction), для которых работают Shift-обход препятствий и Alt-лесенка. */
+    private static boolean isBridgePlacement(Block b){
+        return b instanceof ItemBridge || b instanceof DirectionBridge;
+    }
+
+    /** Альтернатива блоку под Alt: клик по одной клетке - роутер, протяжка - мост. Null если блок не из семейства конвейеров/каналов/труб. */
+    private static @Nullable Block bridgeModSwap(Block b, boolean single){
+        if(b == Blocks.duct) return single ? Blocks.ductRouter : Blocks.ductBridge;
+        if(b == Blocks.conveyor || b == Blocks.titaniumConveyor) return single ? Blocks.router : Blocks.itemBridge;
+        if(b == Blocks.conduit || b == Blocks.pulseConduit) return single ? Blocks.liquidRouter : Blocks.bridgeConduit;
+        if(b == Blocks.reinforcedConduit) return single ? Blocks.reinforcedLiquidRouter : Blocks.reinforcedBridgeConduit;
+        return null;
+    }
+
+    /**
+     * fk4b port. С мостом в руке: Shift-протяжка обходит препятствия (мосты максимальной дальности, приземляются только на свободные клетки),
+     * Alt-протяжка строит диагональную лесенку мостов. С конвейером/каналом/трубой в руке Alt меняет блок: клик - роутер, протяжка - мост.
+     * Всё остальное делает прежний {@link #updateLineDefault}.
+     */
     public void updateLine(int x1, int y1, int x2, int y2){ //scheme-size port: public for building tools (square/connect modes)
+        linePlans.clear();
+        bridgeModLine = false;
+        Block old = block;
+        if(old == null){
+            updateLineDefault(x1, y1, x2, y2);
+            return;
+        }
+
+        boolean single = x1 == x2 && y1 == y2;
+        boolean bridgeMod = Core.input.keyDown(Binding.bridgeModifier);
+
+        if(isBridgePlacement(old) && !single && (Core.input.shift() || bridgeMod)){
+            Seq<Point2> nodes = new Seq<>();
+            int range = old instanceof ItemBridge ib ? Math.max(1, ib.range) : old instanceof DirectionBridge db ? Math.max(1, db.range) : 4;
+            if(Core.input.shift()) Placement.buildBridgePath(x1, y1, x2, y2, range, old, rotation, nodes);
+            else Placement.diagonalBridgeNodes(x1, y1, x2, y2, range, old, rotation, nodes);
+            bridgeModLine = bridgeMod && !Core.input.shift();
+            fillBridgeLinePlans(nodes);
+            return;
+        }
+
+        Block swapped = bridgeMod && !isBridgePlacement(old) ? bridgeModSwap(old, single) : null;
+        if(swapped != null){
+            block = swapped;
+            bridgeModLine = true;
+        }
+        try{
+            updateLineDefault(x1, y1, x2, y2);
+        }finally{
+            block = old;
+        }
+    }
+
+    /** Разреженные узлы моста -> linePlans, ItemBridge получает конфиг-связь на следующий узел (иначе обычный автолинк соединил бы их не так). */
+    private void fillBridgeLinePlans(Seq<Point2> nodes){
+        linePlans.clear();
+        if(nodes.isEmpty() || block == null) return;
+
+        for(int i = 0; i < nodes.size; i++){
+            Point2 p = nodes.get(i);
+            Point2 next = i + 1 < nodes.size ? nodes.get(i + 1) : null;
+            int rot = rotation;
+            if(next != null){
+                int r = Tile.relativeTo(p.x, p.y, next.x, next.y);
+                if(r != -1) rot = r;
+            }else if(i > 0){
+                Point2 prev = nodes.get(i - 1);
+                int r = Tile.relativeTo(prev.x, prev.y, p.x, p.y);
+                if(r != -1) rot = r;
+            }
+            rotation = rot;
+
+            Object config = null;
+            if(next != null && block instanceof ItemBridge ib && ib.positionsValid(p.x, p.y, next.x, next.y)){
+                config = new Point2(next.x - p.x, next.y - p.y);
+            }
+
+            BuildPlan plan = new BuildPlan(p.x, p.y, rot, block, config);
+            plan.animScale = 1f;
+            linePlans.add(plan);
+        }
+
+        if(!(block instanceof ItemBridge) && linePlans.size > 0){
+            block.handlePlacementLine(linePlans);
+        }
+    }
+
+    private void updateLineDefault(int x1, int y1, int x2, int y2){
         linePlans.clear();
         if(block.group == BlockGroup.walls && Core.input.shift()) updateWallLine(x1, y1, x2, y2);
         else
