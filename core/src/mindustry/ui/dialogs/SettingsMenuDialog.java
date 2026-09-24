@@ -582,7 +582,6 @@ public class SettingsMenuDialog extends BaseDialog{
         client.checkPref("showclientmsgsendername", true);
         client.checkPref("displayasuser", true);
         client.checkPref("hidecursor", false);
-        client.checkPref("quickschems", false);
         client.checkPref("showidinjoinleave", false);
         client.checkPref("highlightclientmsg", false);
         client.checkPref("enablechatlimit", false);
