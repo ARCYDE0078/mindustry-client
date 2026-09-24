@@ -23,6 +23,7 @@ import mindustry.world.*;
 import mindustry.world.blocks.environment.*;
 import mindustry.world.blocks.storage.*;
 import mindustry.world.blocks.storage.CoreBlock.*;
+import mindustry.world.meta.*;
 
 import java.util.*;
 
@@ -495,6 +496,9 @@ public class Logic implements ApplicationListener{
             //non-host clients only render/predict buildings locally; the server is authoritative, so buildings outside the camera don't need per-tick prediction
             if(net.client() && !headless){
                 Groups.build.update(b -> {
+                    //sonka: логистику (ленты/мосты/роутеры/трубы) НЕ режем - предметы на ней двигаются только в updateTile,
+                    //и замороженный за кадром кусок цепи перестаёт подавать предметы на видимые ленты (те пустеют/встают)
+                    if(b.block.group == BlockGroup.transportation || b.block.group == BlockGroup.liquids) return true;
                     b.hitbox(Tmp.r1);
                     return ClientVars.cameraBounds.overlaps(Tmp.r1);
                 });
