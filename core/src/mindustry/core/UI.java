@@ -279,6 +279,7 @@ public class UI implements ApplicationListener, Loadable{
         minimapfrag.build(hudGroup);
         listfrag.build(hudGroup);
         consolefrag.build(hudGroup);
+        new QuickSchemFrag().build(hudGroup);
         loadfrag.build(group);
         perffrag.build(group);
         new FadeInFragment().build(group);
