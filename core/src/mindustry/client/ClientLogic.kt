@@ -222,7 +222,11 @@ class ClientLogic {
             if (event.breaking) return@on
             if (!isAntiHelped(builder)) return@on
             val unit = player.unit() ?: return@on
-            unit.addBuild(mindustry.entities.units.BuildPlan(event.tile.x.toInt(), event.tile.y.toInt()))
+            val tx = event.tile.x.toInt(); val ty = event.tile.y.toInt()
+            // не дублируем брейк-план на тот же тайл - иначе на повторных BlockBuildEndEvent (например когда
+            // жертва спамит один и тот же блок) у юнита копится куча планов и деконструкция дёргается/рестартует
+            if (unit.plans.any { it.x == tx && it.y == ty && it.breaking }) return@on
+            unit.addBuild(mindustry.entities.units.BuildPlan(tx, ty))
         }
 
         Events.on(ConfigEvent::class.java) { event ->

@@ -337,20 +337,24 @@ class AssistPath(val assisting: Player?, val type: Type = Type.Regular, var circ
         val aimPos =
             if ((type == Type.Regular || type == Type.Cursor) && assisting.unit().isShooting) Tmp.v1.set(assisting.unit().aimX, assisting.unit().aimY) // Following or shooting
             else if (unit.type.faceTarget) Core.input.mouseWorld() else Tmp.v1.trns(unit.rotation, Core.input.mouseWorld().dst(unit)).add(unit.x, player.unit().y) // Not following, not shooting
-        val lookPos =
-            if (assisting.unit().isShooting && unit.type.faceTarget) player.angleTo(assisting.unit().aimX, assisting.unit().aimY) // Assisting is shooting and player has fixed weapons
-            else if (unit.type.omniMovement && player.shooting && unit.type.hasWeapons() && unit.type.faceTarget && !(unit is Mechc && unit.isFlying())) Angles.mouseAngle(unit.x, unit.y)
-            else player.unit().prefRotation() // Anything else
-
-        player.shooting(shouldShoot)
-        unit.aim(aimPos)
-        unit.lookAt(lookPos)
-
         if (circling && orbitRadius > 0f) updateSafeOrbit()
         else {
             orbitPaused = false
             orbitPos.setZero()
         }
+
+        val lookPos =
+            if (assisting.unit().isShooting && unit.type.faceTarget) player.angleTo(assisting.unit().aimX, assisting.unit().aimY) // Assisting is shooting and player has fixed weapons
+            else if (unit.type.omniMovement && player.shooting && unit.type.hasWeapons() && unit.type.faceTarget && !(unit is Mechc && unit.isFlying())) Angles.mouseAngle(unit.x, unit.y)
+            // sonka: во время орбиты держим курс на точку орбиты, а не prefRotation()/vel().angle() -
+            // на малых скоростях (медленные/водные юниты) угол вектора скорости почти нулевой длины дёргается
+            // между случайными значениями, из-за чего юнит постоянно доворачивался (в основном к 0° - "вправо")
+            else if (circling && orbitRadius > 0f) player.angleTo(assisting.x + orbitPos.x, assisting.y + orbitPos.y)
+            else player.unit().prefRotation() // Anything else
+
+        player.shooting(shouldShoot)
+        unit.aim(aimPos)
+        unit.lookAt(lookPos)
 
         when (type) {
             Type.Regular -> goTo(assisting.x + orbitPos.x, assisting.y + orbitPos.y, tolerance, aStarTolerance + tilesize * 5)
