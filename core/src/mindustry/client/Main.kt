@@ -2,6 +2,7 @@ package mindustry.client
 
 import arc.*
 import arc.graphics.*
+import arc.math.*
 import arc.math.geom.*
 import arc.struct.*
 import arc.util.*
@@ -415,8 +416,10 @@ object Main : ApplicationListener {
         if(Vars.player.dead() || unit == null) return Tmp.v1.set(0F, 0F) // при входе на сервер юнита ещё нет
         // hidecursor: пока не стреляем, другим игрокам уходит позиция юнита вместо реального курсора (локальный aim не трогаем)
         val hide = Core.settings.getBool("hidecursor") && !Vars.player.shooting
-        val aimX = if (hide) unit.x else unit.aimX
-        val aimY = if (hide) unit.y else unit.aimY
+        // точка прицела в самом юните = угол 0 (вправо), сервер по ней разворачивает юнита и он дёргается;
+        // поэтому прячем курсор точкой впереди юнита по его текущему курсу - поворот не меняется
+        val aimX = if (hide) unit.x + Angles.trnsx(unit.rotation, 4f * Vars.tilesize) else unit.aimX
+        val aimY = if (hide) unit.y + Angles.trnsy(unit.rotation, 4f * Vars.tilesize) else unit.aimY
         return when {
             Vars.player.dead() -> Tmp.v1.set(0F, 0F)
             Server.current.ghost -> Tmp.v1.set(aimX, aimY)
