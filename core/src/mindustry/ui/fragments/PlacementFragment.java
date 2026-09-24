@@ -710,7 +710,9 @@ public class PlacementFragment{
                                         for(var command : commands){
                                             final int i = scol;
                                             coms.button(Icon.icons.get(command.icon, Icon.cancel), Styles.clearNoneTogglei, () -> {
-                                                Call.setUnitCommand(player, units.mapInt(un -> un.id, un -> un.type.allowCommand(un, command)).toArray(), command);
+                                                var manualIds = units.mapInt(un -> un.id, un -> un.type.allowCommand(un, command)).toArray();
+                                                qol.core.ManualControl.mark(manualIds);
+                                                Call.setUnitCommand(player, manualIds, command);
                                             }).size(50f).tooltip(command.localized(), true).with(b -> {
                                                 var listener = new ClickListener();
                                                 b.addListener(listener);
@@ -816,7 +818,9 @@ public class PlacementFragment{
                                 for(UnitCommand command : commands){
                                     //first stance must always be the stop stance
                                     if(command.keybind != null && Core.input.keyTap(command.keybind)){
-                                        Call.setUnitCommand(player, control.input.selectedUnits.mapInt(un -> un.id, un -> un.type.allowCommand(un, command)).toArray(), command);
+                                        var manualIds = control.input.selectedUnits.mapInt(un -> un.id, un -> un.type.allowCommand(un, command)).toArray();
+                                        qol.core.ManualControl.mark(manualIds);
+                                        Call.setUnitCommand(player, manualIds, command);
                                     }
                                 }
 

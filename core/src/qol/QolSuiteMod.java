@@ -82,7 +82,10 @@ public class QolSuiteMod{
         features.add(new CrawlerControlFeature());
         features.add(new CopyAnywhereFeature());
 
-        Events.on(WorldLoadEvent.class, e -> UnitClaims.clear());
+        Events.on(WorldLoadEvent.class, e -> {
+            UnitClaims.clear();
+            qol.core.ManualControl.clear();
+        });
 
         Events.on(ClientLoadEvent.class, e -> {
             for(Feature f : features) f.init();

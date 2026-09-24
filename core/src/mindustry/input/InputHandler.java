@@ -1289,6 +1289,7 @@ public abstract class InputHandler implements InputProcessor, GestureListener{
 
                 int maxChunkSize = 200;
 
+                qol.core.ManualControl.mark(ids);
                 if(ids.length > maxChunkSize){
                     for(int i = 0; i < ids.length; i += maxChunkSize){
                         int[] data = Arrays.copyOfRange(ids, i, Math.min(i + maxChunkSize, ids.length));

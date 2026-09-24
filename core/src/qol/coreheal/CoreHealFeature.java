@@ -18,6 +18,7 @@ import mindustry.gen.Unit;
 import mindustry.ui.dialogs.SettingsMenuDialog.SettingsTable;
 import mindustry.world.blocks.storage.CoreBlock.CoreBuild;
 import qol.core.Feature;
+import qol.core.ManualControl;
 import qol.core.SafeSettings;
 import qol.core.UnitClaims;
 
@@ -104,6 +105,12 @@ public class CoreHealFeature implements Feature{
     public void buildSettings(SettingsTable table){
         table.sliderPref("coreheal-radius", 15, 5, 100, 5, v -> v + " tiles");
         table.sliderPref("coreheal-restore-delay", 3, 1, 15, 1, v -> v + " s");
+        table.sliderPref("coreheal-manual-hold", 20, 0, 120, 5, v -> v == 0 ? "off" : v + " s");
+    }
+
+    /** Сколько мс после ручной команды юнит неприкосновенен для авто-хила; 0 = приоритет ручных команд выключен. */
+    long manualHoldMs(){
+        return SafeSettings.getInt("coreheal-manual-hold", 20) * 1000L;
     }
 
     float radiusWorld(){
@@ -166,6 +173,8 @@ public class CoreHealFeature implements Feature{
                 if(!u.isCommandable() || !(u.controller() instanceof CommandAI ai)) return;
                 if(!u.type.commands.contains(UnitCommand.repairCommand)) return;
                 if(savedCommand.containsKey(u.id)) return;
+                //игрок только что сам командовал юнитом - не тащим его к ядру, пока не истечёт таймер
+                if(ManualControl.isRecent(u.id, manualHoldMs())) return;
 
                 UnitCommand current = ai.currentCommand();
                 if(current == null) return;
@@ -209,6 +218,13 @@ public class CoreHealFeature implements Feature{
         for(IntMap.Entry<UnitCommand> entry : savedCommand){
             Unit u = Groups.unit.getByID(entry.key);
             if(u == null || !u.isValid() || u.team != player.team() || !(u.controller() instanceof CommandAI ai)){
+                dropIds.add(entry.key);
+                continue;
+            }
+
+            //ручной приказ поверх нашего цикла (в т.ч. move/repair, совпадающий с ожидаемой командой) - отпускаем
+            //без восстановления старой команды: игрок только что решил за юнита сам
+            if(ManualControl.isRecent(entry.key, manualHoldMs())){
                 dropIds.add(entry.key);
                 continue;
             }
