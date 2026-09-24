@@ -215,6 +215,16 @@ class ClientLogic {
             }
         }
 
+        // sonka: анти-помощь - если для игрока включена анти-помощь, авторазрушаем блок, который он только что достроил.
+        // Работает через обычный breaking-план на своём юните - никакого мгновенного/удалённого сноса, только то, что достаёт дальность
+        Events.on(BlockBuildEndEvent::class.java) { event ->
+            val builder = event.unit?.player ?: return@on
+            if (event.breaking) return@on
+            if (!isAntiHelped(builder)) return@on
+            val unit = player.unit() ?: return@on
+            unit.addBuild(mindustry.entities.units.BuildPlan(event.tile.x.toInt(), event.tile.y.toInt()))
+        }
+
         Events.on(ConfigEvent::class.java) { event ->
             @Suppress("unchecked_cast")
             if (event.player != null && event.player != player && settings.getBool("powersplitwarnings") && event.tile is PowerNode.PowerNodeBuild) {

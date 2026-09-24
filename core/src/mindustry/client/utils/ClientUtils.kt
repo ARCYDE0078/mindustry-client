@@ -451,6 +451,20 @@ fun toggleMutePlayer(player: Player) {
     }
 }
 
+fun isAntiHelped(player: Player): Boolean =
+    ClientVars.antiHelpPlayers.any { p -> p.second == player.id || (p.first != null && p.first == player) }
+
+fun toggleAntiHelpPlayer(player: Player) {
+    val match = ClientVars.antiHelpPlayers.firstOrNull { p -> p.second == player.id || (p.first != null && p.first == player) }
+    if (match == null) {
+        ClientVars.antiHelpPlayers.add(Pair(player, player.id))
+        ui.chatfrag.addMessage(Core.bundle.format("client.command.antihelp.success", player.coloredName(), player.id))
+    } else {
+        ClientVars.antiHelpPlayers.remove(match)
+        Vars.player.sendMessage(Core.bundle.format("client.command.antihelp.disabled", player.coloredName(), player.id))
+    }
+}
+
 fun isDeveloper() = Main.keyStorage.cert() in Main.keyStorage.builtInCerts
 
 //inline fun <T> Seq<out T>.forEach(consumer: (T?) -> Unit) {

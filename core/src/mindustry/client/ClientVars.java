@@ -59,6 +59,7 @@ public class ClientVars {
     public static double lastServerStartTime; // FINISHME: Redundant
     public static String lastServerName; // FINISHME: Redundant
     public static Seq<Pair<Player, Integer>> mutedPlayers = new Seq<>();
+    public static Seq<Pair<Player, Integer>> antiHelpPlayers = new Seq<>(); // sonka: анти-помощь - авторазрушение блоков, поставленных этим игроком
 
     // Networking
     public static final byte FOO_USER = (byte) 0b10101010, ASSISTING = (byte) 0b01010101;

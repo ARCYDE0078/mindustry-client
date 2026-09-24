@@ -46,6 +46,7 @@ public class PlayerListFragment{
     assistIcon = new TextureRegionDrawable(Fonts.getLargeIcon("copy")),
     muteIcon = new TextureRegionDrawable(Fonts.getLargeIcon("lock")),
     moveIcon = new TextureRegionDrawable(Fonts.getLargeIcon("move")),
+    antiHelpIcon = new TextureRegionDrawable(Fonts.getLargeIcon("trash")),
     clientIcon = new TextureRegionDrawable(Fonts.getLargeIcon("wrench"));
 
     public void build(Group parent){
@@ -358,6 +359,10 @@ public class PlayerListFragment{
                     t.button(moveIcon, ustyle, // Goto
                         () -> Navigation.navigateTo(user)
                     ).size(h / 2).tooltip("@client.goto").get().resizeImage(h/2.2f);
+
+                    t.button(antiHelpIcon, ustyle, // Anti-help: auto-break blocks this player places
+                        () -> ClientUtils.toggleAntiHelpPlayer(user)
+                    ).size(h / 2).tooltip("@client.antihelp").get().resizeImage(h/2.2f);
                 }
             }).height(bs);
 
