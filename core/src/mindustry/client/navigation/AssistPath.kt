@@ -170,7 +170,15 @@ class AssistPath(val assisting: Player?, val type: Type = Type.Regular, var circ
 
         var tryTheta = theta
         if (shape != OrbitShape.hold) {
-            tryTheta = Mathf.mod(theta + Time.delta / 60f * speed * Mathf.PI2, Mathf.PI2)
+            // Заданную скорость режем до возможностей юнита: точка орбиты не должна убегать быстрее, чем он летит/плывёт.
+            // Периметр фигуры в радиусах: круг 2π, остальные фигуры длиннее - берём с запасом 8.
+            val perimeter = orbitRadius * (if (shape == OrbitShape.circle) Mathf.PI2 else 8f)
+            val maxRevs = if (perimeter > 0f) player.unit().speed() * 60f * 0.8f / perimeter else speed
+            var revs = Math.min(Math.abs(speed), maxRevs) * Math.signum(speed)
+            // Юнит отстал от точки орбиты - ждём его, чтобы он не гонялся за убегающей целью и не дёргался
+            val lag = Mathf.dst(player.x, player.y, ax + orbitPos.x, ay + orbitPos.y)
+            if (lag > tilesize * 3f + player.unit().hitSize) revs = 0f
+            tryTheta = Mathf.mod(theta + Time.delta / 60f * revs * Mathf.PI2, Mathf.PI2)
         }
 
         orbitOffset(tryTheta, orbitRadius, out = orbitPos, facingDeg = assisting.unit().rotation)
@@ -279,7 +287,7 @@ class AssistPath(val assisting: Player?, val type: Type = Type.Regular, var circ
         assisting?.unit() ?: return // We don't care if they are dead
 
         aStarTolerance = assisting.unit().hitSize * Core.settings.getFloat("assistdistance", 5f) + tilesize * 5
-        tolerance = if(circling) 0.1f else assisting.unit().hitSize * Core.settings.getFloat("assistdistance", 5f)
+        tolerance = if(circling) Math.max(1f, player.unit().speed() * 1.5f) else assisting.unit().hitSize * Core.settings.getFloat("assistdistance", 5f)
         orbitRadius = if(circling) assisting.unit().hitSize / 2 + 8 * Core.settings.getFloat("assistdistance", 5f) else 0f
 
         handleInput()
