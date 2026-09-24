@@ -14,6 +14,7 @@ import mindustry.gen.Groups;
 import mindustry.gen.Unit;
 import mindustry.ui.dialogs.SettingsMenuDialog.SettingsTable;
 import qol.core.Feature;
+import qol.core.ManualControl;
 import qol.core.SafeSettings;
 import qol.core.UnitClaims;
 
@@ -71,6 +72,7 @@ public class TravelBoostFeature implements Feature{
     @Override
     public void buildSettings(SettingsTable table){
         table.sliderPref("travelboost-distance", 25, 10, 100, 5, v -> v + " tiles");
+        table.sliderPref("travelboost-manual-hold", 20, 0, 120, 5, v -> v == 0 ? "off" : v + " s");
     }
 
     void update(){
@@ -82,6 +84,7 @@ public class TravelBoostFeature implements Feature{
 
         float far = SafeSettings.getInt("travelboost-distance", 25) * tilesize;
         float arrive = ARRIVAL_TILES * tilesize;
+        long manualHold = SafeSettings.getInt("travelboost-manual-hold", 20) * 1000L;
 
         //maintain pass: land arrivals, forget re-commanded/dead units
         dropIds.clear();
@@ -90,6 +93,9 @@ public class TravelBoostFeature implements Feature{
             int id = it.next();
             Unit u = Groups.unit.getByID(id);
             if(u == null || !u.isValid() || u.team != player.team() || !(u.controller() instanceof CommandAI ai)){
+                dropIds.add(id);
+            }else if(ManualControl.isStanceRecent(id, manualHold)){
+                //игрок сам переключил stance (в т.ч. посадил мех) - не возвращаем и не сажаем за него
                 dropIds.add(id);
             }else if(ai.currentCommand() != UnitCommand.moveCommand || ai.targetPos == null
                 || u.within(ai.targetPos, arrive)){
@@ -113,6 +119,7 @@ public class TravelBoostFeature implements Feature{
             if(!u.isCommandable() || !(u.controller() instanceof CommandAI ai)) return;
             if(boostedByUs.contains(u.id)) return;
             if(UnitClaims.isClaimed(u.id)) return;
+            if(ManualControl.isStanceRecent(u.id, manualHold)) return; //игрок только что сам рулил boost-ом
             if(ai.currentCommand() != UnitCommand.moveCommand || ai.targetPos == null) return;
             if(u.within(ai.targetPos, far)) return;
             if(ai.hasStance(UnitStance.boost)) return; //player set it themselves - theirs to keep

@@ -743,7 +743,7 @@ public class PlacementFragment{
                                         for(var stance : stances){
 
                                             var button = coms.button(stance.getIcon(), Styles.clearNoneTogglei, () -> {
-                                                Call.setUnitStance(player, units.mapInt(un -> un.id, un -> un.type.allowStance(un, stance)).toArray(), stance, Core.input.modifierDown(Binding.enableStance) || !activeStances.get(stance.id));
+                                                Call.setUnitStance(player, qol.core.ManualControl.markStance(units.mapInt(un -> un.id, un -> un.type.allowStance(un, stance)).toArray()), stance, Core.input.modifierDown(Binding.enableStance) || !activeStances.get(stance.id));
                                             }).size(50f).tooltip(stance.localized(), true).get();
                                             button.update(() -> {
                                                 button.setColor(activeCommonStances.get(stance.id) ? Color.white : Pal.accentBack);
@@ -811,7 +811,7 @@ public class PlacementFragment{
                                 for(UnitStance stance : stances){
                                     //first stance must always be the stop stance
                                     if(stance.keybind != null && Core.input.keyTap(stance.keybind)){
-                                        Call.setUnitStance(player, control.input.selectedUnits.mapInt(un -> un.id, un -> un.type.allowStance(un, stance)).toArray(), stance, Core.input.modifierDown(Binding.enableStance) || !activeStances.get(stance.id));
+                                        Call.setUnitStance(player, qol.core.ManualControl.markStance(control.input.selectedUnits.mapInt(un -> un.id, un -> un.type.allowStance(un, stance)).toArray()), stance, Core.input.modifierDown(Binding.enableStance) || !activeStances.get(stance.id));
                                     }
                                 }
 

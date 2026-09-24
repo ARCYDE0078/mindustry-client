@@ -19,6 +19,7 @@ import mindustry.gen.Player;
 import mindustry.gen.Unit;
 import mindustry.ui.dialogs.SettingsMenuDialog.SettingsTable;
 import qol.core.Feature;
+import qol.core.ManualControl;
 import qol.core.SafeSettings;
 import qol.core.UnitClaims;
 import qol.minedefaults.MineDefaultsFeature;
@@ -135,6 +136,12 @@ public class AssistShareFeature implements Feature{
     @Override
     public void buildSettings(SettingsTable table){
         table.sliderPref("assistshare-idle-delay", 5, 1, 15, 1, v -> v + " s");
+        table.sliderPref("assistshare-manual-hold", 20, 0, 120, 5, v -> v == 0 ? "off" : v + " s");
+    }
+
+    /** Сколько мс после ручной команды юнит неприкосновенен для распределения; 0 = приоритет ручных команд выключен. */
+    long manualHoldMs(){
+        return SafeSettings.getInt("assistshare-manual-hold", 20) * 1000L;
     }
 
     void drop(int id){
@@ -209,6 +216,11 @@ public class AssistShareFeature implements Feature{
                 dropIds.add(entry.key);
                 continue;
             }
+            //ручной приказ (в т.ч. повторный assist/move, неотличимый по команде) - отпускаем на время таймера
+            if(ManualControl.isRecent(entry.key, manualHoldMs())){
+                dropIds.add(entry.key);
+                continue;
+            }
             //poly-split returned this poly to mining - it's not a helper anymore, hands off
             //immediately (poly-split owns its claim and already sent the mine command)
             if(borrowed.contains(entry.key) && !MineDefaultsFeature.divertedToAssist(entry.key)){
@@ -244,6 +256,8 @@ public class AssistShareFeature implements Feature{
             if(!u.isCommandable() || !(u.controller() instanceof CommandAI ai)) return;
             if(ai.currentCommand() != UnitCommand.assistCommand) return;
             if(assignedPlayer.containsKey(u.id)) return;
+            //игрок только что сам дал этому юниту assist - не подхватываем и не паркуем до истечения таймера
+            if(ManualControl.isRecent(u.id, manualHoldMs())) return;
 
             //team data and Groups.unit's id map CAN disagree on this client (fog server + foo's
             //client's own unit caching): a unit present in data().units may not resolve via

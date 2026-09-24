@@ -13,6 +13,8 @@ import arc.util.Time;
  */
 public final class ManualControl{
     private static final IntMap<Long> lastManual = new IntMap<>();
+    /** То же для ручного переключения stance (boost/holdFire/...) из UI команд. */
+    private static final IntMap<Long> lastManualStance = new IntMap<>();
 
     private ManualControl(){
     }
@@ -28,7 +30,20 @@ public final class ManualControl{
         return Time.timeSinceMillis(lastManual.get(unitId, 0L)) <= holdMs && lastManual.containsKey(unitId);
     }
 
+    /** Помечает юнитов ручной сменой stance и возвращает тот же массив (удобно оборачивать аргумент Call). */
+    public static int[] markStance(int[] unitIds){
+        long now = Time.millis();
+        for(int id : unitIds) lastManualStance.put(id, now);
+        return unitIds;
+    }
+
+    public static boolean isStanceRecent(int unitId, long holdMs){
+        if(holdMs <= 0) return false;
+        return lastManualStance.containsKey(unitId) && Time.timeSinceMillis(lastManualStance.get(unitId, 0L)) <= holdMs;
+    }
+
     public static void clear(){
+        lastManualStance.clear();
         lastManual.clear();
     }
 }
