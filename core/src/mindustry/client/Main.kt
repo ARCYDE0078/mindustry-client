@@ -412,6 +412,7 @@ object Main : ApplicationListener {
     fun floatEmbed(): Vec2 {
         val show = Core.settings.getBool("displayasuser")
         val unit = Vars.player.unit()
+        if(Vars.player.dead() || unit == null) return Tmp.v1.set(0F, 0F) // при входе на сервер юнита ещё нет
         // hidecursor: пока не стреляем, другим игрокам уходит позиция юнита вместо реального курсора (локальный aim не трогаем)
         val hide = Core.settings.getBool("hidecursor") && !Vars.player.shooting
         val aimX = if (hide) unit.x else unit.aimX
