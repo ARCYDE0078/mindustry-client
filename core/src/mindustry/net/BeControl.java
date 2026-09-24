@@ -112,11 +112,21 @@ public class BeControl{
      */
     public void checkUpdate(Boolc done, String repo, boolean requireCustomChannel){
         Http.get("https://api.github.com/repos/" + repo + "/releases/latest")
-            .error(e -> Core.app.post(() -> {
-                lastError = e.getMessage() != null ? e.getMessage() : e.toString();
-                done.get(false);
-                Log.err("Failed to check for updates", e);
-            }))
+            .error(e -> {
+                //sonka: анонимный api.github.com даёт 60 запросов/час на IP - за VPN/CGNAT/общим wifi лимит
+                //выбирают чужие, и проверка падает с 403/429. releases.atom лежит на github.com, под лимит
+                //API не попадает, поэтому на rate limit падаем на него вместо голой ошибки.
+                if(e instanceof Http.HttpStatusException he && (he.status == Http.HttpStatus.FORBIDDEN || he.status.code == 429)){
+                    Log.warn("[updater] GitHub API rate limit (@), falling back to releases.atom", he.status);
+                    checkUpdateAtom(done, repo, requireCustomChannel);
+                    return;
+                }
+                Core.app.post(() -> {
+                    lastError = e.getMessage() != null ? e.getMessage() : e.toString();
+                    done.get(false);
+                    Log.err("Failed to check for updates", e);
+                });
+            })
             .submit(res -> {
                 Jval val = Jval.read(res.getResultAsString());
                 String newBuild = val.getString("name", "");
@@ -151,6 +161,48 @@ public class BeControl{
                         done.get(false);
                     });
                 }
+            });
+    }
+
+    /** Фолбэк {@link #checkUpdate}: берёт последний тег из releases.atom (без лимита API), ассет качается по стабильной ссылке /releases/download/. */
+    private void checkUpdateAtom(Boolc done, String repo, boolean requireCustomChannel){
+        Http.get("https://github.com/" + repo + "/releases.atom")
+            .error(e -> Core.app.post(() -> {
+                lastError = "GitHub API rate limit (403), fallback failed: " + (e.getMessage() != null ? e.getMessage() : e.toString());
+                done.get(false);
+                Log.err("Failed to check for updates (atom fallback)", e);
+            }))
+            .submit(res -> {
+                String body = res.getResultAsString();
+                int entry = body.indexOf("<entry>");
+                int a = entry < 0 ? -1 : body.indexOf("<title>", entry);
+                int b = a < 0 ? -1 : body.indexOf("</title>", a);
+                String newBuild = b < 0 ? "" : body.substring(a + 7, b).trim();
+                if(newBuild.isEmpty()){
+                    Core.app.post(() -> {
+                        lastError = "releases.atom: no releases found";
+                        done.get(false);
+                    });
+                    return;
+                }
+                if(requireCustomChannel && !newBuild.startsWith("custom-")){
+                    Log.warn("[updater] release '@' is not from the custom channel (custom-b*), ignoring", newBuild);
+                    Core.app.post(() -> {
+                        lastError = null;
+                        done.get(false);
+                    });
+                    return;
+                }
+                boolean update = !Version.clientVersion.equals(newBuild);
+                if(update){
+                    updateUrl = "https://github.com/" + repo + "/releases/download/" + newBuild + "/Mindustry-custom-desktop.jar";
+                    updateAvailable = true;
+                    updateBuild = newBuild;
+                }
+                Core.app.post(() -> {
+                    lastError = null;
+                    done.get(update);
+                });
             });
     }
 
