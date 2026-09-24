@@ -411,25 +411,30 @@ object Main : ApplicationListener {
     /** Uses [Tmp.v1], do not cache returned vec or call this function on non-main thread. */
     fun floatEmbed(): Vec2 {
         val show = Core.settings.getBool("displayasuser")
+        val unit = Vars.player.unit()
+        // hidecursor: пока не стреляем, другим игрокам уходит позиция юнита вместо реального курсора (локальный aim не трогаем)
+        val hide = Core.settings.getBool("hidecursor") && !Vars.player.shooting
+        val aimX = if (hide) unit.x else unit.aimX
+        val aimY = if (hide) unit.y else unit.aimY
         return when {
             Vars.player.dead() -> Tmp.v1.set(0F, 0F)
-            Server.current.ghost -> Tmp.v1.set(Vars.player.unit().aimX, Vars.player.unit().aimY)
+            Server.current.ghost -> Tmp.v1.set(aimX, aimY)
             Navigation.currentlyFollowing is AssistPath && show ->
                 Tmp.v1.set(
-                    FloatEmbed.embedInFloat(Vars.player.unit().aimX, ClientVars.FOO_USER),
-                    FloatEmbed.embedInFloat(Vars.player.unit().aimY, ClientVars.ASSISTING)
+                    FloatEmbed.embedInFloat(aimX, ClientVars.FOO_USER),
+                    FloatEmbed.embedInFloat(aimY, ClientVars.ASSISTING)
                 )
             Navigation.currentlyFollowing is AssistPath ->
                 Tmp.v1.set(
-                    FloatEmbed.embedInFloat(Vars.player.unit().aimX, ClientVars.ASSISTING),
-                    FloatEmbed.embedInFloat(Vars.player.unit().aimY, ClientVars.ASSISTING)
+                    FloatEmbed.embedInFloat(aimX, ClientVars.ASSISTING),
+                    FloatEmbed.embedInFloat(aimY, ClientVars.ASSISTING)
                 )
             show ->
                 Tmp.v1.set(
-                    FloatEmbed.embedInFloat(Vars.player.unit().aimX, ClientVars.FOO_USER),
-                    FloatEmbed.embedInFloat(Vars.player.unit().aimY, ClientVars.FOO_USER)
+                    FloatEmbed.embedInFloat(aimX, ClientVars.FOO_USER),
+                    FloatEmbed.embedInFloat(aimY, ClientVars.FOO_USER)
                 )
-            else -> Tmp.v1.set(Vars.player.unit().aimX, Vars.player.unit().aimY)
+            else -> Tmp.v1.set(aimX, aimY)
         }
     }
 
