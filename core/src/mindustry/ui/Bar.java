@@ -122,15 +122,22 @@ public class Bar extends Element{
 
         Draw.color();
 
+        //текст без единого глифа (null, "", только цвет-теги, хвостовой \n) роняет GlyphLayout.setText NPE
+        //("run" is null) прямо в отрисовке UI - для бара это просто "нет подписи", не повод крашить игру
+        if(name == null || name.length() == 0) return;
+
         Font font = Fonts.outline;
         GlyphLayout lay = Pools.obtain(GlyphLayout.class, GlyphLayout::new);
-        lay.setText(font, name);
+        try{
+            lay.setText(font, name);
 
-        font.setColor(1f, 1f, 1f, 1f);
-        font.getCache().clear();
-        font.getCache().addText(name, x + width / 2f - lay.width / 2f, y + height / 2f + lay.height / 2f + 1);
-        font.getCache().draw(parentAlpha);
-
-        Pools.free(lay);
+            font.setColor(1f, 1f, 1f, 1f);
+            font.getCache().clear();
+            font.getCache().addText(name, x + width / 2f - lay.width / 2f, y + height / 2f + lay.height / 2f + 1);
+            font.getCache().draw(parentAlpha);
+        }catch(NullPointerException ignored){
+        }finally{
+            Pools.free(lay);
+        }
     }
 }
