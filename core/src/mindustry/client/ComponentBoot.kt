@@ -41,6 +41,28 @@ object ComponentBoot {
         Component("mobilepause", "client.setting.modsec-mobilepause.category", null),
     )
 
+    /**
+     * Готовые профили запуска: id -> ОТКЛЮЧАЕМЫЕ компоненты (всё остальное включено). nameKey/descKey - бандл.
+     * Профиль - лишь удобный набор чекбоксов: после применения его можно поправить руками, и он
+     * покажется как "свой набор".
+     */
+    class Profile(val id: String, val disabled: Set<String>)
+
+    val profiles = listOf(
+        Profile("all", emptySet()),
+        //кампания/PvE: без редакторских пакетов и песочницы
+        Profile("campaign", setOf("extraeditor", "mu", "patcheditor", "testing", "newconsole")),
+        //PvP: без редактора/песочницы/браузера рецептов и сетевых интеграций - меньше отвлекающего и легче старт
+        Profile("pvp", setOf("extraeditor", "mu", "patcheditor", "testing", "newconsole", "tmi", "mindustrytool", "campaignutils")),
+        //редактор: редакторские пакеты и песочница, без игровой автоматики/аналитики
+        Profile("editor", setOf("agzam4", "mi2u", "mindustrytool", "tmi", "qolc", "campaignutils")),
+        //минимум: только ядро клиента + всегда включённые scheme/sonkaextras
+        Profile("minimal", components.map { it.id }.toSet()),
+    )
+
+    /** id профиля, чьи отключённые компоненты в точности совпадают с [disabledNow]; null = свой набор. */
+    fun matchingProfile(disabledNow: Set<String>): Profile? = profiles.firstOrNull { it.disabled == disabledNow }
+
     private val disabled: Set<String> by lazy {
         Core.settings.getString(KEY, "").split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
     }
@@ -56,6 +78,20 @@ object ComponentBoot {
         val dialog = BaseDialog("@client.boot.title")
         val pending = stored()
         dialog.cont.add("@client.boot.hint").width(560f).wrap().left().padBottom(10f).row()
+        val current = matchingProfile(pending)
+        dialog.cont.add(Core.bundle.format("client.boot.profile.current",
+            current?.let { Core.bundle["client.boot.profile.${it.id}"] } ?: Core.bundle["client.boot.profile.custom"]))
+            .left().padBottom(6f).row()
+        dialog.cont.table { row ->
+            row.left().defaults().height(40f).padRight(6f).left()
+            for (pr in profiles) {
+                row.button(Core.bundle["client.boot.profile.${pr.id}"]) {
+                    Core.settings.put(KEY, pr.disabled.joinToString(","))
+                    dialog.hide()
+                    showDialog()
+                }.tooltip(Core.bundle["client.boot.profile.${pr.id}.desc"]).disabled { current == pr }
+            }
+        }.left().padBottom(10f).row()
         dialog.cont.pane { list ->
             list.left().defaults().left().padBottom(6f)
             for (c in components) {
