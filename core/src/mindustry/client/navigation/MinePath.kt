@@ -68,8 +68,12 @@ class MinePath @JvmOverloads constructor(
 
         val core = player.closestCore() ?: return
         val maxCap = if (cap <= 0) core.storageCapacity else core.storageCapacity.coerceAtMost(cap)
-        bestItem = items.min({ player.unit().canMine(it) && it.found() }) { core.items[it].toFloat() } ?: return
-        if (lastItem != null && player.unit().canMine(lastItem) && lastItem!!.found() && core.items[lastItem] - core.items[bestItem] < 100 && core.items[lastItem] < maxCap) bestItem = lastItem // Scuffed, don't switch mining until there's a 100 item difference, prevents constant switching of mine target
+        val safe = SafeMining.enabled
+        bestItem = items.min({ player.unit().canMine(it) && it.found() && (!safe || SafeMining.oreFor(player.unit(), it) != null) }) { core.items[it].toFloat() } ?: run {
+            if (safe) items.each { if (player.unit().canMine(it) && it.found()) SafeMining.notifyUnavailable(it) }
+            return
+        }
+        if (lastItem != null && player.unit().canMine(lastItem) && lastItem!!.found() && (!safe || SafeMining.oreFor(player.unit(), lastItem!!) != null) && core.items[lastItem] - core.items[bestItem] < 100 && core.items[lastItem] < maxCap) bestItem = lastItem // Scuffed, don't switch mining until there's a 100 item difference, prevents constant switching of mine target
         lastItem = bestItem
 
         if (!newGame && core.items[bestItem] >= maxCap && cap >= 0) {  // Auto switch to BuildPath when core is sufficiently full
@@ -111,7 +115,7 @@ class MinePath @JvmOverloads constructor(
 
         // mine
         } else {
-            tile = indexer.findClosestMineableOre(player.unit(), bestItem) ?: return
+            tile = (if (safe) SafeMining.oreFor(player.unit(), bestItem!!) else indexer.findClosestMineableOre(player.unit(), bestItem)) ?: return
             if (player.within(tile, player.unit().type.mineRange)) player.unit().mineTile = tile
             player.boosting = player.unit().type.canBoost && !player.within(tile, player.unit().type.mineRange)
             goTo(tile, player.unit().type.mineRange - tilesize * 2)

@@ -53,6 +53,7 @@ public class MI2UVars{
     public static AIMindow aiMindow;
     public static WorldFinderMindow finderMindow;
     public static MapAnalyzerMindow mapAnalyzer;
+    public static LogicSearchMindow logicSearch;
     public static MonitorCanvas monitorCanvas;
 
     public static MapInfoDialog mapInfo;
@@ -87,6 +88,7 @@ public class MI2UVars{
         aiMindow = new AIMindow();
         finderMindow = new WorldFinderMindow();
         mapAnalyzer = new MapAnalyzerMindow();
+        logicSearch = new LogicSearchMindow();
         monitorCanvas = new MonitorCanvas();
 
         mapInfo = new MapInfoDialog();

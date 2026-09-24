@@ -469,6 +469,7 @@ public class SettingsMenuDialog extends BaseDialog{
         client.category("automation");
         client.textPref("defaultbuildpathargs", "self"); // Keep it to just self. Skill issue players going afk make this too problematic otherwise. FINISHME: Add an afk detection system and revert this once we can reliably detect afk players and allow others to stop their pathing
         client.textPref("defaultminepathargs", "all");
+        client.checkPref("safemining", false);
         client.sliderPref("minepathcap", 5000, -100, 5000, 100, s -> s == 0 ? "Unlimited" : s == -100 ? "Never" : String.valueOf(s));
         client.sliderPref("defaultbuildpathradius", 0, 0, 250, 5, s -> s == 0 ? "Unlimited" : String.valueOf(s));
         client.sliderPref("automapvote", 0, 0, 4, s -> s == 0 ? "Never" : s == 4 ? "Random vote" : "Always " + new String[]{"downvote", "novote", "upvote"}[--s]);
@@ -582,6 +583,8 @@ public class SettingsMenuDialog extends BaseDialog{
         client.checkPref("showclientmsgsendername", true);
         client.checkPref("displayasuser", true);
         client.checkPref("hidecursor", false);
+        client.checkPref("coredeathalarm", true);
+        client.checkPref("coredeathalarmrecap", true);
         client.checkPref("showidinjoinleave", false);
         client.checkPref("highlightclientmsg", false);
         client.checkPref("enablechatlimit", false);

@@ -618,6 +618,43 @@ public class BlockIndexer{
         return f.dst2(unit) < w.dst2(unit) ? f : w;
     }
 
+    /**
+     * Как {@link #findClosestMineableOre(Unit, Item)}, но перебирает ВСЕ руды предмета и берёт ближайшую, прошедшую фильтр
+     * (обычная версия смотрит лишь первый тайл каждого квадранта, поэтому фильтр по нему бы пропускал безопасную руду).
+     * Дороже по времени - зови редко/с кэшем.
+     */
+    public Tile findClosestMineableOre(Unit unit, Item item, Boolf<Tile> filter){
+        Tile best = null;
+        float minDst = Float.MAX_VALUE;
+
+        for(int wall = 0; wall < 2; wall++){
+            if(wall == 0 ? !unit.type.mineFloor : !unit.type.mineWalls) continue;
+
+            IntSeq[][][] source = wall == 0 ? ores : wallOres;
+            if(source == null || item.id >= source.length || source[item.id] == null) continue;
+
+            for(int qx = 0; qx < quadWidth; qx++){
+                for(int qy = 0; qy < quadHeight; qy++){
+                    IntSeq arr = source[item.id][qx][qy];
+                    if(arr == null) continue;
+
+                    for(int i = 0; i < arr.size; i++){
+                        Tile tile = world.tile(arr.get(i));
+                        if(tile == null || (wall == 0) != (tile.block() == Blocks.air)) continue;
+
+                        float dst = Mathf.dst2(unit.x, unit.y, tile.worldx(), tile.worldy());
+                        if(dst < minDst && filter.get(tile)){
+                            best = tile;
+                            minDst = dst;
+                        }
+                    }
+                }
+            }
+        }
+
+        return best;
+    }
+
     private void process(Tile tile){
         var team = tile.team();
         //only process entity changes with centered tiles

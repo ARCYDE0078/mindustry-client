@@ -119,6 +119,15 @@ public class MI2UI extends Mindow2{
                 mapAnalyzer.rebuild();
             }else mapAnalyzer.close();
         }).checked(tb -> !mapAnalyzer.closed());
+
+        titlePane.button(b -> {
+            b.add(new CombinationIcon(t -> t.add("" + Iconc.logic)).bottomRight(t -> t.add("" + Iconc.zoom).pad(2f).fontScale(0.7f).get())).grow();
+        }, textbtoggle, () -> {
+            if(logicSearch.closed()){
+                logicSearch.addTo(this.parent);
+                logicSearch.rebuild();
+            }else logicSearch.close();
+        }).checked(tb -> !logicSearch.closed());
     }
 
     @Override

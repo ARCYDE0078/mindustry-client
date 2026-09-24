@@ -35,6 +35,7 @@ class ClientLogic {
 
     /** Create event listeners */
     init {
+        mindustry.client.utils.CoreDeathAlarm.init()
         Events.on(ServerJoinEvent::class.java) { // Run just after the player joins a server
             Spectate.pos = null
 
