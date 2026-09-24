@@ -100,7 +100,6 @@ public class SchematicsTableUi{
 
     private boolean built = false;
     private Table contentTable;
-    private Table previewTable;
 
     private int currentPage = 0;
     private int lastPage = 0;
@@ -109,15 +108,11 @@ public class SchematicsTableUi{
     private int categoryButtonSize;
     private Integer oldSize;
 
-    private Schematic hovered;
-
     /* перф: слот 0 - опрос layout-настроек раз в полсекунды вместо каждого кадра; слот 1 - редкий
      * пере-снимок player.core() для живущего превью (см. update) */
     private final Interval settingsPoll = new Interval(2);
     private boolean settingsPolled = false;
     private int posOffsetX, posOffsetY;
-    /** какую схему сейчас показывает превью - перестраиваем его только при смене (образец: BlockInfoUi) */
-    private Schematic lastHoveredPreview;
 
     // ---- режим редактирования ----
     private boolean editMode = false;
@@ -190,14 +185,6 @@ public class SchematicsTableUi{
         instance = this;
 
         Events.on(ClientLoadEvent.class, e -> {
-            ui.hudGroup.fill(null, t -> {
-                previewTable = t.table(sonkaextras.UiStyle.windowBg()).get();
-                previewTable.visibility = this::previewTableVisibility;
-                previewTable.update(() -> previewTable.color.a = Core.settings.getInt("eui-SchematicsTableAlpha", 100) / 100f);
-                t.center();
-                t.pack();
-            });
-
             schematicPickerDialog = new BaseDialog(Core.bundle.get("schematics-table.dialog.pick-schematic.title"));
             schematicPickerDialog.addCloseButton();
 
@@ -252,19 +239,6 @@ public class SchematicsTableUi{
         updatePosition();
 
         if(radialOverlay == null) pollChord();
-
-        if(hovered != null && contentTable.hasMouse()){
-            //перф: контент превью статичен по идентичности схемы (лейблы требований - живые супплаеры),
-            //перестраивать каждый кадр незачем; редкий рефреш (слот 1) пере-снимает player.core(),
-            //чтобы смена/потеря ядра при долгом наведении отражалась как раньше
-            if(hovered != lastHoveredPreview || settingsPoll.get(1, 60f)){
-                lastHoveredPreview = hovered;
-                rebuildPreviewTable();
-            }
-        }else{
-            hovered = null;
-            lastHoveredPreview = null;
-        }
     }
 
     private boolean buttonSizeMigrationChecked = false;
@@ -559,6 +533,7 @@ public class SchematicsTableUi{
                 int col = j;
                 CellData cellData = page.cell(row, col);
                 Schematic schematic = cellData == null ? null : findSchematic(cellData.schematic);
+                CellData finalCellData = cellData;
 
                 //built manually (new Button + Table.add) - proven simple and correct since the port
                 Button btn = new Button(Styles.defaulti);
@@ -586,9 +561,8 @@ public class SchematicsTableUi{
                 var cellButton = schematicButtonsTable.add(btn).update(b -> {
                     b.setDisabled(false);
                     b.color.set(cellColor(row, col, schematic));
-                }).width(schematicButtonSize).height(schematicButtonSize).pad(1f).tooltip(cellTooltip(cellData, schematic)).get();
+                }).width(schematicButtonSize).height(schematicButtonSize).pad(1f).tooltip(t -> buildCellTooltip(t, finalCellData, schematic)).get();
 
-                cellButton.hovered(() -> hovered = schematic);
                 if(!mobile){
                     cellButton.clicked(KeyCode.mouseRight, () -> showCellDialog(row, col));
                 }else{
@@ -2322,34 +2296,44 @@ public class SchematicsTableUi{
 
     // ---------------------------------------------------------------- preview panel
 
-    void rebuildPreviewTable(){
-        previewTable.clearChildren();
+    /**
+     * Превью схемы тултипом у курсора (раскладка как у панели быстрых схем fk4b): заголовок "WxH, N блоков",
+     * картинка до 250px, ресурсы (красным - чего не хватает в ядре) и энергия. Раньше это была огромная
+     * панель по центру экрана. Тултип строится один раз, поэтому ядро берём из живых супплаеров, а не при сборке.
+     */
+    void buildCellTooltip(Table t, CellData c, Schematic schematic){
+        t.background(sonkaextras.UiStyle.windowBg());
+        t.margin(10f);
 
-        var requirements = hovered.requirements();
-        float powerConsumption = hovered.powerConsumption() * 60;
-        float powerProduction = hovered.powerProduction() * 60;
-        var core = player.core();
+        if(schematic == null || (c != null && c.multi) || !Core.settings.getBool("eui-ShowSchematicsPreview", true)){
+            t.add(cellTooltip(c, schematic)).style(Styles.outlineLabel);
+            return;
+        }
 
-        previewTable.add(new SchematicImage(hovered)).maxSize(800f);
-        previewTable.row();
+        t.add(cellTooltip(c, schematic)).style(Styles.outlineLabel).padBottom(2f).row();
+        t.add(schematic.width + "x" + schematic.height + ", " + schematic.tiles.size + " " + Core.bundle.get("schematics-table.preview.blocks"))
+            .color(Color.lightGray).padBottom(4f).row();
 
-        previewTable.table(null, requirementsTable -> {
+        t.add(new SchematicImage(schematic)).size(Math.min(schematic.width * 16, 250f), Math.min(schematic.height * 16, 250f)).pad(4f).row();
+
+        t.table(null, requirementsTable -> {
             int[] i = {0};
-            requirements.each((item, amount) -> {
-                requirementsTable.image(item.uiIcon).left();
+            schematic.requirements().each((item, amount) -> {
+                requirementsTable.image(item.uiIcon).size(16f).left();
                 requirementsTable.label(() -> {
+                    var core = player.core();
                     if(core == null || state.rules.infiniteResources || core.items.has(item, amount)) return "[lightgray]" + amount;
-                    return (core.items.has(item, amount) ? "[lightgray]" : "[scarlet]") + Math.min(core.items.get(item), amount) + "[lightgray]/" + amount;
-                }).padLeft(2f).left().padRight(4f);
+                    return "[scarlet]" + Math.min(core.items.get(item), amount) + "[lightgray]/" + amount;
+                }).padLeft(2f).left().padRight(8f);
 
                 if(++i[0] % 4 == 0) requirementsTable.row();
             });
-        });
+        }).row();
 
-        previewTable.row();
-
+        float powerConsumption = schematic.powerConsumption() * 60;
+        float powerProduction = schematic.powerProduction() * 60;
         if(powerConsumption != 0 || powerProduction != 0){
-            previewTable.table(null, powerTable -> {
+            t.table(null, powerTable -> {
                 if(powerProduction != 0){
                     powerTable.image(Icon.powerSmall).color(Pal.powerLight).padRight(3f);
                     powerTable.add("+" + arc.util.Strings.autoFixed(powerProduction, 2)).color(Pal.powerLight).left();
@@ -2359,12 +2343,8 @@ public class SchematicsTableUi{
                     powerTable.image(Icon.powerSmall).color(Pal.remove).padRight(3f);
                     powerTable.add("-" + arc.util.Strings.autoFixed(powerConsumption, 2)).color(Pal.remove).left();
                 }
-            });
+            }).padTop(4f);
         }
-    }
-
-    boolean previewTableVisibility(){
-        return Core.settings.getBool("eui-ShowSchematicsPreview", true) && contentTable != null && contentTable.visible && hovered != null;
     }
 
     // ---------------------------------------------------------------- misc lookups
