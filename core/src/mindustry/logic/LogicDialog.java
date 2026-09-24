@@ -146,7 +146,7 @@ public class LogicDialog extends BaseDialog{
                     }).marginLeft(12f).disabled(b -> Core.app.getClipboardText() == null).row();
 
                     //qolc: save/load the current code to/from the !mlog library (<data>/qol/mlog/*.txt)
-                    qolc.mlog.MlogLibrary.buildEditMenuButtons(t, style, canvas, dialog::hide);
+                    if(mindustry.client.ComponentBoot.enabled("qolc")) qolc.mlog.MlogLibrary.buildEditMenuButtons(t, style, canvas, dialog::hide);
 
                     t.button("@logic.restart", Icon.refresh, style, () -> {
                         forceRestart = true;

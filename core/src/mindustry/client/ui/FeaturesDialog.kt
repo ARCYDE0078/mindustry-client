@@ -69,6 +69,8 @@ object FeaturesDialog : BaseDialog("@client.features") {
 
         t.table { head ->
             head.add(Label(Core.bundle["client.features.mods"], headingStyle)).left().growX()
+            head.button("@client.boot.open", Icon.list) { ComponentBoot.showDialog() }
+                .height(44f).minWidth(220f).right().padRight(6f)
             head.button("@client.features.mods.settings", Icon.settings) { ModsSettings.openTab() }
                 .height(44f).minWidth(220f).right()
         }.growX().row()
@@ -89,7 +91,7 @@ object FeaturesDialog : BaseDialog("@client.features") {
             }
 
             modRow(list, Core.bundle["client.setting.modsec-eui.category"], Core.bundle["client.features.mod.eui.desc"],
-                Vars.mods.locateMod("extended-ui") == null)
+                Vars.mods.locateMod("extended-ui") == null && ComponentBoot.enabled("eui"))
 
             val stats = CampaignUtilsMod.statsDialog()
             modRow(list, Core.bundle["client.setting.modsec-campaignutils.category"], Core.bundle["client.features.mod.campaignutils.desc"], stats != null) { btns ->
@@ -97,7 +99,7 @@ object FeaturesDialog : BaseDialog("@client.features") {
                     .disabled { stats == null }.standdownTooltip(stats != null)
             }
 
-            val qolcOk = Vars.mods.locateMod("qol-control") == null
+            val qolcOk = Vars.mods.locateMod("qol-control") == null && ComponentBoot.enabled("qolc")
             modRow(list, Core.bundle["client.setting.modsec-qolc.category"], Core.bundle["client.features.mod.qolc.desc"], qolcOk) { btns ->
                 btns.button("@qolc.palcolors.title", Icon.pencil) { PalColorsFeature.showDialog() }
                     .disabled { !qolcOk }.standdownTooltip(qolcOk)
@@ -106,13 +108,13 @@ object FeaturesDialog : BaseDialog("@client.features") {
             }
 
             modRow(list, Core.bundle["client.features.mod.mi2u.name"], Core.bundle["client.features.mod.mi2u.desc"],
-                Vars.mods.locateMod("mi2-utilities-java") == null)
+                Vars.mods.locateMod("mi2-utilities-java") == null && ComponentBoot.enabled("mi2u"))
 
             // текущее значение бинда хаба утилит agzam4 - через общий реестр KeyBind, а не через класс
             // ModWork.KeyBinds: его загрузка как side-effect регистрирует бинды, что при self-disable не нужно
             val utilsKey = KeyBind.all.find { it.name == "open-utils" }?.value?.key?.toString() ?: "U"
             modRow(list, Core.bundle["client.setting.modsec-agzam4.category"], Core.bundle.format("client.features.mod.agzam4.desc", utilsKey),
-                Vars.mods.locateMod("agzam4mod") == null)
+                Vars.mods.locateMod("agzam4mod") == null && ComponentBoot.enabled("agzam4"))
 
             val schemeOk = SchemeSizeMod.enabled()
             modRow(list, Core.bundle["client.setting.modsec-scheme.category"], Core.bundle["client.features.mod.scheme.desc"], schemeOk) { btns ->
@@ -151,7 +153,7 @@ object FeaturesDialog : BaseDialog("@client.features") {
 
             // extraeditor: тулбар живёт только внутри редактора карт, диалогов нет - строка без кнопок
             modRow(list, Core.bundle["client.setting.modsec-extraeditor.category"], Core.bundle["client.features.mod.extraeditor.desc"],
-                Vars.mods.locateMod("extra-editor") == null)
+                Vars.mods.locateMod("extra-editor") == null && ComponentBoot.enabled("extraeditor"))
 
             // newconsole: consoles непусто <=> guard пройден и ClientLoadEvent отработал; кнопка -
             // запасной вход в консоль на случай спрятанной настройкой плавающей кнопки
