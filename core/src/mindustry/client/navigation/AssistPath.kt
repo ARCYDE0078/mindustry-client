@@ -346,11 +346,15 @@ class AssistPath(val assisting: Player?, val type: Type = Type.Regular, var circ
         val lookPos =
             if (assisting.unit().isShooting && unit.type.faceTarget) player.angleTo(assisting.unit().aimX, assisting.unit().aimY) // Assisting is shooting and player has fixed weapons
             else if (unit.type.omniMovement && player.shooting && unit.type.hasWeapons() && unit.type.faceTarget && !(unit is Mechc && unit.isFlying())) Angles.mouseAngle(unit.x, unit.y)
-            // sonka: во время орбиты держим курс на точку орбиты, а не prefRotation()/vel().angle() -
-            // на малых скоростях (медленные/водные юниты) угол вектора скорости почти нулевой длины дёргается
-            // между случайными значениями, из-за чего юнит постоянно доворачивался (в основном к 0° - "вправо")
-            else if (circling && orbitRadius > 0f) player.angleTo(assisting.x + orbitPos.x, assisting.y + orbitPos.y)
-            else player.unit().prefRotation() // Anything else
+            // sonka: во время ассиста (с орбитой или без) держим курс на точку, куда идём, а не prefRotation()/vel().angle() -
+            // prefRotation() при isLocal()==true берёт угол вектора скорости, а на подходе/остановке скорость почти
+            // нулевая и её угол дёргается на случайные значения (часто к 0°/"вправо"), из-за чего юнит дёргался
+            else if (type == Type.Regular || type == Type.Cursor) {
+                val gx = if (type == Type.Cursor) assisting.mouseX + orbitPos.x else assisting.x + orbitPos.x
+                val gy = if (type == Type.Cursor) assisting.mouseY + orbitPos.y else assisting.y + orbitPos.y
+                if (unit.within(gx, gy, tilesize.toFloat())) player.angleTo(assisting.x, assisting.y) else player.angleTo(gx, gy)
+            }
+            else player.unit().prefRotation() // Anything else (free move, build path)
 
         player.shooting(shouldShoot)
         unit.aim(aimPos)
