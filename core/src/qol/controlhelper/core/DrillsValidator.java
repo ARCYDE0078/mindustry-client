@@ -7,7 +7,9 @@ import arc.struct.Queue;
 import arc.struct.Seq;
 import mindustry.entities.units.BuildPlan;
 import mindustry.game.EventType;
+import mindustry.content.Blocks;
 import mindustry.type.Item;
+import mindustry.content.Items;
 import mindustry.world.Tile;
 import mindustry.world.blocks.production.Drill;
 import qol.core.SafeSettings;
@@ -67,6 +69,7 @@ public class DrillsValidator{
     }
 
     public Queue<BuildPlan> ValidatePlans(Queue<BuildPlan> plans){
+        plans = DropPoorMechanicalDrills(plans);
         Queue<BuildPlan> anotherBlocks = new Queue<>();
         Queue<DVDrill> drills = new Queue<>();
         for(BuildPlan plan : plans){
@@ -100,6 +103,29 @@ public class DrillsValidator{
             if(winner.plans.contains(i) || anotherBlocks.contains(i)) newPlans.add(i);
         });
         return newPlans;
+    }
+
+    /** Пока меди в ядре < 1000, механический бур на единственной клетке руды не окупает свои 12 меди - выкидываем такие планы. */
+    Queue<BuildPlan> DropPoorMechanicalDrills(Queue<BuildPlan> plans){
+        if(!SafeSettings.getBool("dropOneTileMechDrills", true)) return plans;
+        var core = player.core();
+        if(core == null || core.items.get(Items.copper) >= 1000) return plans;
+        Queue<BuildPlan> kept = new Queue<>();
+        Seq<Tile> temp = new Seq<>();
+        for(BuildPlan plan : plans){
+            if(!plan.breaking && plan.block == Blocks.mechanicalDrill && plan.tile() != null){
+                Item item = GetDrillReturnItem((Drill)plan.block, plan.tile());
+                int count = 0;
+                if(item != null){
+                    for(Tile other : plan.tile().getLinkedTilesAs((Drill)plan.block, temp)){
+                        if(((Drill)plan.block).canMine(other) && other.drop() == item) count++;
+                    }
+                }
+                if(count == 1) continue;
+            }
+            kept.add(plan);
+        }
+        return kept;
     }
 
     public Item GetDrillReturnItem(Drill drill, Tile tile){

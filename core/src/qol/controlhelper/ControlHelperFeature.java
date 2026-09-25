@@ -109,6 +109,7 @@ public class ControlHelperFeature implements Feature{
     @Override
     public void buildSettings(SettingsTable table){
         table.checkPref("drillsValidator", true);
+        table.checkPref("dropOneTileMechDrills", true);
         table.checkPref("plansSaver", true);
         table.checkPref("prioritizePlans", true);
         table.checkPref("handMiner", true);
