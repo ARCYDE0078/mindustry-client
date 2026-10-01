@@ -5,6 +5,8 @@ import arc.files.*;
 import arc.struct.*;
 import arc.util.*;
 
+import java.util.*;
+
 import static mindustry.Vars.*;
 
 /**
@@ -134,12 +136,39 @@ public enum DataCategory{
         return path.startsWith("/") ? path.substring(1) : path;
     }
 
+    /** Подстроки (в нижнем регистре) ключей, под которыми лежат учётки и ключи доступа: токены входа mindustry.tool, API-ключи переводчиков, пароль комнаты Player Connect, персональный chat-id. */
+    private static final String[] SECRET_PARTS = {
+        "token", "password", "passwd", "secret", "api-key", "apikey", "api_key", "chat-id", "chatid",
+        "cookie", "bearer", "credential", "email", "mindustrytool.auth."
+    };
+
+    /**
+     * Ключ, который нельзя переносить архивом ни в одну сторону. Два вида:
+     * <ul>
+     * <li>секреты ({@link #SECRET_PARTS}): zip с экспортом люди шлют друзьям и выкладывают «вот мои настройки», и вместе с
+     * ним уезжали бы токены входа и ключи API; обратно такие ключи тоже не принимаем - они привязаны к аккаунту и машине;</li>
+     * <li>{@code updateurl}/{@code autoupdate}: это точка доверия апдейтера. Принять их из чужого архива = подменить репозиторий,
+     * откуда клиент сам скачивает и запускает jar (даже с проверкой SHA-256 сумма берётся из того же репозитория).</li>
+     * </ul>
+     * Сам ключ при этом остаётся в локальных настройках - просто не участвует в экспорте/импорте.
+     */
+    public static boolean isProtectedSettingKey(String key){
+        if(key == null) return true;
+        String k = key.toLowerCase(Locale.ROOT);
+        if(k.equals("updateurl") || k.equals("autoupdate")) return true;
+        for(String part : SECRET_PARTS){
+            if(k.contains(part)) return true;
+        }
+        return false;
+    }
+
     /**
      * Ключ «обычной» настройки - всё, что не кампания, не имена/автосейв слотов (едут с сейвами) и
      * не идентичность игрока ({@code uuid}, {@code usid-*}: их и ваниль бережёт при «очистить всё»),
-     * и не служебные ключи профилей кампании.
+     * не служебные ключи профилей кампании и не защищённые ключи ({@link #isProtectedSettingKey}).
      */
     public static boolean isPlainSettingKey(String key){
+        if(isProtectedSettingKey(key)) return false;
         if(CampaignInventory.isCampaignKey(key)) return false;
         if(key.startsWith("save-")) return false;
         if(key.equals("uuid") || key.startsWith("usid-")) return false;

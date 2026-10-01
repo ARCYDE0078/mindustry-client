@@ -22,13 +22,37 @@ val provider = JcaTlsCryptoProvider()
 
 private fun certChainToTlsCert(cert: X509Certificate, chain: List<X509Certificate>, crypto: JcaTlsCrypto, certificateRequestContext: ByteArray?) = Certificate(certificateRequestContext, listOf(cert).plus(chain).map { CertificateEntry(JcaTlsCertificate(crypto, it), null) }.toTypedArray())
 
+/**
+ * Подходит ли цепочка, присланная пиром, под доверенный {@code expected}.
+ *
+ * Раньше сравнивался только ПОСЛЕДНИЙ элемент цепочки, а он приходит от самого пира: цепочка [чужой leaf, expected]
+ * проходила проверку (expected - публичный сертификат, его знают все). А подпись CertificateVerify в рукопожатии
+ * проверяется по ПЕРВОМУ элементу (leaf), т.е. по ключу, который у атакующего есть, - итого любой мог выдать себя за любого
+ * доверенного собеседника. Теперь смотрим на leaf:
+ *  1. leaf == expected: закрепление (pinning) конкретного сертификата. Так работают и самоподписанные пары клиентов, и
+ *     встроенные dev-сертификаты; владение ключом дальше доказывает CertificateVerify по этому же leaf;
+ *  2. либо leaf выпущен самим expected (CA): совпадает issuer, expected помечен как CA, подпись проверяется ключом expected и
+ *     срок действия не вышел. Это ровно то, для чего в genCert есть параметр authority.
+ * Цепочку дальше leaf не читаем вообще: всё, что в ней лежит после него, пир выбирает сам.
+ */
+internal fun peerChainMatches(peerChain: Certificate?, expected: X509Certificate): Boolean {
+    val leafBytes = peerChain?.certificateEntryList?.firstOrNull()?.certificate?.encoded ?: return false
+    if (leafBytes.contentEquals(expected.encoded)) return true
+
+    return try {
+        val leaf = CertificateFactory.getInstance("X509").generateCertificate(leafBytes.inputStream()) as X509Certificate
+        if (expected.basicConstraints < 0 || leaf.issuerX500Principal != expected.subjectX500Principal) return false
+        leaf.checkValidity()
+        leaf.verify(expected.publicKey, "BC")
+        true
+    } catch (_: Exception) { // кривой/подделанный сертификат, чужая подпись, просроченный - всё это "нет"
+        false
+    }
+}
+
 private fun getAuth(expectedCert: X509Certificate, cert: X509Certificate, chain: List<X509Certificate>, crypto: JcaTlsCrypto, context: TlsContext, key: PrivateKey): TlsAuthentication = object : TlsAuthentication {
     override fun notifyServerCertificate(serverCertificate: TlsServerCertificate?) {
-        val expected = expectedCert.encoded
-
-        if (serverCertificate?.certificate?.certificateEntryList?.last()?.certificate?.encoded?.contentEquals(expected) != true) throw IOException(
-            "Certificate is incorrect!"
-        )
+        if (!peerChainMatches(serverCertificate?.certificate, expectedCert)) throw IOException("Certificate is incorrect!")
     }
 
     override fun getClientCredentials(certificateRequest: CertificateRequest): TlsCredentials {
@@ -136,10 +160,7 @@ class TlsServerImpl(private val cert: X509Certificate, private val chain: List<X
     }
 
     override fun notifyClientCertificate(clientCertificate: Certificate?) {
-        val expected = expectedCert.encoded
-
-        val lastEntry = clientCertificate?.certificateEntryList?.last()?.certificate
-        if (lastEntry?.encoded?.contentEquals(expected) != true) throw IOException("Certificate is incorrect!")
+        if (!peerChainMatches(clientCertificate, expectedCert)) throw IOException("Certificate is incorrect!")
     }
 
     override fun getProtocolVersions() = arrayOf(ProtocolVersion.TLSv13)
