@@ -304,6 +304,10 @@ public class BeControl{
 
     public void actuallyDownload(@Nullable String sender) {
         if(!updateAvailable) return;
+        if(OS.isAndroid || OS.isIos){ // нет запущенного jar, который можно подменить (getCodeSource == null) и нет java для перезапуска
+            if(!headless) ui.showInfo("@client.update.mobile");
+            return;
+        }
         try{
             boolean[] cancel = {false};
             float[] progress = {0};

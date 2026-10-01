@@ -352,7 +352,7 @@ public class SchematicBrowserDialog extends BaseDialog {
                     t.row();
                     dialog.hide();
                 }
-                t.button("@import.clipboard", Icon.copy, style, () -> {
+                t.button("@asset.content.import.clipboard", Icon.copy, style, () -> {
                     dialog.hide();
                     ui.showInfoFade("@copied");
                     Core.app.setClipboardText(schematics.writeBase64(s, Core.settings.getBool("schematicmenuexporttags")));

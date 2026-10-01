@@ -110,7 +110,7 @@ public class QuickChatFeature implements Feature{
     }
 
     static void saveData(Jval data){
-        Core.settings.put(SETTINGS_KEY, data.toString());
+        qol.core.SafeSettings.putString(SETTINGS_KEY, data.toString());
     }
 
     void showMainMenu(){

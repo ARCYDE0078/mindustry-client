@@ -38,6 +38,12 @@ public class ChatStreamClient {
 
     private volatile Thread streamThread;
     private volatile HttpURLConnection currentConnection;
+    /**
+     * Поколение потока: connect() его увеличивает, disconnect() тоже. Поток живёт, пока его номер == текущему, иначе
+     * после быстрого disconnect()->connect() старый поток (isStreaming снова true) продолжал бы крутиться рядом с новым:
+     * две SSE-сессии, задвоенные сообщения/непрочитанные и сброс "connected" из старого потока.
+     */
+    private volatile int generation = 0;
 
     public ChatStreamClient(Cons<Seq<ChatMessage>> onMessages, Cons<Boolean> onConnectionChange) {
         this.onMessages = onMessages;
@@ -54,18 +60,27 @@ public class ChatStreamClient {
         }
 
         isStreaming.set(true);
-        streamThread = new Thread(this::runStreamLoop, "ChatStreamThread");
+        final int gen = ++generation;
+        streamThread = new Thread(() -> runStreamLoop(gen), "ChatStreamThread");
         streamThread.setDaemon(true);
         streamThread.start();
     }
 
     public synchronized void disconnect() {
         isStreaming.set(false);
+        generation++;
         updateConnection(false);
 
-        if (currentConnection != null) {
+        HttpURLConnection connection = currentConnection;
+        if (connection != null) {
             Log.info("Disconnecting chat stream");
             currentConnection = null;
+            //без этого readLine() в потоке (readTimeout=0) висит вечно, interrupt его не будит: соединение и поток
+            //оставались живыми после каждого выключения/перелогина
+            try {
+                connection.disconnect();
+            } catch (Exception ignored) {
+            }
         }
 
         if (streamThread != null) {
@@ -74,8 +89,8 @@ public class ChatStreamClient {
         }
     }
 
-    private void runStreamLoop() {
-        while (isStreaming.get()) {
+    private void runStreamLoop(int gen) {
+        while (isStreaming.get() && gen == generation) {
             HttpURLConnection connection = null;
 
             try {
@@ -83,32 +98,43 @@ public class ChatStreamClient {
                 AuthService.getInstance().refreshTokenIfNeeded().get();
 
                 connection = openConnection();
+                if (gen != generation) {
+                    return; //пока открывали соединение, нас уже отключили; finally закроет connection
+                }
                 currentConnection = connection;
 
                 int status = connection.getResponseCode();
                 if (status != HttpURLConnection.HTTP_OK) {
                     Log.err("Chat stream failed: " + status);
-                    updateConnection(false);
+                    if (gen == generation) updateConnection(false);
                     waitBeforeReconnect();
                     continue;
                 }
 
+                if (gen != generation) {
+                    return;
+                }
                 updateConnection(true);
                 Log.info("Chat stream connected");
-                readEvents(connection);
+                readEvents(connection, gen);
             } catch (Exception e) {
-                if (isStreaming.get()) {
+                if (isStreaming.get() && gen == generation) {
                     Log.err("Chat stream error", e);
                     updateConnection(false);
                 }
             } finally {
-                updateConnection(false);
+                //устаревший поток не трогает общее состояние: оно уже принадлежит новому
+                if (gen == generation) {
+                    updateConnection(false);
+                }
 
                 if (connection != null) {
                     connection.disconnect();
                 }
 
-                currentConnection = null;
+                if (gen == generation) {
+                    currentConnection = null;
+                }
             }
 
             waitBeforeReconnect();
@@ -144,13 +170,13 @@ public class ChatStreamClient {
         return generatedChatId;
     }
 
-    private void readEvents(HttpURLConnection connection) throws Exception {
+    private void readEvents(HttpURLConnection connection, int gen) throws Exception {
         BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
         String eventName = DATA_EVENT;
         StringBuilder dataBuilder = new StringBuilder();
         String line;
 
-        while (isStreaming.get() && (line = reader.readLine()) != null) {
+        while (isStreaming.get() && gen == generation && (line = reader.readLine()) != null) {
             if (line.isEmpty()) {
                 dispatchEvent(eventName, dataBuilder.toString());
                 eventName = DATA_EVENT;

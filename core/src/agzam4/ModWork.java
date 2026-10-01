@@ -142,6 +142,38 @@ public class ModWork {
 		return seq;
 	}
 
+	/**
+	 * Поля itemDuration/useTime у класса блока (в порядке getFields, как раньше - последнее совпадение перекрывает
+	 * предыдущее). getFields() копирует ВСЕ публичные поля (~200 Field, ~18 КБ) на каждый вызов, а getCraftSpeed
+	 * зовётся каждый кадр из тултипа и калькулятора, поэтому результат кэшируется по классу (в т.ч. пустой).
+	 */
+	private static final ObjectMap<Class<?>, Field[]> useTimeFieldCache = new ObjectMap<>();
+
+	private static Field[] useTimeFields(Class<?> type) {
+		Field[] cached = useTimeFieldCache.get(type);
+		if(cached != null) return cached;
+		Seq<Field> found = new Seq<>(Field.class);
+		for(Field f : type.getFields()) {
+			String name = f.getName();
+			if(name.equals("itemDuration") || name.equals("useTime")) found.add(f);
+		}
+		cached = found.toArray(Field.class);
+		useTimeFieldCache.put(type, cached);
+		return cached;
+	}
+
+	private static float reflectedUseTimeSpeed(Block block, float craftSpeed) {
+		Field[] fields = useTimeFields(block.getClass());
+		for (int i = 0; i < fields.length; i++) {
+			try {
+				craftSpeed = 60/fields[i].getFloat(block);
+			} catch (IllegalArgumentException | IllegalAccessException e) {
+				e.printStackTrace();
+			}
+		}
+		return craftSpeed;
+	}
+
 	public static void getCraftSpeed(Building building, Cons2<Float, Float> cons) {
 		Block block = building.block;
 		float craftSpeed = 1f;
@@ -166,23 +198,7 @@ public class ModWork {
 		if(block instanceof ConsumeGenerator generator) {
 			craftSpeed = 60f/generator.itemDuration;
 		} else {
-			Field[] fields = block.getClass().getFields();
-			for (int i = 0; i < fields.length; i++) {
-				if(fields[i].getName().equals("itemDuration")) {
-					try {
-						craftSpeed = 60/fields[i].getFloat(block);
-					} catch (IllegalArgumentException | IllegalAccessException e) {
-						e.printStackTrace();
-					}
-				}
-				if(fields[i].getName().equals("useTime")) {
-					try {
-						craftSpeed = 60/fields[i].getFloat(block);
-					} catch (IllegalArgumentException | IllegalAccessException e) {
-						e.printStackTrace();
-					}
-				}
-			}
+			craftSpeed = reflectedUseTimeSpeed(block, craftSpeed);
 		}
 		if(block instanceof ForceProjector projector) craftSpeed = 60f/projector.phaseUseTime;
 		craftSpeedMultiplier *= building.efficiencyScale();
@@ -226,23 +242,7 @@ public class ModWork {
 		if(block instanceof ConsumeGenerator generator) {
 			craftSpeed = 60f/generator.itemDuration;
 		} else {
-			Field[] fields = block.getClass().getFields();
-			for (int i = 0; i < fields.length; i++) {
-				if(fields[i].getName().equals("itemDuration")) {
-					try {
-						craftSpeed = 60/fields[i].getFloat(block);
-					} catch (IllegalArgumentException | IllegalAccessException e) {
-						e.printStackTrace();
-					}
-				}
-				if(fields[i].getName().equals("useTime")) {
-					try {
-						craftSpeed = 60/fields[i].getFloat(block);
-					} catch (IllegalArgumentException | IllegalAccessException e) {
-						e.printStackTrace();
-					}
-				}
-			}
+			craftSpeed = reflectedUseTimeSpeed(block, craftSpeed);
 		}
 		return craftSpeed;
 	}

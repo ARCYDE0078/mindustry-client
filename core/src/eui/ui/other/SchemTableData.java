@@ -107,7 +107,13 @@ public class SchemTableData{
         public boolean isEmpty(){
             if(!schematic.isEmpty() || !label.isEmpty() || rotation != 0 || main != null || multi) return false;
             for(IconRef c : corners) if(c != null) return false;
-            return true;
+            return !hasMultiSchematics();
+        }
+
+        /** Есть ли секции со схемой - они живут и при multi=false (переключатель режима их не стирает). */
+        public boolean hasMultiSchematics(){
+            for(IntMap.Entry<MultiEntry> e : multiEntries) if(!e.value.schematic.isEmpty()) return true;
+            return false;
         }
 
         public CellData copy(){
@@ -243,7 +249,7 @@ public class SchemTableData{
 
     public void save(){
         prune();
-        Core.settings.put(SETTINGS_KEY, toJson().toString());
+        qol.core.SafeSettings.putString(SETTINGS_KEY, toJson().toString()); //лимит writeUTF: см. SafeSettings.putString
     }
 
     /** Пустые ячейки не храним; ссылки групп на несуществующие позиции чистим при сохранении. */
@@ -285,8 +291,10 @@ public class SchemTableData{
                 Jval cornersArr = Jval.newArray();
                 for(int i = 0; i < 4; i++) if(c.corners[i] != null) cornersArr.add(iconJson(c.corners[i], i));
                 if(cornersArr.asArray().size > 0) cj.put("corners", cornersArr);
-                if(c.multi){
-                    cj.put("multi", true);
+                //msch/sections пишем и при multi=false, пока в секциях есть схемы: переключение режима на single
+                //не должно терять их после перезапуска (в памяти они и так остаются)
+                if(c.multi || c.hasMultiSchematics()){
+                    if(c.multi) cj.put("multi", true);
                     cj.put("sections", c.sections);
                     Jval multiArr = Jval.newArray();
                     for(IntMap.Entry<MultiEntry> me : c.multiEntries){

@@ -66,6 +66,7 @@ public class LightRenderer extends mindustry.graphics.LightRenderer {
 	public static void unapply() {
 		if(source == null || source == Vars.renderer.lights) return;
 		Vars.renderer.lights = source;
+		if(custom != null) custom.buffer.dispose(); // FrameBuffer - это GPU-текстура, раньше каждый вкл/выкл оставлял её висеть
 		custom = null;
 	}
 

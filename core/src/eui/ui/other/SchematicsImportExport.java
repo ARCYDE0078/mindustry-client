@@ -158,8 +158,10 @@ public class SchematicsImportExport{
         Core.settings.putInt("eui-SchematicsTableRows", intOr(settings, "rows", 4));
         Core.settings.putInt("eui-SchematicsTableColumns", intOr(settings, "columns", 5));
         Core.settings.putInt("eui-SchematicsTableButtonSize", intOr(settings, "buttonSize", 48));
-        Core.settings.put("eui-SchematicsTableX", String.valueOf(intOr(settings, "positionX", 10)));
-        Core.settings.put("eui-SchematicsTableY", String.valueOf(intOr(settings, "positionY", 160)));
+        //Int, а не String: слайдеры X/Y зарегистрированы как Int (EUIMod), строковое значение сбрасывалось ими в дефолт
+        //при следующем открытии настроек (parseIntSetting читает оба типа, так что остальные читатели не страдают)
+        Core.settings.putInt("eui-SchematicsTableX", intOr(settings, "positionX", 10));
+        Core.settings.putInt("eui-SchematicsTableY", intOr(settings, "positionY", 160));
         Core.settings.putInt("eui-SchematicsTableAlpha", intOr(settings, "alpha", 100));
         Core.settings.put("eui-ShowSchematicsPreview", boolOr(settings, "showPreview", true));
 

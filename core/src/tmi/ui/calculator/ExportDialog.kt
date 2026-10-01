@@ -192,7 +192,11 @@ class ExportDialog: BaseDialog("", Consts.transparentBack) {
           previewBuffer.beginBind()
           try {
             val pixmap = chunkedBuffer.toPixmap()
-            PixmapIO.writePng(exportFile!!, pixmap)
+            try {
+              PixmapIO.writePng(exportFile!!, pixmap)
+            } finally {
+              pixmap.dispose()
+            }
             Vars.ui.showInfo(Core.bundle["dialog.calculator.exportSuccess"])
           } catch (e: ArcRuntimeException) {
             Vars.ui.showException(Core.bundle["dialog.calculator.exportFailed"], e)

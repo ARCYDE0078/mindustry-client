@@ -8,6 +8,15 @@
 -keep class com.android.dx.** { *; }
 -keepattributes Signature,*Annotation*,InnerClasses,EnclosingMethod
 
+#mindustrytool строит DTO рефлексией (Utils.fromJson/fromJsonArray, arc Settings.getJson/putJson): поля и конструктор
+#без параметров нигде не вызываются напрямую, и R8 их вырезал - вложенные DTO (PlayerConnectRoomData,
+#SchematicMetadata и т.п.) приходили с null-полями и давали NPE в диалогах схем/комнат/чата. Остальные пакеты
+#клиента (mindustry/arc) и так под keep выше.
+-keepclassmembers class mindustrytool.** {
+    <init>();
+    <fields>;
+}
+
 -dontwarn javax.naming.**
 
 #agzam4.Awt/GifIO reference java.desktop/javax.imageio classes that don't exist on Android -

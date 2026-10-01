@@ -79,7 +79,7 @@ public class CustomBindsFeature implements Feature{
     }
 
     static void saveButtons(Jval data){
-        Core.settings.put(SETTINGS_KEY, data.toString());
+        qol.core.SafeSettings.putString(SETTINGS_KEY, data.toString());
     }
 
     static Drawable resolveIcon(String iconName, String iconType){

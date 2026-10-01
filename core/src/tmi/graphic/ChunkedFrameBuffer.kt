@@ -136,11 +136,15 @@ class ChunkedFrameBuffer(
       val startY = chunk.row * chunkHeight
 
       result.draw(pixels, startX, startY, chunkWidth, chunkHeight)
+      pixels.dispose() // нативная память: getFrameBufferPixmap каждый раз выделяет новый pixmap
 
       chunk.end()
     }
 
-    return result.flipY()
+    // flipY() возвращает НОВЫЙ pixmap, исходный надо освободить вручную
+    val flipped = result.flipY()
+    result.dispose()
+    return flipped
   }
 
   inner class FrameChunk(

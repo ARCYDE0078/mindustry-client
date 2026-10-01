@@ -377,7 +377,10 @@ public class MinimapMindow extends Mindow2{
             if(drawMarkers){
                 state.rules.objectives.eachRunning(obj -> {
                     for(var marker : obj.markers){
-                        marker.draw(1f);
+                        //160.4: minimap == -1 скрывает маркер на миникарте (как в циклах ниже)
+                        if(marker.minimap != -1){
+                            marker.draw(1f);
+                        }
                     }
                 });
 

@@ -43,7 +43,7 @@ public class WhatsNew{
     /** Префикс имён релизов нашего канала (см. BeControl.checkUpdate). */
     static final String channel = "custom-b";
     /** Репозиторий по умолчанию, когда ни настройка updateurl, ни запечённый Version.updateUrl не заданы (dev-сборка). */
-    static final String fallbackRepo = "Promiha27/mindustry-client";
+    static final String fallbackRepo = "ARCYDE0078/mindustry-client";
     /** Сколько релизов запрашивать за раз: с запасом на пропущенные номера, но одной страницей. */
     private static final int perPage = 30;
 
@@ -59,13 +59,27 @@ public class WhatsNew{
         });
     }
 
-    /** Номер сборки из имени {@code custom-b12} → 12; всё остальное → -1. */
+    /**
+     * Порядковый номер сборки из имени релиза. Две схемы тегов: старая {@code custom-b12} → 12 и текущая датовая
+     * {@code custom-b2026.09.25} / {@code custom-b2026.09.25.2} (повтор в тот же день) → 2026092500 + n
+     * (год*10^6 + месяц*10^4 + день*10^2 + n). Датовые номера всегда больше старых порядковых, так что
+     * сравнение "новее/старее" между схемами работает. Всё остальное → -1.
+     * Раньше датовые теги давали -1, и диалог "что нового" молча не показывался вообще.
+     */
     public static int buildNumber(String name){
         if(name == null || !name.startsWith(channel)) return -1;
-        return Strings.parseInt(name.substring(channel.length()).trim(), -1);
+        String rest = name.substring(channel.length()).trim();
+        if(rest.indexOf('.') == -1) return Strings.parseInt(rest, -1);
+
+        String[] parts = rest.split("\\.");
+        if(parts.length < 3 || parts.length > 4) return -1;
+        int y = Strings.parseInt(parts[0], -1), m = Strings.parseInt(parts[1], -1), d = Strings.parseInt(parts[2], -1);
+        int n = parts.length == 4 ? Strings.parseInt(parts[3], -1) : 0;
+        if(y < 2000 || y > 2100 || m < 1 || m > 12 || d < 1 || d > 31 || n < 0 || n > 99) return -1;
+        return ((y * 100 + m) * 100 + d) * 100 + n;
     }
 
-    static String repo(){
+    public static String repo(){
         String r = Core.settings.getString("updateurl", "");
         if(r == null || r.isEmpty()) r = Version.updateUrl;
         if(r == null || r.isEmpty()) r = fallbackRepo;

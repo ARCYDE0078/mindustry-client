@@ -43,8 +43,20 @@ public class ChatService {
         return streamClient.isConnected();
     }
 
+    /**
+     * Включена ли фича чата (её выставляют ChatFeature.onEnable/onDisable). Без этого флага 60-секундный таймер ниже
+     * переподключал SSE-поток через минуту после выключения чата, и клиент продолжал отчитываться о сервере/карте.
+     */
+    private volatile boolean active = true;
+
+    public void setActive(boolean active) {
+        this.active = active;
+    }
+
     public void init() {
-        Timer.schedule(this::connectStream, 0, 60);
+        Timer.schedule(() -> {
+            if (active) connectStream();
+        }, 0, 60);
         stateManager.init();
         fetchChannelsAndCurrentMessages();
     }

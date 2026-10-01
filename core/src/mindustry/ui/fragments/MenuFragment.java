@@ -383,9 +383,10 @@ public class MenuFragment{
                     ),
                     new MenuButton("@client.name", Icon.wrench,
                         new MenuButton("Github", Icon.github, () -> { // Link to client github
-                            if (!Core.app.openURI("https://github.com/Promiha27/mindustry-client")) {
+                            String repoUrl = "https://github.com/" + sonkaextras.WhatsNew.repo(); // тот же репозиторий, что у апдейтера и "что нового"
+                            if (!Core.app.openURI(repoUrl)) {
                                 ui.showErrorMessage("@linkfail");
-                                Core.app.setClipboardText("https://github.com/Promiha27/mindustry-client");
+                                Core.app.setClipboardText(repoUrl);
                             }
                         }),
                         new MenuButton("@client.changelog", Icon.edit, ChangelogDialog.INSTANCE::show),

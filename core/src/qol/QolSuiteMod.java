@@ -16,7 +16,6 @@ import qol.cbinds.CustomBindsFeature;
 import qol.controlhelper.ControlHelperFeature;
 import qol.crawlercontrol.CrawlerControlFeature;
 import qol.copyanywhere.CopyAnywhereFeature;
-import qol.core.EventsOverflowGuard;
 import qol.core.Feature;
 import qol.core.UnitClaims;
 import qol.coreheal.CoreHealFeature;
@@ -101,9 +100,8 @@ public class QolSuiteMod{
 
             buildSettings();
 
-            //last, once everything above has registered its own listeners - see its javadoc for the
-            //foo's-client arc.Events crash this fends off
-            EventsOverflowGuard.install();
+            //EventsOverflowGuard is no longer installed here: mindustry.client.Main does it for everyone,
+            //so it also works with the qol component switched off (see ComponentBoot)
         });
     }
 

@@ -1,7 +1,6 @@
 package mindustrytool.dto;
 
 import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import arc.Core;
@@ -83,8 +82,17 @@ public class PagingRequest<T> {
     }
 
     private static void appendParam(StringBuilder builder, String key, String value) {
-        builder.append('&').append(URLEncoder.encode(key, StandardCharsets.UTF_8))
-                .append('=').append(URLEncoder.encode(value, StandardCharsets.UTF_8));
+        builder.append('&').append(encode(key))
+                .append('=').append(encode(value));
+    }
+
+    /** encode(String, Charset) появился только в Java 10 / Android API 33; вариант со строкой есть везде. */
+    private static String encode(String s) {
+        try {
+            return URLEncoder.encode(s, "UTF-8");
+        } catch (java.io.UnsupportedEncodingException e) {
+            throw new IllegalStateException(e); // UTF-8 поддерживается всегда
+        }
     }
 
     public synchronized void handleError(Cons<Seq<T>> listener, Throwable e, String url) {

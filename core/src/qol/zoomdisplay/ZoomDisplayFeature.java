@@ -22,6 +22,7 @@ public class ZoomDisplayFeature implements Feature{
     static final float FADE_TICKS = 40f; // then fades out over ~0.67s
 
     String lastText = "";
+    float lastMult = Float.NaN;
     float idleTicks = HOLD_TICKS + FADE_TICKS; // start hidden - nothing's changed yet
 
     @Override
@@ -44,15 +45,26 @@ public class ZoomDisplayFeature implements Feature{
                 return;
             }
 
-            String text = zoomText();
-            if(!text.equals(lastText)){
-                lastText = text;
+            //строку и label.setText (он сбрасывает раскладку текста) трогаем только когда зум реально сменился:
+            //раньше и то и другое делалось каждый тик
+            boolean changed = false;
+            float mult = zoomMult();
+            if(mult != lastMult){
+                lastMult = mult;
+                String text = format(mult);
+                if(!text.equals(lastText)){
+                    lastText = text;
+                    changed = true;
+                }
+            }
+
+            if(changed){
                 idleTicks = 0f;
+                label.setText(lastText);
             }else{
                 idleTicks += Time.delta;
             }
 
-            label.setText(lastText);
             label.color.a = idleTicks < HOLD_TICKS ? 1f : 1f - Math.min(1f, (idleTicks - HOLD_TICKS) / FADE_TICKS);
         });
     }
@@ -61,8 +73,15 @@ public class ZoomDisplayFeature implements Feature{
     public void buildSettings(SettingsTable table){
     }
 
-    static String zoomText(){
-        float mult = renderer.getDisplayScale() / Scl.scl(4f);
+    static float zoomMult(){
+        return renderer.getDisplayScale() / Scl.scl(4f);
+    }
+
+    static String format(float mult){
         return Strings.autoFixed(mult, 3) + "x";
+    }
+
+    static String zoomText(){
+        return format(zoomMult());
     }
 }

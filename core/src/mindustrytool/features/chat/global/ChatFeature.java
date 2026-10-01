@@ -83,18 +83,25 @@ public class ChatFeature implements Feature {
 
     @Override
     public void onEnable() {
-        overlay = new ChatOverlay();
+        //один оверлей на всю сессию: каждый new ChatOverlay() вешал свои Events/клавиши/подписки, которые никогда не снимались
+        if (overlay == null) {
+            overlay = new ChatOverlay();
+        }
 
+        ChatService.getInstance().setActive(true);
         ChatService.getInstance().disconnectStream();
         ChatService.getInstance().connectStream();
 
         if (Vars.ui.menuGroup != null) {
-            Core.app.post(() -> Core.scene.add(overlay));
+            Core.app.post(() -> {
+                if (overlay.parent == null) Core.scene.add(overlay);
+            });
         }
     }
 
     @Override
     public void onDisable() {
+        ChatService.getInstance().setActive(false);
         ChatService.getInstance().disconnectStream();
 
         if (overlay != null) {

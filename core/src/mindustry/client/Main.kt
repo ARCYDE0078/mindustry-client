@@ -47,6 +47,22 @@ object Main : ApplicationListener {
     private var planSendTime = 0L
     private var isSendingPlans = false
 
+    /**
+     * Инстанцирует вшитый компонент, если он включён в [ComponentBoot]. Конструкторы компонентов делают реальную
+     * работу (EUIMod строит ~25 объектов, HeliumMod грузит HeBinds и ScreenSampler), а Main.init крутится в
+     * ClientLauncher.update() без try/catch: любой throw оттуда не пускал игру в меню, и выключить компонент
+     * можно было только руками правя settings.bin. Теперь упавший компонент просто не поднимается.
+     */
+    private inline fun guarded(id: String, block: () -> Unit) {
+        if (!ComponentBoot.enabled(id)) return
+        try {
+            block()
+        } catch (t: Throwable) {
+            Log.err("[boot] component @ failed to construct, skipping it", id)
+            Log.err(t)
+        }
+    }
+
     /** Run on client load. */
     override fun init() {
         val start = Time.nanos()
@@ -57,30 +73,30 @@ object Main : ApplicationListener {
         // down the ApplicationCore.update() listener-init loop (see ClientLauncher.update()).
         // QolSuiteMod's constructor only registers Events.on(...) listeners, so it must be
         // instantiated before ClientLoadEvent actually fires.
-        if (ComponentBoot.enabled("qol")) QolSuiteMod()
+        guarded("qol") { QolSuiteMod() }
 
         // sonka's Extended UI++, baked in the same way and for the same reason - see EUIMod's own
         // javadoc for the settings-category/self-disable-guard rationale.
-        if (ComponentBoot.enabled("eui")) EUIMod()
+        guarded("eui") { EUIMod() }
 
         // sonka's "Campaign Utils" (sector production stats + no-landing sector preview), baked in the
         // same way and for the same reason - see CampaignUtilsMod's own javadoc.
-        if (ComponentBoot.enabled("campaignutils")) CampaignUtilsMod()
+        guarded("campaignutils") { CampaignUtilsMod() }
 
         // Port of the third-party "QoL Control" mod's REMAINDER (most of it already exists as
         // qol-suite/EUI/native features) - see QolControlMod's javadoc for the full inventory.
-        if (ComponentBoot.enabled("qolc")) QolControlMod()
+        guarded("qolc") { QolControlMod() }
 
         // Port of the third-party "MI2-Utilities Java" mod (BlackDeluxeCat, v1.15.2) - Mindow2
         // window framework, zone/distribution rendering, Core Info, FullAI, Logic Helper etc.
         // See MI2UMod's javadoc for the adaptation notes and the self-disable guard.
-        if (ComponentBoot.enabled("mi2u")) MI2UMod()
+        guarded("mi2u") { MI2UMod() }
 
         // Port of the third-party "Agzam's Mod" (Agzam4, v155.4.a) REMAINDER - industry calculator,
         // processor/display generators, unit spawner, AFK auto-reply, custom light render, unlocks,
         // chat gradient. See AgzamMod's javadoc for the full skip-list (most of the mod already
         // exists natively or via qol/eui/mi2u).
-        if (ComponentBoot.enabled("agzam4")) AgzamMod()
+        guarded("agzam4") { AgzamMod() }
 
         // Port of the third-party "Scheme Size Port" mod (00SunRay00/RE2b2m22 v2.2.0) REMAINDER -
         // admin tools (unit spawn/team switch/effects/items/teleport), Rule Setter, building tools
@@ -96,7 +112,7 @@ object Main : ApplicationListener {
         // background, custom music and a time control bar. See MindustryToolMod's javadoc for the
         // full skip-list (autoplay, god mode and every visualizer already exist natively or via
         // mi2u/eui/scheme/qol).
-        if (ComponentBoot.enabled("mindustrytool")) MindustryToolMod()
+        guarded("mindustrytool") { MindustryToolMod() }
 
         // sonka: уведомление о незапитанном начале протянутой цепочки труб/конвейеров
         // (sonkaextras.ChainWarn - см. его javadoc). Как и моды выше, init() только вешает
@@ -125,33 +141,33 @@ object Main : ApplicationListener {
         // background, quick block palette in the placement panel, reworked mods manager/browser.
         // Attack/effect range outlines and shield stacks deliberately skipped (sonka's call) -
         // see HeliumMod's javadoc for the adaptation notes and the self-disable guard.
-        if (ComponentBoot.enabled("helium")) helium.HeliumMod()
+        guarded("helium") { helium.HeliumMod() }
 
         // Port of the third-party "Extra Editor" mod (KlasterX, v1.0) - MAP EDITOR utilities:
         // tile copy/cut/paste with rotate/flip and ghost preview, custom brush shapes, block
         // replace mode, advanced grid, undo list with per-operation revert. Lives entirely
         // inside MapEditorDialog - see ExtraEditorMod's javadoc for the adaptation notes.
-        if (ComponentBoot.enabled("extraeditor")) extraeditor.ExtraEditorMod()
+        guarded("extraeditor") { extraeditor.ExtraEditorMod() }
 
         // Port of the third-party "New Console Hardline" mod (Mnemotechnician/SMOLKEYS, v2.3) -
         // advanced JS console: syntax-highlighting code editor, log panel, execution history,
         // saved scripts, event-driven autorun and a file browser. Coexists with the native F8
         // console (shared JS scope) - see NewConsoleMod's javadoc for the adaptation notes.
-        if (ComponentBoot.enabled("newconsole")) newconsole.NewConsoleMod()
+        guarded("newconsole") { newconsole.NewConsoleMod() }
 
         // Port of the third-party "PatchEditor" mod (minRi2/Dustdustry, v1.13.1) - in-game GUI
         // for the NATIVE v8 content-patch system (mindustry.mod.DataPatcher): visual patch
         // editing with a field tree, notes, selectors, undo/redo and HJSON/JSON export. Mounts
         // into the pause menu and the map assets dialog - see Main's javadoc (dustdustry
         // package) for the adaptation notes.
-        if (ComponentBoot.enabled("patcheditor")) dustdustry.patcheditor.Main()
+        guarded("patcheditor") { dustdustry.patcheditor.Main() }
 
         // Port of the third-party "Mapping Utilities" mod (ApsZoldat, v1.9) - MAP EDITOR dialog
         // extensions: hidden map rules (fog colors, border darkness, drag, Env flags, any-team
         // rules 0-255, mode name, mission...), planet-background editor, better banned/revealed
         // content dialogs (planet tab filter), map resize limit bypass. Its own WIP editor is
         // disabled upstream and skipped - see MappingUtilitiesMod's javadoc.
-        if (ComponentBoot.enabled("mu")) mu.MappingUtilitiesMod()
+        guarded("mu") { mu.MappingUtilitiesMod() }
 
         // Port of the third-party "Testing Utilities" mod (MEEPofFaith, v69.10) IN FULL - sandbox
         // panel in the bottom-left HUD corner (BLUI): unit spawner + wave picker, block placer,
@@ -160,20 +176,27 @@ object Main : ApplicationListener {
         // teleport; plus the Interp visualizer and the sound room. Overlaps with scheme admin
         // tools / agzam4 spawner are kept on purpose - sonkaextras.AdminPanel lets sonka pick
         // which HUD panel is shown. See TestUtilsMod's javadoc for the inventory and skip-list.
-        if (ComponentBoot.enabled("testing")) testing.TestUtilsMod()
+        guarded("testing") { testing.TestUtilsMod() }
 
         // Port of the third-party "Too Many Items" mod (EB-wilson, v3.2, Kotlin) - NEI/JEI-style
         // recipe browser (what produces X / where X is used / what a factory does, all vanilla
         // block types parsed, mod recipe API kept) plus the Schematic Calculator (recipe-graph
         // planner with balancing, statistics, PNG/text export). UniverseKit markdown/reflection
         // replaced by client StupidMarkupParser/arc Reflect - see TooManyItems' KDoc.
-        if (ComponentBoot.enabled("tmi")) tmi.TooManyItems()
+        guarded("tmi") { tmi.TooManyItems() }
 
         // Port of the third-party "Mobile Pause" mod (Promiha27/ARCYDE, mobile-pause v1.2) -
         // map-screenshot button next to the mobile pause button. The mod's actual pause-button
         // fix was applied directly to HudFragment.java instead (root engine bug, not a mod
         // feature) - see MobilePauseMod's javadoc for the full story and self-disable guard.
-        if (ComponentBoot.enabled("mobilepause")) MobilePauseMod()
+        guarded("mobilepause") { MobilePauseMod() }
+
+        // Защита от AIOOBE в Events.fire(Enum) форка (см. javadoc EventsOverflowGuard) нужна ВСЕМ, а не только
+        // тем, у кого включён qol: раньше её ставил QolSuiteMod, и с выключенным qol она пропадала. Регистрируем
+        // здесь, после конструкторов компонентов, чтобы хендлер отработал позже их собственных ClientLoadEvent.
+        Events.on(EventType.ClientLoadEvent::class.java) {
+            try { qol.core.EventsOverflowGuard.install() } catch (t: Throwable) { Log.err(t) }
+        }
 
         if (Core.app.isDesktop) {
             communicationSystem = SwitchableCommunicationSystem(BlockCommunicationSystem, PluginCommunicationSystem) // FINISHME: Profile this, it takes ~40ms which it really shouldn't
@@ -314,6 +337,7 @@ object Main : ApplicationListener {
         if (!msg.message.endsWith(msg.unformatted)) { invalid(msg, null); Log.debug("Does not end with unformatted!") }
 
         if (!Core.settings.getBool("highlightcryptomsg")) return true
+        if (!::signatures.isInitialized) return true // на Android Signatures не создаётся (см. init), проверять нечем
         val output = signatures.verifySignatureTransmission(msg.unformatted.encodeToByteArray(), transmission)
 
         return when (output.first) {
@@ -339,6 +363,10 @@ object Main : ApplicationListener {
     fun sign(content: String): String {
         if (content.startsWith("/") && !(content.startsWith("/t ") || content.startsWith("/a ")) ||
             ((content == "y" || content == "n") && Darkdustry())) return content
+
+        // На Android signatures не инициализируется (BC/ed448 там недоступен), и без этой проверки КАЖДОЕ обычное
+        // сообщение чата падало с UninitializedPropertyAccessException; подписи просто не добавляем
+        if (!::signatures.isInitialized) return content
 
         val msgId = Random.nextBits(16).toShort()
         val contentWithId = content + InvisibleCharCoder.encode(msgId.toBytes())

@@ -108,6 +108,10 @@ public final class ChainWarn{
             //именем добавил бы второй заголовок «Sonka Extras» (category() не дедупит), поэтому
             //секция строится в одном месте, а соседние фичи sonkaextras добавляются сюда
             t.pref(new qol.core.ButtonSetting("sonka-linerotate-configure", () -> new LineRotate.PickerDialog().show()));
+            //на Android нет ни главного меню, ни паузы с кнопками «Features»/«Changelog» (они есть только в десктопных
+            //MenuFragment/PausedDialog), а из FeaturesDialog открываются диалоги ВСЕХ вшитых модов - даём вход отсюда
+            t.pref(new qol.core.ButtonSetting("sonka-features-open", () -> mindustry.client.ui.FeaturesDialog.INSTANCE.show()));
+            t.pref(new qol.core.ButtonSetting("sonka-changelog-open", () -> mindustry.client.ui.ChangelogDialog.INSTANCE.show()));
             //автосейв на старте волны для кнопки «Повторить волну» (CampaignRetry)
             t.checkPref(CampaignRetry.autosaveKey, true);
             //метка над юнитом с ником последнего управлявшего (LastController): тогл + время показа

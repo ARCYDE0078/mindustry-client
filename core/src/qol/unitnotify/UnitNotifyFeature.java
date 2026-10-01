@@ -231,7 +231,8 @@ public class UnitNotifyFeature implements Feature{
     }
 
     void modedInput(){
-        if(ui.chatfrag.shown() || ui.schematics.isShown()) return;
+        //hasKeyboard: пока фокус в текстовом поле (чат/консоль/поиск), буквы/Fx не должны ни выделять юнитов, ни слать команды
+        if(ui.chatfrag.shown() || ui.schematics.isShown() || Core.scene.hasKeyboard()) return;
 
         Boolf<Unit> filter = null;
         tempIDs.clear();
@@ -239,11 +240,13 @@ public class UnitNotifyFeature implements Feature{
         if(Core.input.keyDown(selectAllPoly)) filter = u -> u.isCommandable() && u.type == UnitTypes.poly;
         if(Core.input.keyDown(selectAllExceptPoly)) filter = u -> u.isCommandable() && u.type != UnitTypes.poly;
 
-        if(Core.input.keyDown(polyHeal)){
+        //keyTap, не keyDown: команда - это сетевой пакет, а с keyDown он уходил КАЖДЫЙ кадр, пока клавиша зажата
+        if(Core.input.keyTap(polyHeal)){
             player.team().data().units.each(u -> u.isCommandable() && u.type == UnitTypes.poly, u -> tempIDs.add(u.id));
             Call.setUnitCommand(player, tempIDs.toArray(), UnitCommand.repairCommand);
         }
-        if(Core.input.keyDown(polyHelpPlayer)){
+        if(Core.input.keyTap(polyHelpPlayer)){
+            tempIDs.clear();
             player.team().data().units.each(u -> u.isCommandable() && u.type == UnitTypes.poly, u -> tempIDs.add(u.id));
             Call.setUnitCommand(player, tempIDs.toArray(), UnitCommand.assistCommand);
         }

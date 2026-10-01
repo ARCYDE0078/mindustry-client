@@ -42,7 +42,7 @@ public final class GifDecoder{
     private static final int MAX_STACK_SIZE = 4096;
 
     public static Result decode(InputStream rawIn) throws IOException{
-        Reader in = new Reader(rawIn.readAllBytes());
+        Reader in = new Reader(arc.util.io.Streams.copyBytes(rawIn));
 
         String sig = new String(in.readBytes(6), StandardCharsets.US_ASCII);
         if(!sig.startsWith("GIF")) throw new IOException("not a GIF file");

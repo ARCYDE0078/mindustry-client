@@ -564,7 +564,7 @@ public class SettingsMenuDialog extends BaseDialog{
         client.checkPref("showcutscenes", true);
         client.checkPref("activemodesdisplay", true);
         client.checkPref("playerliststyle", true);
-        client.checkPref("mobileui", false, i -> mobile = !mobile);
+        if(!OS.isAndroid && !OS.isIos) client.checkPref("mobileui", false, i -> mobile = !mobile); // на телефоне "мобильный UI" и так включён, инверсия только ломает ввод
         client.checkPref("alwaysfullnumbers", false);
         client.checkPref("alwaysshowteams", false);
         client.checkPref("showuserid", false);
@@ -1215,12 +1215,20 @@ public class SettingsMenuDialog extends BaseDialog{
             }
 
             button(bundle.get("settings.reset", "Reset to Defaults"), () -> {
+                // На вкладке "Mods" это сразу все настройки 15 встроенных модов, а на "Client" - все 12 секций; без подтверждения
+                // один случайный клик стирал всю конфигурацию
+                int resetCount = 0;
                 for(Setting setting : list){
-                    if(setting.name == null || setting.title == null) continue;
-                    settings.remove(setting.name);
+                    if(setting.name != null && setting.title != null) resetCount++;
                 }
-                forceRebuild = !canRebuild; // If we can't rebuild normally, we force a new rebuild through: vanilla would do the same, and it would break bad mods as it will here.
-                rebuild();
+                ui.showConfirm("@confirm", bundle.format("client.settings.reset.confirm", resetCount), () -> {
+                    for(Setting setting : list){
+                        if(setting.name == null || setting.title == null) continue;
+                        settings.remove(setting.name);
+                    }
+                    forceRebuild = !canRebuild; // If we can't rebuild normally, we force a new rebuild through: vanilla would do the same, and it would break bad mods as it will here.
+                    rebuild();
+                });
             }).margin(14).width(240f).pad(6);
 
             if(hasFocus){
@@ -1428,6 +1436,8 @@ public class SettingsMenuDialog extends BaseDialog{
             //отбивал, но зачем стучаться). Разовая чистка именно этого значения
             if("mindustry-antigrief/mindustry-client-v8-builds".equals(settings.getString("updateurl"))) settings.put("updateurl", "");
             if (!Version.updateUrl.isEmpty()) settings.put("updateurl", Version.updateUrl); // overwrites updateurl on every boot, shouldn't be a real issue
+            //самообновление подменяет запущенный jar (getCodeSource + java.nio.file) - на Android такого jar нет, кнопка обновления там падала NPE
+            if(OS.isAndroid || OS.isIos) return;
             pref(new Setting("updateurl") {
                 boolean urlChanged;
 

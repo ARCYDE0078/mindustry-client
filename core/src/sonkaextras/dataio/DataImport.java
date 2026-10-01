@@ -93,7 +93,7 @@ public final class DataImport{
 
         byte[] bytes(ZipEntry e) throws IOException{
             try(InputStream in = zip.getInputStream(e)){
-                return in.readAllBytes();
+                return arc.util.io.Streams.copyBytes(in); //не readAllBytes: API 33, на Android 8-12 NoSuchMethodError
             }
         }
 
@@ -271,18 +271,24 @@ public final class DataImport{
         }
     }
 
-    static void backup(DataCategory c, Result r){
+    /**
+     * Бэкап категории перед перезаписью. @return false, если копию сделать не удалось - тогда вызывающий НЕ должен
+     * ничего перезаписывать в этой категории (раньше импорт шёл дальше и затирал данные без единой копии).
+     */
+    static boolean backup(DataCategory c, Result r){
         try{
             r.backups.add(DataExport.backupCategory(c));
+            return true;
         }catch(Throwable t){
             Log.err("[sonka-dataio] backup of " + c + " failed", t);
             r.errors.add(Core.bundle.format("client.sonka.dataio.backupfail", c.title(), t.getMessage()));
+            return false;
         }
     }
 
     /** Копирование файлов категории «как есть»: пропуск/замена одноимённых. Возвращает, менялось ли что-то. */
     static boolean copyFiles(Archive a, DataCategory c, boolean overwrite, Result r){
-        boolean changed = false, backedUp = false;
+        boolean changed = false, backedUp = false, backupFailed = false;
         for(ZipEntry e : a.entries.get(c)){
             try{
                 String path = normalize(e.getName());
@@ -293,7 +299,11 @@ public final class DataImport{
                         continue;
                     }
                     if(!backedUp){
-                        backup(c, r);
+                        if(backupFailed || !backup(c, r)){
+                            backupFailed = true; //копии нет - существующие файлы не трогаем
+                            r.skipped.increment(c);
+                            continue;
+                        }
                         backedUp = true;
                     }
                     copy(a, e, dst);
@@ -319,7 +329,7 @@ public final class DataImport{
 
     static void importSchematics(Archive a, boolean overwrite, Result r){
         Seq<Schematic> existing = schematics.all();
-        boolean backedUp = false;
+        boolean backedUp = false, backupFailed = false;
         for(ZipEntry e : a.entries.get(DataCategory.schematics)){
             try{
                 Schematic s = Schematics.read(new ByteArrayInputStream(a.bytes(e)));
@@ -340,7 +350,11 @@ public final class DataImport{
                         continue;
                     }
                     if(!backedUp){
-                        backup(DataCategory.schematics, r);
+                        if(backupFailed || !backup(DataCategory.schematics, r)){
+                            backupFailed = true; //копии нет - одноимённую схему не перезаписываем
+                            r.skipped.increment(DataCategory.schematics);
+                            continue;
+                        }
                         backedUp = true;
                     }
                     schematics.overwrite(sameName, s);
@@ -406,7 +420,7 @@ public final class DataImport{
 
     static void importRegularSaves(Archive a, boolean overwrite, Result r){
         saveDirectory.mkdirs();
-        boolean changed = false, backedUp = false;
+        boolean changed = false, backedUp = false, backupFailed = false;
         for(ZipEntry e : a.entries.get(DataCategory.saves)){
             try{
                 String path = normalize(e.getName());
@@ -430,7 +444,11 @@ public final class DataImport{
                 if(dst.exists()){
                     if(overwrite){
                         if(!backedUp){
-                            backup(DataCategory.saves, r);
+                            if(backupFailed || !backup(DataCategory.saves, r)){
+                                backupFailed = true; //копии нет - существующий слот не перезаписываем
+                                r.skipped.increment(DataCategory.saves);
+                                continue;
+                            }
                             backedUp = true;
                         }
                         dst.writeBytes(bytes);
@@ -480,8 +498,8 @@ public final class DataImport{
             r.errors.add(Core.bundle.get("client.sonka.dataio.menuonly"));
             return;
         }
-        //прогресс меняет settings всегда - бэкап всегда
-        backup(DataCategory.campaignProgress, r);
+        //прогресс меняет settings всегда - бэкап всегда; без бэкапа ничего не трогаем
+        if(!backup(DataCategory.campaignProgress, r)) return;
         if(overwrite){
             CampaignInventory.clearProgress();
             CampaignInventory.putProgress(a.progress);
@@ -511,7 +529,7 @@ public final class DataImport{
 
     static void importSettings(Archive a, boolean overwrite, Result r){
         if(a.plainSettings == null) return;
-        backup(DataCategory.settings, r);
+        if(!backup(DataCategory.settings, r)) return;
         int added = 0, replaced = 0, skipped = 0;
         for(var e : a.plainSettings){
             if(Core.settings.has(e.key)){

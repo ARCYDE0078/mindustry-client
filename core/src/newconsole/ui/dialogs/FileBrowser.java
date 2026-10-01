@@ -279,6 +279,8 @@ public class FileBrowser extends Dialog {
 
         public Label label;
         public Image image;
+        /** Текстура текущего превью: освобождается при следующем showFor и при закрытии диалога. */
+        private Texture previewTexture;
 
         public ImageDialog() {
             super("@newconsole.image-preview");
@@ -291,6 +293,13 @@ public class FileBrowser extends Dialog {
             cont.add(label).row();
             cont.add(image).row();
             cont.button("@newconsole.close", Styles.defaultt, this::hide).fillX();
+            hidden(() -> {
+                image.setDrawable((arc.scene.style.Drawable) null);
+                if (previewTexture != null) {
+                    previewTexture.dispose();
+                    previewTexture = null;
+                }
+            });
         }
 
         /**
@@ -301,7 +310,14 @@ public class FileBrowser extends Dialog {
                 label.setText(file.name());
                 //"new Texture(Fi file)" invokes some sussy native-level methods that, in case of a failure, crash the whole application without a java-level exception
                 var pixmap = PixmapIO.readPNG(file);
-                var texture = new Texture(pixmap);
+                Texture texture;
+                try {
+                    texture = new Texture(pixmap); // Texture копирует данные в GPU, pixmap после этого не нужен
+                } finally {
+                    pixmap.dispose();
+                }
+                if (previewTexture != null) previewTexture.dispose();
+                previewTexture = texture;
                 image.setDrawable(new TextureRegion(texture));
 
                 show();

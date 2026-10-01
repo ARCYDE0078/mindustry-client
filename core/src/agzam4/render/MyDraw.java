@@ -22,7 +22,8 @@ public class MyDraw {
 
 	public static final int textHeight = 11;
 
-	public static GlyphLayout drawTooltip(String text, float x, float y) {
+	/** Раньше возвращал GlyphLayout из пула и никто его не освобождал (единственный вызов результат не использует) - утечка на кадр. */
+	public static void drawTooltip(String text, float x, float y) {
 		Draw.z(Layer.playerName);
 
 		Font font = Fonts.outline;
@@ -47,7 +48,7 @@ public class MyDraw {
 
 		font.getData().setScale(1f);
 
-		return layout;
+		Pools.free(layout);
 	}
 
 	public static void rotatingArcs(Position center, float rad, float speed) {

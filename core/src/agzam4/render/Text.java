@@ -36,6 +36,7 @@ public class Text {
 			Fill.rect(x, y - layout.height / 2, layout.width + 2, layout.height + 3);
 		}
 		font.draw(text, x, y, 0, align, false);
+		Pools.free(layout); //layout из пула без free = новый GlyphLayout на каждый вызов (каждый кадр на каждое здание)
 	}
 
 	public static void font(Font font) {

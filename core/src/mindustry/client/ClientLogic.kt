@@ -116,7 +116,7 @@ class ClientLogic {
             }
 
             if (settings.getBool("discordrpc")) platform.startDiscord()
-            if (settings.getBool("mobileui") && !OS.hasProp("nomobileui")) mobile = !mobile
+            if (settings.getBool("mobileui") && !OS.hasProp("nomobileui") && !OS.isAndroid && !OS.isIos) mobile = !mobile // на реальном телефоне инверсия включила бы DesktopInput на тач-экране
             if (settings.getBool("viruswarnings")) LExecutor.virusWarnings = true
             UnitType.drawAllItems = settings.getBool("drawallitems")
             UnitType.formationAlpha = settings.getInt("formationopacity") / 100f

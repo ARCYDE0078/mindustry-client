@@ -158,7 +158,17 @@ public final class DataExport{
     /** Авто-бэкап одной живой категории перед импортом с перезаписью. */
     public static Fi backupCategory(DataCategory c) throws IOException{
         Fi out = backupFile(c.name());
-        export(out, EnumSet.of(c));
+        //во временный файл и переименование: оборванный zip (диск полон, исключение посреди записи) не должен
+        //остаться в backups/ и считаться рабочей копией
+        Fi tmp = out.sibling(out.name() + ".part");
+        try{
+            export(tmp, EnumSet.of(c));
+            tmp.moveTo(out);
+        }catch(IOException | RuntimeException e){
+            tmp.delete();
+            throw e;
+        }
+        if(!out.exists() || out.length() <= 0) throw new IOException("backup file missing after write: " + out.name());
         return out;
     }
 

@@ -518,6 +518,10 @@ fun restartGame(){
     if(!Core.settings.getBool("autorestart", true)){
         return
     }
+    if(OS.isAndroid || OS.isIos){ // protectionDomain.codeSource == null и Runtime.exec("java") нет - раньше NPE / диалог "установите Java"
+        Core.app.post { ui.showInfoOnHidden("@client.restart.manual", Core.app::exit) }
+        return
+    }
     if(!Core.settings.getBool("realautorestart", !OS.hasProp("running-under-external-launcher"))){
         Log.info("Exiting to reload game.")
         Core.app.exit()

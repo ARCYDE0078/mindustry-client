@@ -27,8 +27,15 @@ public class CrashHandler{
         var lastIp = ui.join != null ? Reflect.<String>get(JoinDialog.class, ui.join, "lastIp") : null;
         var group = lastHost != null ? lastHost.group != null ? lastHost.group : ui.join.communityHosts.contains(h -> h.equals(lastHost)) ? ui.join.communityHosts.find(h -> h.equals(lastHost)).group : null : null;
 
-        String report = "Ohno, the game has crashed. Report this at: " + clientDiscord + "\n";
-        if(cause != null) report += "The mod '" +  cause.meta.displayName + "' (" + cause.name + ") has caused foo's client to crash\n.";
+        //обработчик крэшей не имеет права падать сам: settings может быть ещё null, если игра упала на раннем старте
+        String reportUrl;
+        try{
+            reportUrl = "https://github.com/" + sonkaextras.WhatsNew.repo() + "/issues";
+        }catch(Throwable t){
+            reportUrl = clientDiscord;
+        }
+        String report = "Ohno, the game has crashed. Report this at: " + reportUrl + "\n";
+        if(cause != null) report += "The mod '" +  cause.meta.displayName + "' (" + cause.name + ") has caused the client to crash.\n";
         report += "\nCopy paste the report below when reporting:\n```java\n";
 
         var enabledMods = mods == null ? null : mods.list().select(m -> m.shouldBeEnabled() && m.isSupported());

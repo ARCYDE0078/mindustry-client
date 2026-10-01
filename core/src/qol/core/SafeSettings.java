@@ -54,6 +54,38 @@ public final class SafeSettings{
         }
     }
 
+    /**
+     * arc {@code Settings.saveValues} пишет каждую строку через {@code DataOutputStream.writeUTF}, а у неё лимит 65535
+     * байт: одна длинная строка = UTFDataFormatException при сохранении, settings.bin УДАЛЯЕТСЯ, и до перезапуска не
+     * сохраняется ничего. Для JSON-хранилищ, которые могут вырасти (таблица схем, теги карт, бинды), кладите значение
+     * через этот метод: слишком длинное не записывается (в настройках остаётся прошлая версия), а в лог идёт warn.
+     *
+     * @return false, если значение не записано из-за размера
+     */
+    public static boolean putString(String key, String value){
+        if(value != null && utf8Length(value) > MAX_UTF){
+            Log.warn("[qol-suite] setting '" + key + "' is too large to store (" + utf8Length(value) + " bytes > " + MAX_UTF + "), keeping the previous value");
+            return false;
+        }
+        Core.settings.put(key, value);
+        return true;
+    }
+
+    /** Безопасно ниже лимита writeUTF в 65535 байт. */
+    public static final int MAX_UTF = 65_000;
+
+    static int utf8Length(String s){
+        int n = 0;
+        for(int i = 0, len = s.length(); i < len; i++){
+            char c = s.charAt(i);
+            if(c < 0x80) n++;
+            else if(c < 0x800) n += 2;
+            else if(Character.isHighSurrogate(c)){ n += 4; i++; }
+            else n += 3;
+        }
+        return n;
+    }
+
     static void warn(String key, ClassCastException e){
         Log.warn("[qol-suite] setting '" + key + "' had an unexpected stored type, using the default instead (" + e.getMessage() + ")");
     }

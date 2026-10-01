@@ -5,7 +5,12 @@ import java.util.concurrent.*;
 import arc.Core;
 
 public class Debouncer {
-    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+    // daemon: иначе пул из не-daemon потока держал бы JVM живой после закрытия игры
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1, r -> {
+        Thread t = new Thread(r, "debouncer");
+        t.setDaemon(true);
+        return t;
+    });
     private ScheduledFuture<?> future;
     private final long delay;
 

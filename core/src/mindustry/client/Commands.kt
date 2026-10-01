@@ -206,6 +206,8 @@ fun setupCommands() {
     // This command doesn't work unless the supporting jar file is on the class path
     register("kt <code...>", Core.bundle.get("client.command.kt.description")) { args, player: Player ->
         val version = 1 // The kotlin version needs bumping every so often to support new java versions. Easiest way is to redownload the file.
+        // codeSource на Android == null (NPE), поэтому проверка поддержки идёт ДО его чтения
+        if (OS.isAndroid || OS.isIos) { player.sendMessage("client.command.kt.unsupported".bundle()); return@register }
         val dir = Fi(ScriptEngineHolder::class.java.protectionDomain.codeSource.location.toURI().path)
         val file = dir.sibling("fooKotlinScriptSupport.jar")
         val versionFile = dir.sibling("fooKotlinScriptSupport.version") // We can't just store a value in settings because some people sync settings across computers which can cause a crash if the kotlin script support is out of date. This kind of sucks but whatever
@@ -488,7 +490,7 @@ fun setupCommands() {
             Core.settings.remove("weaveEndInterval")
             player.sendMessage(Core.bundle.format("client.command.phasei.success", interval))
         } catch (e : Exception){
-            player.sendMessage(Core.bundle.format("client.command.phasei.err"))
+            player.sendMessage(Core.bundle.format("client.command.phasei.error"))
         }
    }
 
@@ -559,26 +561,32 @@ fun setupCommands() {
     }
 
     register("gamejointext [text...]", Core.bundle.get("client.command.gamejointext.description")) { args, player ->
-        if (args.isEmpty() || args[0] == "") player.sendMessage(Core.bundle.get("client.command.gamejointext.clear"))
-        else {
+        if (args.isEmpty() || args[0] == "") {
+            Core.settings.put("gamejointext", "") // сообщение "Cleared" раньше врало: настройка не очищалась
+            player.sendMessage(Core.bundle.get("client.command.gamejointext.clear"))
+        } else {
             Core.settings.put("gamejointext", args[0])
             player.sendMessage(Core.bundle.format("client.command.gamejointext.success", args[0]))
         }
     }
 
     register("gamewintext [text...]", Core.bundle.get("client.command.gamewintext.description")) {args, player ->
-        if (args.isEmpty() || args[0] == "") player.sendMessage(Core.bundle.get("client.command.gamewintext.success"))
-        else {
+        if (args.isEmpty() || args[0] == "") {
+            Core.settings.put("gamewintext", "") // раньше слало .success с неподставленным {0} и ничего не очищало
+            player.sendMessage(Core.bundle.get("client.command.gamewintext.clear"))
+        } else {
             Core.settings.put("gamewintext", args[0])
             player.sendMessage(Core.bundle.format("client.command.gamewintext.success", args[0]))
         }
     }
 
     register("gamelosetext [text...]", Core.bundle.get("client.command.gamelosetext.description")) {args, player ->
-        if (args.isEmpty() || args[0] == "") player.sendMessage(Core.bundle.get("client.command.gamelosetext.clear"))
-        else {
+        if (args.isEmpty() || args[0] == "") {
+            Core.settings.put("gamelosetext", "")
+            player.sendMessage(Core.bundle.get("client.command.gamelosetext.clear"))
+        } else {
             Core.settings.put("gamelosetext", args[0])
-            player.sendMessage(Core.bundle.get("client.command.gamelosetext.success", args[0]))
+            player.sendMessage(Core.bundle.format("client.command.gamelosetext.success", args[0])) // get(key, default) не подставляет {0}
         }
     }
 
@@ -664,7 +672,7 @@ fun setupCommands() {
             else player.sendMessage(Core.bundle.format("client.command.unmute.byid", match.second))
             mutedPlayers.remove(match)
         }
-        else player.sendMessage(Core.bundle.get("client.command.mute.notmuted"))
+        else player.sendMessage(Core.bundle.get("client.command.unmute.notmuted"))
     }
 
     register("clearmutes", Core.bundle.get("client.command.clearmutes.description")) { _, player ->

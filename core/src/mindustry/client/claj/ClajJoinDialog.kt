@@ -43,7 +43,7 @@ class ClajJoinDialog : BaseDialog("@client.claj.join") {
         if (lastLink == link) return valid
         try {
             parseLink(link)
-            output = "@join.valid"
+            output = "@client.claj.joinvalid"
             valid = true
         } catch (ignored: Throwable) {
             output = ignored.message

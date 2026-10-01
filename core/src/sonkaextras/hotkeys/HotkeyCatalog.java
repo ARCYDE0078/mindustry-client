@@ -6,6 +6,7 @@ import arc.input.*;
 import arc.struct.*;
 import arc.util.*;
 import arc.util.serialization.*;
+import mindustry.client.ComponentBoot;
 import mindustry.input.*;
 import sonkaextras.*;
 
@@ -81,51 +82,79 @@ public class HotkeyCatalog{
         manual(out, clientCat, "editor_alt_tools", () -> "Shift / Alt (" + Core.bundle.get("client.sonka.hotkeys.hold") + ")", null, null);
         manual(out, clientCat, "maptags_delete", () -> "Shift + " + Core.bundle.get("client.sonka.hotkeys.click"), null, null);
 
-        String euiCat = categoryName("extended-ui");
-        manual(out, euiCat, "schem_chord", () -> key("schem_table_leader") + ", 0–9, 0–9", null, null);
-        manual(out, euiCat, "schem_cell_rmb", () -> Core.bundle.get("client.sonka.hotkeys.rmb"), null, null);
+        //ручные строки вшитых пакетов - только у ВКЛЮЧЁННЫХ в ComponentBoot: иначе диалог показывал бы хоткеи
+        //компонентов, которых в игре нет (tmi_calc_save, he_slots и т.п. ничего не делают)
+        if(ComponentBoot.enabled("eui")){
+            String euiCat = categoryName("extended-ui");
+            manual(out, euiCat, "schem_chord", () -> key("schem_table_leader") + ", 0–9, 0–9", null, null);
+            manual(out, euiCat, "schem_cell_rmb", () -> Core.bundle.get("client.sonka.hotkeys.rmb"), null, null);
+        }
 
-        String heliumCat = modsec("helium");
-        manual(out, heliumCat, "he_slots", () -> "1–8", null, null);
+        if(ComponentBoot.enabled("helium")){
+            String heliumCat = modsec("helium");
+            manual(out, heliumCat, "he_slots", () -> "1–8", null, null);
+        }
 
-        String tmiCat = modsec("tmi");
-        manual(out, tmiCat, "tmi_calc_save", () -> "Ctrl + S  /  Alt + S  /  Ctrl + Shift + S", null, null);
-        manual(out, tmiCat, "tmi_calc_refresh", () -> "F5", "F5", null);
+        if(ComponentBoot.enabled("tmi")){
+            String tmiCat = modsec("tmi");
+            manual(out, tmiCat, "tmi_calc_save", () -> "Ctrl + S  /  Alt + S  /  Ctrl + Shift + S", null, null);
+            manual(out, tmiCat, "tmi_calc_refresh", () -> "F5", "F5", null);
+        }
 
-        String qolCat = modsec("qol");
-        manual(out, qolCat, "autobuild_schem", () -> "Shift + " + key(Binding.select) + " (" + Core.bundle.get("client.sonka.hotkeys.drag") + ")", null, null);
-        manual(out, qolCat, "forcebuild_schem", () -> "Ctrl + " + key(Binding.select) + " (" + Core.bundle.get("client.sonka.hotkeys.drag") + ")", null, null);
-        manual(out, qolCat, "copy_anywhere", () -> key(Binding.schematicSelect), null, null);
+        if(ComponentBoot.enabled("qol")){
+            String qolCat = modsec("qol");
+            manual(out, qolCat, "autobuild_schem", () -> "Shift + " + key(Binding.select) + " (" + Core.bundle.get("client.sonka.hotkeys.drag") + ")", null, null);
+            manual(out, qolCat, "forcebuild_schem", () -> "Ctrl + " + key(Binding.select) + " (" + Core.bundle.get("client.sonka.hotkeys.drag") + ")", null, null);
+            manual(out, qolCat, "copy_anywhere", () -> key(Binding.schematicSelect), null, null);
+        }
 
-        String peCat = Core.bundle.get("client.features.mod.patcheditor.name", "PatchEditor");
-        manual(out, peCat, "pe_undo", () -> "Ctrl + Z  /  Ctrl + Shift + Z  /  Ctrl + Y", null, null);
-        manual(out, peCat, "pe_nav", () -> "↑ / ↓  /  Mouse 4 / Mouse 5", null, null);
-        manual(out, peCat, "pe_node", () -> key(Binding.pick), null, null);
+        if(ComponentBoot.enabled("patcheditor")){
+            String peCat = Core.bundle.get("client.features.mod.patcheditor.name", "PatchEditor");
+            manual(out, peCat, "pe_undo", () -> "Ctrl + Z  /  Ctrl + Shift + Z  /  Ctrl + Y", null, null);
+            manual(out, peCat, "pe_nav", () -> "↑ / ↓  /  Mouse 4 / Mouse 5", null, null);
+            manual(out, peCat, "pe_node", () -> key(Binding.pick), null, null);
+        }
 
-        String eeCat = modsec("extraeditor");
-        manual(out, eeCat, "ee_esc", () -> "Esc", null, null);
+        if(ComponentBoot.enabled("extraeditor")){
+            String eeCat = modsec("extraeditor");
+            manual(out, eeCat, "ee_esc", () -> "Esc", null, null);
+        }
 
         //3. пользовательские чат-бинды QoL Control: формат ключа "ctrl+alt+k" (qolc.keybinds.ChatKeyBindsFeature)
-        String qolcCat = modsec("qolc");
-        Runnable cfg = qolc.keybinds.ChatKeyBindsFeature::showDialog;
-        int n = 0;
-        try{
-            Jval root = Jval.read(Core.settings.getString("qol-binds", "{}"));
-            for(var entry : root.asObject()){
-                String raw = entry.key;
-                String command = entry.value.asString();
-                String keyText = chatBindKey(raw);
-                String sig = chatBindSignature(raw);
-                String name = command.replace('\n', ' ');
-                if(name.length() > 48) name = name.substring(0, 48) + "…";
-                out.add(new Hotkey(qolcCat, name, Core.bundle.get("client.sonka.hotkeys.qolc_bind.desc"), () -> keyText, sig, cfg));
-                n++;
+        if(ComponentBoot.enabled("qolc")){
+            String qolcCat = modsec("qolc");
+            Runnable cfg = qolc.keybinds.ChatKeyBindsFeature::showDialog;
+            int n = 0;
+            try{
+                //формат ChatKeyBindsFeature с v7.1 - МАССИВ {key, cmd, enabled}; старый (объект {"ctrl+K": "cmd"})
+                //читаем тоже, как это делает сама фича. Раньше тут был только объект - на массиве asObject() падал,
+                //и диалог всегда показывал пустую заглушку.
+                Jval root = Jval.read(Core.settings.getString("qol-binds", "[]"));
+                Seq<String[]> rows = new Seq<>();
+                if(root.isArray()){
+                    for(Jval item : root.asArray()){
+                        if(!item.getBool("enabled", true)) continue; //выключенный бинд не срабатывает - в списке хоткеев ему не место
+                        rows.add(new String[]{item.getString("key", ""), item.getString("cmd", "")});
+                    }
+                }else if(root.isObject()){
+                    for(var entry : root.asObject()) rows.add(new String[]{entry.key, entry.value.asString()});
+                }
+                for(String[] row : rows){
+                    String raw = row[0];
+                    if(raw.isEmpty()) continue;
+                    String keyText = chatBindKey(raw);
+                    String sig = chatBindSignature(raw);
+                    String name = row[1].replace('\n', ' ');
+                    if(name.length() > 48) name = name.substring(0, 48) + "…";
+                    out.add(new Hotkey(qolcCat, name, Core.bundle.get("client.sonka.hotkeys.qolc_bind.desc"), () -> keyText, sig, cfg));
+                    n++;
+                }
+            }catch(Throwable t){
+                Log.err("[hotkeys] failed to parse qol-binds", t);
             }
-        }catch(Throwable t){
-            Log.err("[hotkeys] failed to parse qol-binds", t);
-        }
-        if(n == 0){
-            manual(out, qolcCat, "qolc_none", () -> "", null, cfg);
+            if(n == 0){
+                manual(out, qolcCat, "qolc_none", () -> "", null, cfg);
+            }
         }
         return out;
     }

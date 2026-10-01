@@ -56,7 +56,7 @@ public final class MapTags{
     }
 
     private static void save(Jval root){
-        Core.settings.put(SETTINGS_KEY, root.toString());
+        qol.core.SafeSettings.putString(SETTINGS_KEY, root.toString());
     }
 
     private static Seq<String> readArray(Jval arr){

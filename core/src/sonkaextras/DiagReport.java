@@ -45,8 +45,15 @@ public class DiagReport{
     /** Подстроки ключей настроек, которые НЕ попадают в отчёт. */
     private static final String[] SENSITIVE = {
         "usid", "uuid", "token", "password", "passwd", "secret", "cert", "tls", "private", "auth",
-        "login", "lastserver", "servers", "claj", "discord", "ip-", "-ip", "host"
+        "login", "lastserver", "servers", "claj", "discord", "ip-", "-ip", "host",
+        //API-ключи переводчиков (mindustrytool.chat-translation.deepl/gemini.api-key), id чата (персональный UUID),
+        //почта/куки и пути к папкам (в них имя пользователя ОС)
+        "apikey", "api-key", "api_key", "deepl", "gemini", "chat-id", "chatid", "email", "cookie", "bearer",
+        "directory", "lastdir", "path"
     };
+    private static final java.util.regex.Pattern IPV4 = java.util.regex.Pattern.compile(
+        "\\b(?:25[0-5]|2[0-4]\\d|1?\\d?\\d)(?:\\.(?:25[0-5]|2[0-4]\\d|1?\\d?\\d)){3}\\b");
+    private static final java.util.regex.Pattern BEARER = java.util.regex.Pattern.compile("(?i)bearer\\s+[A-Za-z0-9._~+/=-]+");
 
     private DiagReport(){
     }
@@ -110,7 +117,7 @@ public class DiagReport{
         for(int i = 0; i < Math.min(MAX_CRASHES, crashes.length); i++){
             out.append("## ").append(crashes[i].name()).append('\n');
             try{
-                out.append(crashes[i].readString()).append('\n');
+                out.append(scrub(crashes[i].readString())).append('\n');
             }catch(Throwable e){
                 out.append("(unreadable: ").append(e).append(")\n");
             }
@@ -129,11 +136,27 @@ public class DiagReport{
                 out.append(" (last ").append(logTail).append(" of ").append(text.length()).append(" chars)");
                 text = text.substring(text.length() - logTail);
             }
-            out.append(" ---\n").append(text);
+            out.append(" ---\n").append(scrub(text));
         }else{
             out.append(" --- (missing)\n");
         }
         return out.toString();
+    }
+
+    /**
+     * Чистит свободный текст (краши, хвост лога) от того, что в багрепорте не нужно: IPv4-адреса (серверы, в которых
+     * играли - ключи настроек с адресами уже отфильтрованы, а в логе они остаются), Bearer-токены и домашняя папка ОС
+     * (в пути имя пользователя). Версии вида 1.2.3 не задеваются - нужны ровно четыре октета.
+     */
+    static String scrub(String text){
+        if(text == null || text.isEmpty()) return text;
+        String out = IPV4.matcher(text).replaceAll("<ip>");
+        out = BEARER.matcher(out).replaceAll("Bearer <redacted>");
+        String home = System.getProperty("user.home");
+        if(home != null && home.length() > 3){
+            out = out.replace(home, "~").replace(home.replace('\\', '/'), "~");
+        }
+        return out;
     }
 
     static boolean isSensitive(String key){

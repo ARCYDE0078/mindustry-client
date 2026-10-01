@@ -59,6 +59,9 @@ public class AutoPossessFeature implements Feature{
 
         Events.run(Trigger.update, () -> {
             if(!isEnabled() || player == null || Time.millis() < nextTryAt) return;
+            //раньше nextTryAt ставился только в possess(): без цели scan() (split/trim/new Seq + проход по Groups.unit)
+            //гонялся КАЖДЫЙ тик, вопреки документации "пересканировать раз в RETRY_MS"
+            nextTryAt = Time.millis() + RETRY_MS;
             scan();
         });
     }

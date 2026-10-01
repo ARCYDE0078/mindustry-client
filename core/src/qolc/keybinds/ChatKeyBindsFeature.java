@@ -131,7 +131,7 @@ public final class ChatKeyBindsFeature{
             obj.put("ips", bind.ips);
             root.add(obj);
         }
-        Core.settings.put(settingsKey, root.toString());
+        qol.core.SafeSettings.putString(settingsKey, root.toString());
     }
 
     private static void update(){

@@ -9,6 +9,7 @@ import arc.util.serialization.*;
 import mindustry.mod.*;
 import mindustry.mod.Mods.*;
 
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 /**
@@ -267,6 +268,9 @@ public class PackScan{
         return false;
     }
 
+    /** Бюджет значения-кэша в настройках: с запасом под лимит writeUTF (65535 байт) и служебные строки. */
+    private static final int STORE_BUDGET_BYTES = 60_000;
+
     /** Результат проверки состава репозитория из браузера: кэш в настройках, чтобы не жечь лимит GitHub API. */
     public static @Nullable PackInfo cachedRemote(ModListing mod){
         String raw = Core.settings.getString(remoteKey(mod), null);
@@ -316,19 +320,26 @@ public class PackScan{
                             boolean truncated = root.getBool("truncated", false);
                             boolean java = paths.contains(p -> p.endsWith(".java") || p.endsWith(".kt") || p.equals("build.gradle") || p.equals("build.gradle.kts"));
                             //в settings кладём только значимые пути (большие репозитории - тысячи файлов)
-                            StringBuilder sb = new StringBuilder();
-                            if(java) sb.append("<java>\n");
-                            if(truncated) sb.append("<truncated>\n");
-                            int stored = 0;
+                            //ВАЖНО: значение настройки не может быть длиннее 65535 байт (arc Settings пишет через writeUTF) -
+                            //при превышении сохранение settings.bin падает, файл удаляется и теряются ВСЕ настройки сессии.
+                            //Раньше резали по числу путей (6000), а это сотни КБ; теперь режем по байтам.
+                            StringBuilder body = new StringBuilder();
+                            int stored = 0, bytes = 0;
+                            boolean cut = false;
                             for(String p : paths){
                                 int slash = p.indexOf('/');
                                 String top = slash == -1 ? "" : p.substring(0, slash);
                                 if(top.isEmpty() || storeTop.contains(top)){
-                                    if(stored++ > 6000) break;
-                                    sb.append(p).append('\n');
+                                    int len = p.getBytes(StandardCharsets.UTF_8).length + 1; // не java.nio...: локальная boolean java затеняет пакет
+                                    if(stored++ > 6000 || bytes + len > STORE_BUDGET_BYTES){
+                                        cut = true;
+                                        break;
+                                    }
+                                    bytes += len;
+                                    body.append(p).append('\n');
                                 }
                             }
-                            String store = sb.toString();
+                            String store = (java ? "<java>\n" : "") + (truncated || cut ? "<truncated>\n" : "") + body;
                             Core.app.post(() -> {
                                 Core.settings.put(remoteKey(mod), store);
                                 PackInfo info = scan(paths, java);

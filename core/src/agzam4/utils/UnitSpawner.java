@@ -69,6 +69,14 @@ public class UnitSpawner {
 	private static boolean delayedSpawn;
 	private static ObjectMap<Tile, ObjectMap<UnlockableContent, SpawnTarget>> delayedUnits = new ObjectMap<>();
 	private static ObjectMap<Tile, SpawnTarget> delayedBlocks = new ObjectMap<>();
+
+	static {
+		// Tile - ссылки на старый мир: без очистки отложенные спавны переживали смену карты и рисовались поверх новой
+		arc.Events.on(mindustry.game.EventType.WorldLoadEvent.class, e -> {
+			delayedUnits.clear();
+			delayedBlocks.clear();
+		});
+	}
 	
 	static TextButton delayedSpawnButton;
 	

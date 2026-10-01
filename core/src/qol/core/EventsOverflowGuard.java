@@ -37,8 +37,12 @@ public class EventsOverflowGuard{
 
     static Field eventsField;
     static float timer = 0f;
+    static boolean installed = false;
 
+    /** Идемпотентно: ставится из Main.init (всегда, независимо от qol), повторный вызов ничего не делает. */
     public static void install(){
+        if(installed) return;
+        installed = true;
         try{
             eventsField = Events.class.getDeclaredField("events");
             eventsField.setAccessible(true);

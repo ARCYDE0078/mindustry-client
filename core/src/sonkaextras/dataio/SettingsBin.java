@@ -33,7 +33,7 @@ public final class SettingsBin{
     public static ObjectMap<String, Object> read(InputStream raw) throws IOException{
         byte[] all;
         try(raw){
-            all = raw.readAllBytes();
+            all = arc.util.io.Streams.copyBytes(raw); //не readAllBytes: API 33, на Android 8-12 NoSuchMethodError
         }
         boolean compressed = all.length >= 2 && all[0] == (byte)0x78 && (all[1] == (byte)0x01 || all[1] == (byte)0x5E || all[1] == (byte)0x9c || all[1] == (byte)0xda);
         InputStream base = new ByteArrayInputStream(all);
