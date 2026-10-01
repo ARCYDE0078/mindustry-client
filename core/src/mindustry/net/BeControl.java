@@ -27,9 +27,23 @@ public class BeControl{
 
     /** Whether or not to automatically display an update prompt on client load and every couple of minutes. */
     public boolean checkUpdates;
-    private boolean updateAvailable;
-    private String updateUrl;
-    private String updateBuild;
+    //volatile: пишутся из HTTP-потока (checkUpdate), читаются из потока рендера и из потока загрузки
+    private volatile boolean updateAvailable;
+    private volatile String updateUrl;
+    private volatile String updateBuild;
+    /** Имя ассета с контрольными суммами в релизе (формат `sha256sum`: «<hex>  <имя файла>»), кладётся release-custom.yml. */
+    static final String CHECKSUM_ASSET = "checksums.sha256";
+    /** Откуда брать ожидаемый SHA-256 скачиваемого jar: ссылка на {@link #CHECKSUM_ASSET} релиза (null - нет такого ассета). */
+    private volatile String updateHashUrl;
+    /** Ожидаемый SHA-256 из поля `digest` ассета в ответе GitHub API (null - API не отдал; у атом-фолбэка его нет). */
+    private volatile String updateSha256;
+    /**
+     * true - без опубликованной контрольной суммы обновление НЕ ставится (канал custom-b*: апдейтер автоматический,
+     * поэтому подмена релиза = выполнение чужого кода у всех клиентов). false - осознанные ручные кнопки sonka
+     * (Switch to v7 и т.п.) на чужие релизы: суммы там может не быть, поэтому ставим с предупреждением в лог, а если
+     * сумма есть - она проверяется всегда.
+     */
+    private volatile boolean updateStrict = true;
     //sonka: "апдейтер ничего не видит" - checkUpdate(false) значило и "ты и так актуален", и
     //"запрос к GitHub упал" (рейтлимит/сеть/битый JSON) одинаково - разница уходила только в
     //Log.err, которого пользователь не видит. Явные ручные проверки (кнопки) теперь могут
@@ -148,7 +162,21 @@ public class BeControl{
                         });
                         return;
                     }
-                    updateUrl = asset.getString("browser_download_url", "");
+                    String assetUrl = asset.getString("browser_download_url", "");
+                    if(!isReleaseDownloadUrl(assetUrl)){ // иначе подменённый ответ API мог бы увести загрузку на произвольный хост
+                        Core.app.post(() -> {
+                            lastError = "release '" + newBuild + "': unexpected download url " + assetUrl;
+                            done.get(false);
+                        });
+                        return;
+                    }
+                    Jval sums = val.get("assets").asArray().find(v -> CHECKSUM_ASSET.equals(v.getString("name", "")));
+                    String sumsUrl = sums == null ? "" : sums.getString("browser_download_url", "");
+                    String digest = asset.getString("digest", ""); // "sha256:<hex>" - GitHub считает сам при загрузке ассета
+                    updateUrl = assetUrl;
+                    updateHashUrl = isReleaseDownloadUrl(sumsUrl) ? sumsUrl : null;
+                    updateSha256 = digest.startsWith("sha256:") && isHex64(digest.substring(7)) ? digest.substring(7).toLowerCase() : null;
+                    updateStrict = requireCustomChannel;
                     updateAvailable = true;
                     updateBuild = newBuild;
                     Core.app.post(() -> {
@@ -195,7 +223,18 @@ public class BeControl{
                 }
                 boolean update = !Version.clientVersion.equals(newBuild);
                 if(update){
-                    updateUrl = "https://github.com/" + repo + "/releases/download/" + newBuild + "/Mindustry-custom-desktop.jar";
+                    if(!newBuild.matches("[A-Za-z0-9._-]+")){ // тег уходит в путь URL: никаких «/», пробелов и прочего
+                        Core.app.post(() -> {
+                            lastError = "releases.atom: unexpected release name '" + newBuild + "'";
+                            done.get(false);
+                        });
+                        return;
+                    }
+                    String base = "https://github.com/" + repo + "/releases/download/" + newBuild + "/";
+                    updateUrl = base + "Mindustry-custom-desktop.jar";
+                    updateHashUrl = base + CHECKSUM_ASSET; // API (а с ним и digest) недоступен - остаётся только ассет с суммами
+                    updateSha256 = null;
+                    updateStrict = requireCustomChannel;
                     updateAvailable = true;
                     updateBuild = newBuild;
                 }
@@ -244,20 +283,29 @@ public class BeControl{
                     len -> Core.app.post(() -> Log.info("&ly| Size: @ MB.", Strings.fixed((float)len / 1024 / 1024, 2))),
                     progress -> {},
                     () -> false,
-                    () -> Core.app.post(() -> {
-                        Log.info("&lcSaving...");
-                        SaveIO.save(saveDirectory.child("autosavebe." + saveExtension));
-                        Log.info("&lcAutosaved.");
+                    () -> {
+                        try{
+                            verifyDownload(dest);
+                        }catch(Throwable e){
+                            dest.delete();
+                            Log.err("[updater] integrity check failed, update NOT installed", e);
+                            return;
+                        }
+                        Core.app.post(() -> {
+                            Log.info("&lcSaving...");
+                            SaveIO.save(saveDirectory.child("autosavebe." + saveExtension));
+                            Log.info("&lcAutosaved.");
 
-                        netServer.kickAll(KickReason.serverRestarting);
-                        Threads.sleep(500);
+                            netServer.kickAll(KickReason.serverRestarting);
+                            Threads.sleep(500);
 
-                        Log.info("&lcVersion downloaded, exiting. Note that if you are not using a auto-restart script, the server will not restart automatically.");
-                        //replace old file with new
-                        dest.copyTo(source);
-                        dest.delete();
-                        System.exit(2); //this will cause a restart if using the script
-                    }),
+                            Log.info("&lcVersion downloaded, exiting. Note that if you are not using a auto-restart script, the server will not restart automatically.");
+                            //replace old file with new
+                            dest.copyTo(source);
+                            dest.delete();
+                            System.exit(2); //this will cause a restart if using the script
+                        });
+                    },
                     Throwable::printStackTrace);
                 }catch(Exception e){
                     e.printStackTrace();
@@ -274,28 +322,156 @@ public class BeControl{
 
     private void download(String furl, Fi dest, Intc length, Floatc progressor, Boolp canceled, Runnable done, Cons<Throwable> error){
         mainExecutor.submit(() -> {
+            boolean finished = false;
             try{
                 HttpURLConnection con = (HttpURLConnection)new URL(furl).openConnection();
-                BufferedInputStream in = new BufferedInputStream(con.getInputStream());
-                OutputStream out = dest.write(false, 4096);
+                //без таймаутов зависший сокет вешал поток загрузки навсегда, а не-200 ответ (страница ошибки) писался в jar
+                con.setConnectTimeout(15000);
+                con.setReadTimeout(30000);
+                int code = con.getResponseCode();
+                if(code != 200) throw new IOException("HTTP " + code + " for " + furl);
 
-                byte[] data = new byte[4096];
-                long size = con.getContentLength();
-                long counter = 0;
-                length.get((int)size);
-                int x;
-                while((x = in.read(data, 0, data.length)) >= 0 && !canceled.get()){
-                    counter += x;
-                    progressor.get((float)counter / (float)size);
-                    out.write(data, 0, x);
+                try(BufferedInputStream in = new BufferedInputStream(con.getInputStream()); OutputStream out = dest.write(false, 4096)){
+                    byte[] data = new byte[4096];
+                    long size = con.getContentLength();
+                    long counter = 0;
+                    length.get((int)size);
+                    int x;
+                    while((x = in.read(data, 0, data.length)) >= 0 && !canceled.get()){
+                        counter += x;
+                        progressor.get((float)counter / (float)size);
+                        out.write(data, 0, x);
+                    }
                 }
-                out.close();
-                in.close();
-                if(!canceled.get()) done.run();
+                if(canceled.get()){
+                    dest.delete(); // недокачанный файл не должен остаться лежать как будто это готовая сборка
+                    return;
+                }
+                finished = true;
+                done.run();
             }catch(Throwable e){
+                if(!finished){
+                    try{ dest.delete(); }catch(Throwable ignored){}
+                }
                 error.get(e);
             }
         });
+    }
+
+    // ---- проверка целостности скачанного обновления ----
+
+    /** Ссылка на ассет релиза GitHub: https://github.com/&lt;owner&gt;/&lt;repo&gt;/releases/download/... (репозиторий не сверяем - переименованные репо отдают канонические имена). */
+    static boolean isReleaseDownloadUrl(String url){
+        return url != null && url.startsWith("https://github.com/") && url.contains("/releases/download/") && !url.contains("..");
+    }
+
+    static boolean isHex64(String s){
+        if(s == null || s.length() != 64) return false;
+        for(int i = 0; i < 64; i++){
+            if(Character.digit(s.charAt(i), 16) < 0) return false;
+        }
+        return true;
+    }
+
+    /**
+     * Достаёт SHA-256 файла {@code assetName} из текста в формате `sha256sum` («&lt;hex&gt;  [*]&lt;имя&gt;» на строку).
+     * Если в тексте голая сумма без имени - берёт её. @return строчный hex или null, если подходящей строки нет.
+     */
+    static String parseChecksum(String text, String assetName){
+        String bare = null;
+        for(String line : text.split("\\r?\\n")){
+            line = line.trim();
+            if(line.length() < 64 || !isHex64(line.substring(0, 64))) continue;
+            String name = line.substring(64).trim();
+            if(name.startsWith("*")) name = name.substring(1);
+            if(name.isEmpty()){
+                bare = line.substring(0, 64).toLowerCase();
+            }else if(name.equals(assetName)){
+                return line.substring(0, 64).toLowerCase();
+            }
+        }
+        return bare;
+    }
+
+    private static String fetchText(String url) throws IOException{
+        HttpURLConnection con = (HttpURLConnection)new URL(url).openConnection();
+        con.setConnectTimeout(15000);
+        con.setReadTimeout(15000);
+        int code = con.getResponseCode();
+        if(code != 200) throw new IOException("HTTP " + code + " for " + url);
+        try(InputStream in = new BufferedInputStream(con.getInputStream())){
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buf = new byte[4096];
+            int n;
+            while((n = in.read(buf)) >= 0){
+                out.write(buf, 0, n);
+                if(out.size() > 64 * 1024) throw new IOException("checksum file is too large: " + url); // файл с суммами - пара строк
+            }
+            return out.toString("UTF-8");
+        }
+    }
+
+    /**
+     * Ожидаемый SHA-256 скачанного jar: ассет {@link #CHECKSUM_ASSET} релиза и/или `digest` из GitHub API.
+     * Если есть оба и они расходятся - это уже сигнал подмены, а не отсутствие суммы, поэтому исключение.
+     * @return строчный hex, либо null, если сумма не опубликована и обновление не strict.
+     */
+    private String expectedSha256() throws IOException{
+        String url = updateUrl;
+        String assetName = url.substring(url.lastIndexOf('/') + 1);
+        String fromAsset = null;
+        String hashUrl = updateHashUrl;
+        if(hashUrl != null){
+            try{
+                fromAsset = parseChecksum(fetchText(hashUrl), assetName);
+            }catch(IOException e){
+                Log.warn("[updater] could not read @: @", hashUrl, e.toString()); // нет ассета (404) - не фатально, если есть digest
+            }
+        }
+        String fromApi = updateSha256;
+        if(fromAsset != null && fromApi != null && !fromAsset.equals(fromApi)){
+            throw new IOException("SHA-256 from " + CHECKSUM_ASSET + " (" + fromAsset + ") differs from the digest GitHub reports (" + fromApi + ")");
+        }
+        String expected = fromAsset != null ? fromAsset : fromApi;
+        if(expected == null && updateStrict){
+            throw new IOException("the release publishes no SHA-256 (" + CHECKSUM_ASSET + " asset), refusing to install an unverified build");
+        }
+        return expected;
+    }
+
+    /**
+     * Проверяет скачанный jar: это zip (PK\3\4), а его SHA-256 совпадает с опубликованным.
+     * Вызывается из потока загрузки (блокирует сетью ради файла с суммами), бросает исключение при любом несоответствии.
+     */
+    private void verifyDownload(Fi file) throws Exception{
+        String expected = expectedSha256();
+
+        java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+        byte[] head = new byte[4];
+        long total = 0;
+        try(InputStream in = new BufferedInputStream(file.read(), 1 << 16)){
+            byte[] buf = new byte[1 << 16];
+            int n;
+            while((n = in.read(buf)) >= 0){
+                for(int i = 0; i < n && total + i < 4; i++) head[(int)(total + i)] = buf[i];
+                total += n;
+                md.update(buf, 0, n);
+            }
+        }
+        if(total < 4 || head[0] != 'P' || head[1] != 'K' || head[2] != 3 || head[3] != 4){
+            throw new IOException("the downloaded file is not a jar/zip (" + total + " bytes)");
+        }
+        StringBuilder hex = new StringBuilder();
+        for(byte b : md.digest()) hex.append(String.format("%02x", b));
+        String actual = hex.toString();
+
+        if(expected == null){
+            Log.warn("[updater] no published SHA-256 for @, installing unverified (@)", updateBuild, actual);
+        }else if(!expected.equals(actual)){
+            throw new IOException("SHA-256 mismatch: expected " + expected + ", got " + actual);
+        }else{
+            Log.info("[updater] SHA-256 verified: @", actual);
+        }
     }
 
     public void actuallyDownload() {
@@ -320,6 +496,18 @@ public class BeControl{
             BaseDialog dialog = new BaseDialog("@be.updating");
             download(updateUrl, file, i -> length[0] = i, v -> progress[0] = v, () -> cancel[0], () -> {
                 Log.info(file.absolutePath());
+                //jar запускается как отдельный процесс с правами игрока - не доверяем скачанному, пока не сверили SHA-256
+                try{
+                    verifyDownload(file);
+                }catch(Throwable e){
+                    file.delete();
+                    Log.err("[updater] integrity check failed, update NOT installed", e);
+                    Core.app.post(() -> {
+                        dialog.hide();
+                        ui.showErrorMessage(Core.bundle.format("client.update.verifyfailed", Strings.neatError(e)));
+                    });
+                    return;
+                }
                 ClientUtils.openJar("-Dberestart", "-Dbecopy=" + fileDest.absolutePath(), "-jar", file.absolutePath());
             }, e -> {
                 dialog.hide();

@@ -68,6 +68,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp desktop/build/libs/Mindustry.jar Mindustry-custom-desktop.jar
-          gh release create "${{ github.ref_name }}" Mindustry-custom-desktop.jar \
+          # Контрольная сумма для апдейтера клиента (BeControl.verifyDownload). Имя файла НАМЕРЕННО без слов
+          # "desktop"/"mindustry": старые клиенты выбирают ассет релиза по name.contains("desktop"), и сумма
+          # не должна быть принята ими за jar. Грузим ПОСЛЕ jar, чтобы порядок ассетов для них не менялся.
+          sha256sum Mindustry-custom-desktop.jar > checksums.sha256
+          cat checksums.sha256
+          gh release create "${{ github.ref_name }}" Mindustry-custom-desktop.jar checksums.sha256 \
             --title "${{ github.ref_name }}" \
             --notes-file release-notes.md
