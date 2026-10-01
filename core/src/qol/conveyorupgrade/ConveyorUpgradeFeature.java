@@ -38,7 +38,7 @@ import static mindustry.Vars.world;
  * dropped + our still-queued plans removed; anything already under construction finishes normally).
  */
 public class ConveyorUpgradeFeature implements Feature{
-    static final KeyBind upgradeKey = KeyBind.add("upgrade-conveyors", KeyCode.f7, "conveyor-upgrade");
+    static final KeyBind upgradeKey = KeyBind.add("upgrade-conveyors", KeyCode.unset, "conveyor-upgrade"); // без дефолта: F7 = штатный toggle_strict_mode, и одно нажатие делало и то, и массовый апгрейд за титан
 
     /** How many of our plans may sit in the unit's build queue at once. */
     static final int QUEUE_WATERMARK = 60;

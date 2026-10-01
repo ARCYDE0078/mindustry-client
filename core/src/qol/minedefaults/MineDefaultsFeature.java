@@ -468,8 +468,8 @@ public class MineDefaultsFeature implements Feature{
 
     /**
      * Poly split: of all polys the player put on the mine command, only half actually mine - the
-     * other half is switched to the assist command (help the player build, same thing the mod's F9
-     * hotkey in Unit Notifications does), with the odd one going to mining since that's the command
+     * other half is switched to the assist command (help the player build, same thing the Unit Notifications "help player"
+     * hotkey does), with the odd one going to mining since that's the command
      * that was actually given. The balance is maintained continuously: fresh mine-commanded polys
      * (factory output included) grow the pool and some get diverted; diverted polys dying or being
      * re-commanded by the player shrink the assist half and it's topped back up from the miners -

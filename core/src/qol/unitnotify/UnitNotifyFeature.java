@@ -64,11 +64,13 @@ import static mindustry.Vars.ui;
  * {@code type} field every frame is the kind of thing that's one game update away from crashing.
  */
 public class UnitNotifyFeature implements Feature{
-    static final KeyBind selectAllZeniths = KeyBind.add("unit-notify-select-zeniths", KeyCode.f12, "unit-notifications");
-    static final KeyBind selectAllPoly = KeyBind.add("unit-notify-select-poly", KeyCode.f11, "unit-notifications");
-    static final KeyBind selectAllExceptPoly = KeyBind.add("unit-notify-select-except-poly", KeyCode.f10, "unit-notifications");
-    static final KeyBind polyHelpPlayer = KeyBind.add("unit-notify-poly-help-player", KeyCode.f9, "unit-notifications");
-    static final KeyBind polyHeal = KeyBind.add("unit-notify-poly-heal", KeyCode.f8, "unit-notifications");
+    //Без дефолтных клавиш: F8-F12 заняты штатными (консоль, дальности реактора/купола, скриншот, полный экран), arc не ловит
+    //конфликты биндов - срабатывали оба действия. Назначаются в Управление -> unit-notifications
+    static final KeyBind selectAllZeniths = KeyBind.add("unit-notify-select-zeniths", KeyCode.unset, "unit-notifications");
+    static final KeyBind selectAllPoly = KeyBind.add("unit-notify-select-poly", KeyCode.unset, "unit-notifications");
+    static final KeyBind selectAllExceptPoly = KeyBind.add("unit-notify-select-except-poly", KeyCode.unset, "unit-notifications");
+    static final KeyBind polyHelpPlayer = KeyBind.add("unit-notify-poly-help-player", KeyCode.unset, "unit-notifications");
+    static final KeyBind polyHeal = KeyBind.add("unit-notify-poly-heal", KeyCode.unset, "unit-notifications");
 
     static final int MAX_CONTROL_LOGS = 8;
     static final float CONTROL_LOG_LIFETIME_MS = 8000f;
