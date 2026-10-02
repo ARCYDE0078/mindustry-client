@@ -679,7 +679,7 @@ public class PlacementFragment{
                                                     : Color.white;
                                                 } else {
                                                     color = hoveredCommand[0] != null &&
-                                                    type.commands.contains(hoveredCommand[0], true) ? Pal.heal :
+                                                    type.panelCommands().contains(hoveredCommand[0], true) ? Pal.heal :
                                                     listener.isOver() ? Color.lightGray : Color.white;
                                                 }
                                                 // gray on hover, green on command hover
@@ -691,7 +691,7 @@ public class PlacementFragment{
                                             unitlist.row();
                                         }
 
-                                        for(var command : type.commands){
+                                        for(var command : type.panelCommands()){
                                             if(!usedCommands.get(command.id)){
                                                 commands.add(command);
                                                 usedCommands.set(command.id);
@@ -797,7 +797,7 @@ public class PlacementFragment{
                                         availableStances.set(stance.id);
                                     }
 
-                                    for(var command : unit.type.commands){
+                                    for(var command : unit.type.panelCommands()){
                                         availableCommands.set(command.id);
                                     }
                                 }

@@ -55,7 +55,7 @@ public class CommandAI extends AIController{
 
     /** Attempts to assign a command to this unit. If not supported by the unit type, does nothing. */
     public void command(UnitCommand command){
-        if(unit.type.commands.contains(command)){
+        if(unit.type.allowCommand(unit, command)){
             //clear old state.
             unit.mineTile = null;
             unit.clearBuilding();

@@ -700,6 +700,9 @@ public class SettingsMenuDialog extends BaseDialog{
         }
 
         game.checkPref("doubletapmine", false);
+        game.checkPref("mineanything", false);
+        game.checkPref("rtsallcommands", true);
+        game.checkPref("rtsallmineitems", true);
         game.checkPref("commandmodehold", true);
         game.checkPref("unitboosthold", true);
 

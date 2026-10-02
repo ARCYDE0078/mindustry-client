@@ -2603,13 +2603,25 @@ public abstract class InputHandler implements InputProcessor, GestureListener{
             Build.validPlace(tile.block(), player.team(), tile.build.tileX(), tile.build.tileY(), tile.build.rotation);
     }
 
+    /**
+     * Снимает ИГРОВОЙ запрет ручной добычи ({@code Block.playerUnmineable}: песок, тёмный песок и т.п.).
+     * Сам запрет живёт только в клиентском вводе - {@code validMine}/{@code getMineResult} его не знают, и сервер его
+     * не проверяет, так что единственный настоящий судья "можно ли копать" остаётся юнит (тир, mineFloor/mineWalls,
+     * скорость добычи в правилах) - а именно это и меняют моды и патчи. Включается либо двойным тапом (ваниль),
+     * либо настройкой "mineanything" (копать сразу, без двойного тапа).
+     */
+    public static boolean allowUnmineable(){
+        return Core.settings.getBool("doubletapmine") || Core.settings.getBool("mineanything");
+    }
+
     boolean canMine(Tile tile){
+        boolean unlocked = allowUnmineable();
         return !Core.scene.hasMouse()
         && !player.dead()
         && player.unit().validMine(tile)
         && player.unit().acceptsItem(player.unit().getMineResult(tile))
-        && !((!Core.settings.getBool("doubletapmine") && tile.floor().playerUnmineable) && tile.overlay().itemDrop == null)
-        && !((!Core.settings.getBool("doubletapmine") && tile.overlay().playerUnmineable) && tile.overlay().itemDrop != null);
+        && !((!unlocked && tile.floor().playerUnmineable) && tile.overlay().itemDrop == null)
+        && !((!unlocked && tile.overlay().playerUnmineable) && tile.overlay().itemDrop != null);
     }
 
     /** Returns the tile at the specified MOUSE coordinates. */

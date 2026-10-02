@@ -368,6 +368,8 @@ public class UnitType extends UnlockableContent implements Senseable{
     public Seq<UnitCommand> commands = new Seq<>();
     /** Command to assign to this unit upon creation. Null indicates the first command in the array. */
     public @Nullable UnitCommand defaultCommand;
+    /** true, если список команд собрал init() сам (контент его не задавал) - только такой список afterPatch() вправе дополнять. */
+    protected boolean autoCommands;
     /** Stances this unit can have.  An empty array means stances will be assigned based on unit capabilities in init(). */
     public Seq<UnitStance> stances = new Seq<>();
 
@@ -666,11 +668,23 @@ public class UnitType extends UnlockableContent implements Senseable{
         //return mining stances based on present items
         if(current == UnitCommand.mineCommand){
             out.add(UnitStance.mineAuto);
-            for(Item item : indexer.getAllPresentOres()){
-                if(unit.canMine(item) && ((mineFloor && indexer.hasOre(item)) || (mineWalls && indexer.hasWallOre(item)))){
+            if(rtsAllMineItems()){
+                //sonka: вообще все предметы игры, а не только руды, лежащие на карте и по зубам этому юниту. Фильтр тут был
+                //единственным местом, где "не предусмотренный для копания" ресурс отсекался; реальную способность по-прежнему
+                //решает MinerAI (canMine + наличие руды), так что неподходящий выбор просто ничего не копает.
+                for(Item item : content.items()){
                     var itemStance = ItemUnitStance.getByItem(item);
                     if(itemStance != null){
                         out.add(itemStance);
+                    }
+                }
+            }else{
+                for(Item item : indexer.getAllPresentOres()){
+                    if(unit.canMine(item) && ((mineFloor && indexer.hasOre(item)) || (mineWalls && indexer.hasWallOre(item)))){
+                        var itemStance = ItemUnitStance.getByItem(item);
+                        if(itemStance != null){
+                            out.add(itemStance);
+                        }
                     }
                 }
             }
@@ -694,7 +708,27 @@ public class UnitType extends UnlockableContent implements Senseable{
     }
 
     public boolean allowCommand(Unit unit, UnitCommand command){
-        return commands.contains(command);
+        return commands.contains(command) || rtsAllCommands();
+    }
+
+    /** sonka: настройка "rtsallcommands" - в RTS-режиме любому юниту доступны все команды игры, даже те, что он по умолчанию не умеет. */
+    public static boolean rtsAllCommands(){
+        return Core.settings.getBool("rtsallcommands", true);
+    }
+
+    /** sonka: настройка "rtsallmineitems" - в стойках команды "копать" перечислены все предметы игры. */
+    public static boolean rtsAllMineItems(){
+        return Core.settings.getBool("rtsallmineitems", true);
+    }
+
+    /**
+     * Команды этого типа для RTS-панели. Свой список {@link #commands} не подменяем (его читают фабрики, Reconstructor
+     * и qol-фичи вроде CoreHeal как "что юнит умеет на самом деле"), расширяется только то, что видит и может выдать игрок.
+     * Умеет ли юнит команду фактически - решает её контроллер (MinerAI без canMine() ничего не делает и т.п.), так что если
+     * мод или патч юниту это разрешил, он начнёт работать; payload-команды защищены проверкой Payloadc в CommandAI.
+     */
+    public Seq<UnitCommand> panelCommands(){
+        return rtsAllCommands() ? content.unitCommands() : commands;
     }
 
     public void update(Unit unit){
@@ -841,7 +875,7 @@ public class UnitType extends UnlockableContent implements Senseable{
                 b.itemDrop != null &&
                 (b instanceof Floor f && (((f.wallOre && mineWalls) || (!f.wallOre && mineFloor))) ||
                 (!(b instanceof Floor) && mineWalls)) &&
-                b.itemDrop.hardness <= mineTier && (!b.playerUnmineable || Core.settings.getBool("doubletapmine"))));
+                b.itemDrop.hardness <= mineTier && (!b.playerUnmineable || mindustry.input.InputHandler.allowUnmineable())));
         }
         if(buildSpeed > 0){
             stats.addPercent(Stat.buildSpeed, buildSpeed);
@@ -1079,6 +1113,7 @@ public class UnitType extends UnlockableContent implements Senseable{
 
         //assign default commands.
         if(commands.size == 0){
+            autoCommands = true;
 
             commands.add(UnitCommand.moveCommand);
 
@@ -1317,6 +1352,14 @@ public class UnitType extends UnlockableContent implements Senseable{
         pathCost = null;
         pathCostId = -1;
         initPathType();
+
+        //sonka: патч мог научить копать юнита, который в ваниле не копает (mineTier -1 -> 1+). Всё, что читает type.mineTier/
+        //mineSpeed на лету (ручная добыча, MinerComp, MinerAI), подхватывает это само, но RTS-команда "копать" выдаётся
+        //только в init() по mineTier на тот момент - без неё приказанный юнит не копал бы. Условие зеркалит init();
+        //явно заданный контентом список команд не трогаем.
+        if(autoCommands && (canBoost || flying) && mineTier > 0 && mineSpeed > 0f && !commands.contains(UnitCommand.mineCommand)){
+            commands.add(UnitCommand.mineCommand);
+        }
     }
 
     public void beforeParse(){

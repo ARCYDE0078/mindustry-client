@@ -1441,7 +1441,7 @@ public class DesktopInput extends InputHandler{
      * (см. offloadImmediately()/mineTransferRange в MinerComp.update()). */
     @Nullable
     Tile pickAutoMinePauseOre(Unit unit){
-        boolean doubleTap = Core.settings.getBool("doubletapmine");
+        boolean doubleTap = allowUnmineable();
         String[] priority = Core.settings.getString("automineonpausepriority").trim().split("\\s+");
 
         Building core = unit.closestCore();
