@@ -710,9 +710,7 @@ public class PlacementFragment{
                                         for(var command : commands){
                                             final int i = scol;
                                             coms.button(Icon.icons.get(command.icon, Icon.cancel), Styles.clearNoneTogglei, () -> {
-                                                var manualIds = units.mapInt(un -> un.id, un -> un.type.allowCommand(un, command)).toArray();
-                                                qol.core.ManualControl.mark(manualIds);
-                                                Call.setUnitCommand(player, manualIds, command);
+                                                InputHandler.setUnitCommandChunked(units.mapInt(un -> un.id, un -> un.type.allowCommand(un, command)), command);
                                             }).size(50f).tooltip(command.localized(), true).with(b -> {
                                                 var listener = new ClickListener();
                                                 b.addListener(listener);
@@ -743,7 +741,7 @@ public class PlacementFragment{
                                         for(var stance : stances){
 
                                             var button = coms.button(stance.getIcon(), Styles.clearNoneTogglei, () -> {
-                                                Call.setUnitStance(player, qol.core.ManualControl.markStance(units.mapInt(un -> un.id, un -> un.type.allowStance(un, stance)).toArray()), stance, Core.input.modifierDown(Binding.enableStance) || !activeStances.get(stance.id));
+                                                InputHandler.setUnitStanceChunked(units.mapInt(un -> un.id, un -> un.type.allowStance(un, stance)), stance, Core.input.modifierDown(Binding.enableStance) || !activeStances.get(stance.id));
                                             }).size(50f).tooltip(stance.localized(), true).get();
                                             button.update(() -> {
                                                 button.setColor(activeCommonStances.get(stance.id) ? Color.white : Pal.accentBack);
@@ -811,16 +809,14 @@ public class PlacementFragment{
                                 for(UnitStance stance : stances){
                                     //first stance must always be the stop stance
                                     if(stance.keybind != null && Core.input.keyTap(stance.keybind)){
-                                        Call.setUnitStance(player, qol.core.ManualControl.markStance(control.input.selectedUnits.mapInt(un -> un.id, un -> un.type.allowStance(un, stance)).toArray()), stance, Core.input.modifierDown(Binding.enableStance) || !activeStances.get(stance.id));
+                                        InputHandler.setUnitStanceChunked(control.input.selectedUnits.mapInt(un -> un.id, un -> un.type.allowStance(un, stance)), stance, Core.input.modifierDown(Binding.enableStance) || !activeStances.get(stance.id));
                                     }
                                 }
 
                                 for(UnitCommand command : commands){
                                     //first stance must always be the stop stance
                                     if(command.keybind != null && Core.input.keyTap(command.keybind)){
-                                        var manualIds = control.input.selectedUnits.mapInt(un -> un.id, un -> un.type.allowCommand(un, command)).toArray();
-                                        qol.core.ManualControl.mark(manualIds);
-                                        Call.setUnitCommand(player, manualIds, command);
+                                        InputHandler.setUnitCommandChunked(control.input.selectedUnits.mapInt(un -> un.id, un -> un.type.allowCommand(un, command)), command);
                                     }
                                 }
 

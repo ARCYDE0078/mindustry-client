@@ -308,7 +308,7 @@ public class CoreBlock extends StorageBlock{
                 }).size(40f);
             } // Else deselect
 
-            if(!state.rules.coreBuildAndConfig) return;
+            if(!state.rules.coreBuildAndConfig || (team == state.rules.defaultTeam && team.cores().size == 1)) return;
 
             table.row();
 

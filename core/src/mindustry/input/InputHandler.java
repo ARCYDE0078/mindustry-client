@@ -486,6 +486,19 @@ public abstract class InputHandler implements InputProcessor, GestureListener{
         }
     }
 
+
+    /** Monolith: upstream вызывает здесь @Remote-метод напрямую - это только локальное применение, в сети ничего не уходит. Шлём через Call, чанками по 1000 (лимит пакета), и сразу помечаем юнитов как "ручные" (qol.core.ManualControl) */
+    public static void setUnitStanceChunked(IntSeq ids, UnitStance stance, boolean enable){
+        ids.chunked(1000, values -> Call.setUnitStance(Vars.player, qol.core.ManualControl.markStance(values), stance, enable));
+    }
+
+    public static void setUnitCommandChunked(IntSeq ids, UnitCommand command){
+        ids.chunked(1000, values -> {
+            qol.core.ManualControl.mark(values);
+            Call.setUnitCommand(Vars.player, values, command);
+        });
+    }
+
     @Remote(called = Loc.server, targets = Loc.both, forward = true, ratelimited = true)
     public static void setUnitStance(Player player, int[] unitIds, UnitStance stance, boolean enable){
         if(player == null || unitIds == null || stance == null) return;

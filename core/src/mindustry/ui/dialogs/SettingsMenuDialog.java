@@ -867,8 +867,11 @@ public class SettingsMenuDialog extends BaseDialog{
             if (Core.settings.getBool("swapdiagonal", false)) Core.settings.put("swapdiagonal", false);
         }
 
-
-        dev.checkPref("console", false);
+        dev.checkPref("console", false, val -> {
+            if(val == false && ui.consolefrag != null){
+                ui.consolefrag.close();
+            }
+        });
         dev.checkPref("drawhitboxes", false);
         dev.checkPref("showperformance", false);
 
