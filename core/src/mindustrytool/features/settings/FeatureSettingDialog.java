@@ -110,7 +110,7 @@ public class FeatureSettingDialog extends BaseDialog {
                 continue;
             }
 
-            FeatureCard.buildLink(paneTable, feature);
+            FeatureCard.buildLink(paneTable, feature, cardWidth);
 
             if (++i % cols == 0) {
                 paneTable.row();
@@ -122,7 +122,7 @@ public class FeatureSettingDialog extends BaseDialog {
             if (!filter.isEmpty() && !Utils.getString(webFeature.name()).toLowerCase().contains(filter.toLowerCase()))
                 continue;
 
-            FeatureCard.buildLink(paneTable, webFeature);
+            FeatureCard.buildLink(paneTable, webFeature, cardWidth);
             if (++i % cols == 0)
                 paneTable.row();
         }

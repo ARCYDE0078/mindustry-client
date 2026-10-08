@@ -23,10 +23,14 @@ public class FeatureCard {
         boolean enabled = feature.isEnabled();
         var metadata = feature.getMetadata();
 
+        // Monolith: ширина карточки была не задана, и её определял wrap-лейбл описания (ширина в одну строку) -
+        // одна карточка раздувала колонку до ~2000px, вторая колонка уезжала за экран (карточки "кривые",
+        // половины не видно, в т.ч. "Menu Background" с кнопкой смены фона). Фиксируем ширину колонки.
         var card = parent.button(Styles.black8, () -> {
 
         })
                 .name("Card")
+                .width(cardWidth - 10f)
                 .height(180f)
                 .pad(5f)
                 .top()
@@ -65,9 +69,8 @@ public class FeatureCard {
                         .style(Styles.defaultLabel)
                         .color(Color.white)
                         .ellipsis(true)
+                        .growX()
                         .left();
-
-                header.table().minWidth(5).growX();
 
                 header.button("?", Styles.cleart, () -> {
                     new FeatureHelpDialog(feature).show();
@@ -112,13 +115,13 @@ public class FeatureCard {
                 .left();
     }
 
-    public static void buildLink(Table parent, Feature feature) {
+    public static void buildLink(Table parent, Feature feature, float cardWidth) {
         var metadata = feature.getMetadata();
 
         var card = parent.button(Styles.black8, () -> {
 
         })
-                .growX()
+                .width(cardWidth - 10f)
                 .height(180f)
                 .pad(5f)
                 .color(Pal.accent)
@@ -167,11 +170,11 @@ public class FeatureCard {
         }).grow();
     }
 
-    public static void buildLink(Table parent, WebFeature feature) {
+    public static void buildLink(Table parent, WebFeature feature, float cardWidth) {
         var card = parent.button(Styles.black8, () -> {
 
         })
-                .growX()
+                .width(cardWidth - 10f)
                 .height(180f)
                 .pad(5f)
                 .get();
