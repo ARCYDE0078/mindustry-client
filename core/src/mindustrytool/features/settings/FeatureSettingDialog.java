@@ -93,7 +93,9 @@ public class FeatureSettingDialog extends BaseDialog {
             paneTable.row();
         }
 
-        paneTable.image().color(Color.gray).growX().height(4f).colspan(cols).pad(10).row();
+        // Monolith: fillX вместо growX - растягивающаяся ячейка с colspan отдавала всё лишнее место ширины окна
+        // одной колонке сетки (cols-2), и карточка "Menu Background" уезжала от остальных с большим зазором
+        paneTable.image().color(Color.gray).fillX().height(4f).colspan(cols).pad(10).row();
 
         paneTable.add("@feature").padLeft(10).top().left().row();
 
@@ -127,6 +129,6 @@ public class FeatureSettingDialog extends BaseDialog {
                 paneTable.row();
         }
 
-        paneTable.table().growX().row();
+        paneTable.table().row();
     }
 }

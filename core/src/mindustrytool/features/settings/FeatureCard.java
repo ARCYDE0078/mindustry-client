@@ -124,6 +124,8 @@ public class FeatureCard {
                 .width(cardWidth - 10f)
                 .height(180f)
                 .pad(5f)
+                .top()
+                .left()
                 .color(Pal.accent)
                 .get();
 
@@ -177,6 +179,8 @@ public class FeatureCard {
                 .width(cardWidth - 10f)
                 .height(180f)
                 .pad(5f)
+                .top()
+                .left()
                 .get();
 
         card.addListener(new ClickListener() {
