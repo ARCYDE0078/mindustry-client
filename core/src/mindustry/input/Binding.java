@@ -183,7 +183,9 @@ public class Binding{
     runJS = KeyBind.add("run_js", KeyCode.u),
     //sonka: единый список хоткеев всех пакетов (sonkaextras.hotkeys.HotkeysDialog); F2 - свободна
     //и в ванили, и у вшитых модов (F1 block_info, F3 масс-драйверы, F5-F12 заняты)
-    monolithHotkeys = KeyBind.add("monolith_hotkeys", KeyCode.f2)
+    monolithHotkeys = KeyBind.add("monolith_hotkeys", KeyCode.f2),
+    //sonka: отмотка времени в песочнице (sonkaextras.TimeRewind); F4 свободна и в ванили, и у вшитых модов
+    rewindTime = KeyBind.add("rewind_time", KeyCode.f4)
     ;
 
     //dummy static class initializer

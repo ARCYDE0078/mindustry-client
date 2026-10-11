@@ -114,6 +114,10 @@ public final class ChainWarn{
             t.pref(new qol.core.ButtonSetting("sonka-changelog-open", () -> mindustry.client.ui.ChangelogDialog.INSTANCE.show()));
             //автосейв на старте волны для кнопки «Повторить волну» (CampaignRetry)
             t.checkPref(CampaignRetry.autosaveKey, true);
+            //отмотка времени в песочнице (TimeRewind): тогл, на сколько откатывать и сколько истории держать
+            t.checkPref(TimeRewind.enabledKey, true);
+            t.sliderPref(TimeRewind.secondsKey, 5, 1, 30, 1, v -> v + " s");
+            t.sliderPref(TimeRewind.historyKey, 60, 10, 300, 10, v -> v + " s");
             //метка над юнитом с ником последнего управлявшего (LastController): тогл + время показа
             t.checkPref(LastController.settingKey, true);
             t.checkPref(LastController.selfKey, true);

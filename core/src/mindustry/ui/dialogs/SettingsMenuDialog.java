@@ -557,6 +557,8 @@ public class SettingsMenuDialog extends BaseDialog{
         });
         // sonka: выбор юнита фона главного меню - рядом с cursednesslevel, второй настройкой этого фона
         client.pref(new qol.core.ButtonSetting("menu-unit-configure", () -> new sonkaextras.MenuUnitDialog().show()));
+        // sonka: свои названия блокам/юнитам/настройкам и любым текстам игры
+        client.pref(new qol.core.ButtonSetting("bundle-editor", () -> new sonkaextras.BundleEditorDialog().show()));
         client.checkPref("placementfragmentsearch", true);
         client.checkPref("uselocalizedname", true);
         client.checkPref("showhiddenresources", true);

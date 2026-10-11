@@ -756,6 +756,10 @@ public class Mods implements Loadable{
             }
             bundle = bundle.getParent();
         }
+
+        //sonka: пользовательские правки строк (sonkaextras.BundleOverrides) накладываются ПОСЛЕ бандлов
+        //модов - иначе мод затёр бы их, - и до создания контента, который читает названия в конструкторе
+        sonkaextras.BundleOverrides.apply();
     }
 
     /** Check all warnings related to content and show relevant dialogs. Client only. */

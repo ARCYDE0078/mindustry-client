@@ -123,6 +123,13 @@ object Main : ApplicationListener {
         // (sonkaextras.CampaignRetry - см. его javadoc)
         sonkaextras.CampaignRetry.init()
 
+        // sonka: свои названия блокам/настройкам (sonkaextras.BundleOverrides + редактор в настройках);
+        // сама подмена бандла делается из Mods.loadBundles(), здесь - только повтор на ClientLoadEvent
+        sonkaextras.BundleOverrides.init()
+
+        // sonka: отмотка времени в песочнице на хоткей (sonkaextras.TimeRewind - см. его javadoc)
+        sonkaextras.TimeRewind.init()
+
         // sonka: метка над юнитом с ником последнего управлявшего им игрока (sonkaextras.LastController)
         sonkaextras.LastController.init()
 
