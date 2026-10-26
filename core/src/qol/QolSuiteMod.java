@@ -4,6 +4,7 @@ import arc.Core;
 import arc.Events;
 import arc.struct.Seq;
 import arc.util.Log;
+import mindustry.client.FirstRun;
 import mindustry.client.ui.ModsSettings;
 import mindustry.game.EventType.ClientLoadEvent;
 import mindustry.game.EventType.WorldLoadEvent;
@@ -90,12 +91,16 @@ public class QolSuiteMod{
             for(Feature f : features) f.init();
 
             hub = new Hub(features);
+            //sonka: на первом запуске хаб не висит на экране - его открывают из справочника «Вшитые моды» (FeaturesDialog)
+            FirstRun.offIfFresh("qol-hub.qolwin2.shown");
             hub.restoreShown();
 
             for(Feature f : features){
                 if(!f.hasWindow()) continue;
                 QolWindow win = f.window();
-                if(win != null) win.restoreShown();
+                //sonka: окно выключенной фичи не рисуем (Feature.setEnabled(false) и так его снимает); на первом запуске
+                //все фичи выключены, а при включении setEnabled сам вернёт окно через restoreShown
+                if(win != null && f.isEnabled()) win.restoreShown();
             }
 
             buildSettings();
@@ -127,7 +132,7 @@ public class QolSuiteMod{
                 //Feature.setEnabled(...) entirely - routing the change through it here is what makes
                 //disabling a feature from this checkbox also hide its window, same as disabling it from
                 //the hub's own checkbox does (Hub.setupCont already calls f.setEnabled(...) directly)
-                table.checkPref(f.settingsKey(), true, checked -> f.setEnabled(checked));
+                table.checkPref(f.settingsKey(), f.defaultEnabled(), checked -> f.setEnabled(checked));
                 f.buildSettings(table);
                 if(f.hasWindow() && f.window() != null) f.window().buildSizeSetting(table);
             }

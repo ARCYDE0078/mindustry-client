@@ -83,7 +83,8 @@ public class MI2UMod{
                 }
 
                 Time.runTask(40f, () -> {
-                    mi2ui.addTo(Core.scene.root);
+                    //sonka: главная панель (Sync/DG/RB/Time Scale) теперь отключаемая, на свежей установке её нет (FirstRun); у остальных по-прежнему true
+                    if(mi2ui.settings.getBool("showMain", true)) mi2ui.addTo(Core.scene.root);
                     if(mi2ui.settings.getBool("showEmojis")) emojis.addTo(emojis.hasParent() ? emojis.parent : Core.scene.root);
                     if(mi2ui.settings.getBool("showCoreInfo")) coreInfo.addTo(coreInfo.hasParent() ? coreInfo.parent : Core.scene.root);
                     if(mi2ui.settings.getBool("showMinimap")) mindowmap.addTo(mindowmap.hasParent() ? mindowmap.parent : Core.scene.root);

@@ -77,6 +77,9 @@ public class HudFragment{
         var pane = new ScrollPane(blockSelection, Styles.smallPane);
         pane.setFadeScrollBars(false);
         Planet[] last = {state.rules.planet};
+        //sonka: палитра редактора тоже слушается тумблера "только разрешённые картой": перестраиваем при смене банов/тумблера
+        int[] lastBans = {PlacementFragment.banSignature()};
+        String[] lastSearch = {""};
         pane.update(() -> {
             if(pane.hasScroll()){
                 Element result = Core.scene.getHoverElement();
@@ -85,9 +88,11 @@ public class HudFragment{
                 }
             }
 
-            if(state.rules.planet != last[0]){
+            int bans = PlacementFragment.banSignature();
+            if(state.rules.planet != last[0] || bans != lastBans[0]){
                 last[0] = state.rules.planet;
-                rebuildBlockSelection(blockSelection, "");
+                lastBans[0] = bans;
+                rebuildBlockSelection(blockSelection, lastSearch[0]);
             }
         });
 
@@ -96,7 +101,10 @@ public class HudFragment{
 
         cont.table(search -> {
             search.image(Icon.zoom).padRight(8);
-            search.field("", text -> rebuildBlockSelection(blockSelection, text)).growX()
+            search.field("", text -> {
+                lastSearch[0] = text;
+                rebuildBlockSelection(blockSelection, text);
+            }).growX()
             .name("editor/search").maxTextLength(maxNameLength).get().setMessageText("@players.search");
         }).growX().pad(-2).padLeft(6f);
         cont.row();
@@ -181,6 +189,7 @@ public class HudFragment{
             || (!block.inEditor && !(block instanceof RemoveWall) && !(block instanceof RemoveOre))
             || !block.isOnPlanet(state.rules.planet)
             || block.buildVisibility == BuildVisibility.debugOnly
+            || (block.synthetic() && PlacementFragment.hiddenInEditor(block))
             || (!searchText.isEmpty() && !(block == Blocks.removeOre || block == Blocks.removeWall) && !block.localizedName.toLowerCase().contains(searchText.trim().replaceAll(" +", " ").toLowerCase()))
             ) continue;
 
@@ -581,6 +590,11 @@ public class HudFragment{
 
                     teams.button(Icon.downOpen, Styles.emptyi, () -> Core.settings.put("editor-blocks-shown", !Core.settings.getBool("editor-blocks-shown")))
                     .size(45f).update(m -> m.getStyle().imageUp = (Core.settings.getBool("editor-blocks-shown") ? Icon.upOpen : Icon.downOpen));
+
+                    //sonka: тумблер "в меню построек только разрешённые картой блоки" (запрещённые правилами прячутся)
+                    teams.button(Icon.filter, Styles.clearNoneTogglei, 33f, () -> Core.settings.put(PlacementFragment.editorAllowedOnlyKey, !Core.settings.getBool(PlacementFragment.editorAllowedOnlyKey, false)))
+                    .size(45f).margin(6f).tooltip("@editor.allowedonly")
+                    .update(m -> m.setChecked(Core.settings.getBool(PlacementFragment.editorAllowedOnlyKey, false)));
                 }).top().left().row();
 
                 t.collapser(this::addBlockSelection, () -> Core.settings.getBool("editor-blocks-shown"));

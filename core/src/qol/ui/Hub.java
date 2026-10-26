@@ -88,7 +88,7 @@ public class Hub extends QolWindow{
         cont.margin(UiStyle.PANEL_MARGIN);
 
         section(cont, "qol.hub.sec.mi2u", t -> {
-            mindowToggle(t, Icon.wrench, "MI2UI.MI2U", () -> MI2UVars.mi2ui, null);
+            mindowToggle(t, Icon.wrench, "MI2UI.MI2U", () -> MI2UVars.mi2ui, "showMain");
             mindowToggle(t, Icon.chat, "Emojis.MI2U", () -> MI2UVars.emojis, "showEmojis");
             mindowToggle(t, Icon.production, "CoreInfo.MI2U", () -> MI2UVars.coreInfo, "showCoreInfo");
             mindowToggle(t, Icon.map, "Minimap.MI2U", () -> MI2UVars.mindowmap, "showMinimap");

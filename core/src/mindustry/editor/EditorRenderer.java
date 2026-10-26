@@ -25,6 +25,10 @@ public class EditorRenderer implements Disposable{
     private float packWidth, packHeight;
 
     private Shader shader;
+    /** с каким ignoreWalls сейчас закэширован пол: при прозрачных стенах пол под ними тоже нужен (см. FloorRenderer.cacheChunk) */
+    private boolean wallsIgnored;
+    /** тени пересобираем не в каждом событии ползунка, а раз за кадр */
+    private boolean shadowsDirty;
 
     public void resize(int width, int height){
         dispose();
@@ -72,9 +76,12 @@ public class EditorRenderer implements Disposable{
             varying lowp vec4 v_color;
             varying vec2 v_texCoords;
             uniform sampler2D u_texture;
+            uniform float u_alpha;
         
             void main(){
-              gl_FragColor = v_color * texture2D(u_texture, v_texCoords);
+              vec4 c = v_color * texture2D(u_texture, v_texCoords);
+              c.a *= u_alpha;
+              gl_FragColor = c;
             }
             """
             );
@@ -96,8 +103,9 @@ public class EditorRenderer implements Disposable{
         Core.camera.width = 999999f;
         Core.camera.height = 999999f;
         Core.camera.mat.set(Draw.proj()).mul(Tmp.m3.setToTranslation(tx, ty).scale(tw / (width * tilesize), th / (height * tilesize)).translate(4f, 4f));
-        if(editor.showFloor){
-            renderer.blocks.floor.drawFloor(doUpdate, !editor.showTerrain);
+        if(editor.floorAlpha > 0f){
+            renderer.blocks.floor.alpha = editor.floorAlpha;
+            renderer.blocks.floor.drawFloor(doUpdate, wallsIgnored);
         }
 
         Tmp.m2.set(Draw.proj());
@@ -105,7 +113,14 @@ public class EditorRenderer implements Disposable{
         //scissors are always enabled because this is drawn clipped in UI, make sure they don't interfere with drawing shadow events
         Gl.disable(Gl.scissorTest);
 
-        if(doUpdate) renderer.blocks.processShadows(!editor.showBuildings, !editor.showTerrain);
+        if(shadowsDirty){
+            //полный пересбор теней (ползунок/хоткей) - тоже вне scissor, иначе фреймбуфер теней обрежется по окну UI
+            shadowsDirty = false;
+            Draw.flush();
+            renderer.blocks.updateShadows(editor.buildingsAlpha, editor.terrainAlpha);
+        }
+
+        if(doUpdate) renderer.blocks.processShadows(editor.buildingsAlpha, editor.terrainAlpha);
 
         Gl.enable(Gl.scissorTest);
 
@@ -117,10 +132,13 @@ public class EditorRenderer implements Disposable{
 
         Draw.proj(Tmp.m2);
 
-        renderer.blocks.floor.beginDraw();
-        if(editor.showTerrain){
+        if(editor.terrainAlpha > 0f){
+            renderer.blocks.floor.alpha = editor.terrainAlpha;
+            renderer.blocks.floor.beginDraw();
             renderer.blocks.floor.drawLayer(CacheLayer.walls, doUpdate);
         }
+        //alpha - общее поле рендера пола: в обычной игре после редактора должно быть снова 1
+        renderer.blocks.floor.alpha = 1f;
         renderer.animateWater = prev;
 
         if(chunks == null) return;
@@ -130,8 +148,9 @@ public class EditorRenderer implements Disposable{
             recacheChunks.clear();
         }
 
-        if(editor.showBuildings){
+        if(editor.buildingsAlpha > 0f){
             shader.bind();
+            shader.setUniformf("u_alpha", editor.buildingsAlpha);
             shader.setUniformMatrix4("u_projTrans", Tmp.m1.set(Core.camera.mat).translate(-packPad, -packPad).scale(packWidth, packHeight));
 
             for(int x = 0; x < chunks.length; x++){
@@ -168,7 +187,9 @@ public class EditorRenderer implements Disposable{
     }
 
     void recache(){
-        renderer.blocks.floor.reload(!editor.showTerrain);
+        wallsIgnored = editor.terrainAlpha < 1f;
+        renderer.blocks.floor.keepWallLayer = true;
+        renderer.blocks.floor.reload(wallsIgnored);
         renderer.blocks.reload();
 
         for(int x = 0; x < chunks.length; x++){
@@ -177,19 +198,34 @@ public class EditorRenderer implements Disposable{
             }
         }
         //this causes 2 recaches, but it's necessary to fix the wrong shadows after a reload
-        if(!editor.showBuildings || !editor.showTerrain){
+        if(editor.buildingsAlpha < 1f || editor.terrainAlpha < 1f){
             recacheShadows();
         }
     }
 
     void recacheTerrain(){
-        renderer.blocks.floor.reload(!editor.showTerrain);
+        wallsIgnored = editor.terrainAlpha < 1f;
+        renderer.blocks.floor.keepWallLayer = true;
+        renderer.blocks.floor.reload(wallsIgnored);
         renderer.blocks.reload();
         recacheShadows();
     }
 
     void recacheShadows(){
-        renderer.blocks.updateShadows(!editor.showBuildings, !editor.showTerrain);
+        shadowsDirty = true;
+    }
+
+    /**
+     * Вызывается после любого изменения editor.*Alpha (ползунок, хоткей). Дорогой пересбор пола нужен только при
+     * переходе непрозрачности стен через 1 (под прозрачной стеной пол должен быть закэширован), всё остальное -
+     * лишь униформы шейдеров и пересборка теней раз за кадр.
+     */
+    void opacityChanged(){
+        if((editor.terrainAlpha < 1f) != wallsIgnored){
+            recacheTerrain();
+        }else{
+            recacheShadows();
+        }
     }
 
     void recacheChunk(int cx, int cy){

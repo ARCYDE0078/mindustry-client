@@ -50,6 +50,10 @@ public class MapEditorDialog extends Dialog implements Disposable{
     private Table blockSelection;
     private Rules lastSavedRules;
     private Slider brushSizeSlider;
+    /** sonka: ползунки непрозрачности слоёв превью (блоки / ландшафт = стены / пол); хоткеи скрытия двигают их же */
+    private Slider buildingsAlphaSlider, terrainAlphaSlider, floorAlphaSlider;
+    /** последняя ненулевая непрозрачность слоя - хоткей "скрыть" возвращает к ней, а не к 100% */
+    private final float[] lastAlphas = {1f, 1f, 1f};
     private boolean saved = false; //currently never read
     private boolean shownWithMap = false;
     private final Seq<Block> blocksOut = new Seq<>();
@@ -741,15 +745,14 @@ public class MapEditorDialog extends Dialog implements Disposable{
 
                 mid.row();
 
-                mid.check("@editor.showblocks", editor.showBuildings, b -> {
-                    editor.showBuildings = b;
-                    editor.renderer.recacheShadows();
-                }).pad(2f).growX().with(Table::left).row();
-                mid.check("@editor.showterrain", editor.showTerrain, b -> {
-                    editor.showTerrain = b;
-                    editor.renderer.recacheTerrain();
-                }).pad(2f).growX().with(Table::left).row();
-                mid.check("@editor.showfloor", editor.showFloor, b -> editor.showFloor = b).pad(2f).growX().with(Table::left).row();
+                //sonka: вместо флажков "показывать X" - ползунки непрозрачности (0% = слой скрыт, как раньше без галочки)
+                mid.table(Tex.underline, t -> {
+                    t.top();
+                    buildingsAlphaSlider = opacitySlider(t, "@editor.opacity.blocks", size, editor.buildingsAlpha, v -> editor.buildingsAlpha = v);
+                    terrainAlphaSlider = opacitySlider(t, "@editor.opacity.terrain", size, editor.terrainAlpha, v -> editor.terrainAlpha = v);
+                    floorAlphaSlider = opacitySlider(t, "@editor.opacity.floor", size, editor.floorAlpha, v -> editor.floorAlpha = v);
+                }).padTop(5).growX().top();
+                mid.row();
 
                 if(!mobile){
                     mid.button("@editor.center", Icon.move, Styles.flatt, view::center).growX().margin(9f);
@@ -837,16 +840,43 @@ public class MapEditorDialog extends Dialog implements Disposable{
         }
 
         if(Core.input.keyTap(Binding.editorHideBlocks)){
-            editor.showBuildings ^= true;
-            editor.renderer.recacheShadows();
+            toggleLayer(buildingsAlphaSlider, 0);
         }
         if(Core.input.keyTap(Binding.editorHideTerrain)){
-            editor.showTerrain ^= true;
-            editor.renderer.recacheTerrain();
+            toggleLayer(terrainAlphaSlider, 1);
         }
         if(Core.input.keyTap(Binding.editorHideFloor)){
-            editor.showFloor ^= true;
+            toggleLayer(floorAlphaSlider, 2);
         }
+    }
+
+    /** Хоткей скрытия слоя: прозрачный -> вернуть прежнюю непрозрачность, иначе запомнить её и скрыть. */
+    private void toggleLayer(Slider slider, int index){
+        if(slider == null) return;
+        float value = slider.getValue();
+        if(value > 0f){
+            lastAlphas[index] = value;
+            slider.setValue(0f);
+        }else{
+            slider.setValue(lastAlphas[index] > 0f ? lastAlphas[index] : 1f);
+        }
+    }
+
+    /** Ползунок непрозрачности слоя с подписью "Слой: NN%" поверх; set пишет значение в editor, дальше renderer сам решает что пересобрать. */
+    private Slider opacitySlider(Table t, String labelKey, float size, float initial, Floatc set){
+        Slider slider = new Slider(0f, 1f, 0.05f, false);
+        slider.setValue(initial);
+        slider.moved(v -> {
+            set.get(v);
+            editor.renderer.opacityChanged();
+        });
+
+        var label = new Label(() -> Core.bundle.get(labelKey.substring(1)) + ": " + Mathf.round(slider.getValue() * 100f) + "%");
+        label.setAlignment(Align.center);
+        label.touchable = Touchable.disabled;
+
+        t.stack(slider, label).width(size * 3f - 20).padTop(4f).row();
+        return slider;
     }
 
     private void tryExit(){

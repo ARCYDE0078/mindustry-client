@@ -49,6 +49,13 @@ public class ChatFeature implements Feature {
             String currentChannelId = store.getCurrentChannelId();
 
             for (ChatMessage msg : event.messages) {
+                //sonka: сервер иногда шлёт по стриму служебный объект без channelId - ObjectMap.get(null) валил игру
+                //"key cannot be null" прямо в главном цикле; такое сообщение не относится ни к одному каналу, пропускаем
+                if (msg == null || msg.channelId == null || msg.id == null) {
+                    Log.warn("Chat: пропущено сообщение без channelId/id");
+                    continue;
+                }
+
                 String channelId = msg.channelId;
 
                 store.addMessages(channelId, Seq.with(msg));

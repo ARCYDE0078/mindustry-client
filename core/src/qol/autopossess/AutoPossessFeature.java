@@ -46,6 +46,12 @@ public class AutoPossessFeature implements Feature{
         return "qol.feature.auto-possess.title";
     }
 
+    /** sonka: вселение в чужого юнита без спроса - не то, что должно включаться само (у друга юнит ушёл в квазара); включают осознанно в настройках. */
+    @Override
+    public boolean defaultEnabled(){
+        return false;
+    }
+
     @Override
     public void init(){
         Events.on(UnitCreateEvent.class, e -> {

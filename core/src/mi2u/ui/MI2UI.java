@@ -211,6 +211,7 @@ public class MI2UI extends Mindow2{
 
         settings.title("graphics.ui");
 
+        settings.checkPref("showMain", true, b -> addTo(b ? Core.scene.root:null));
         settings.checkPref("showEmojis", false, b -> emojis.addTo(b ? Core.scene.root:null));
         settings.checkPref("showCoreInfo", false, b -> coreInfo.addTo(b ? Core.scene.root:null));
         settings.checkPref("showMinimap", false, b -> mindowmap.addTo(b ? Core.scene.root:null));

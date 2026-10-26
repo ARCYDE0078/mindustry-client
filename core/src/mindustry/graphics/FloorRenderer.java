@@ -48,6 +48,12 @@ public class FloorRenderer{
     private int vidx;
     private FloorRenderBatch batch = new FloorRenderBatch();
     private Shader shader;
+    /** sonka: общая непрозрачность слоя пола/стен для превью редактора (в игре всегда 1); читается в beginDraw() */
+    public float alpha = 1f;
+    /** sonka: с каким ignoreWalls закэширован мир - грязные чанки в drawLayer(..., true) надо пересобирать так же, а не всегда с false */
+    private boolean cacheIgnoresWalls = false;
+    /** sonka: превью редактора с полупрозрачными стенами - при ignoreWalls всё равно строить слой стен (иначе остаются одни тени), он рисуется поверх пола с alpha */
+    public boolean keepWallLayer = false;
     private Mat combinedMat = new Mat();
     private Texture texture;
     private TextureRegion error;
@@ -89,9 +95,12 @@ public class FloorRenderer{
         varying vec4 v_color;
         varying vec2 v_texCoords;
         uniform sampler2D u_texture;
+        uniform float u_alpha;
 
         void main(){
-          gl_FragColor = v_color * texture2D(u_texture, v_texCoords);
+          vec4 c = v_color * texture2D(u_texture, v_texCoords);
+          c.a *= u_alpha;
+          gl_FragColor = c;
         }
         """);
 
@@ -123,6 +132,8 @@ public class FloorRenderer{
         if(cache == null){
             return;
         }
+
+        cacheIgnoresWalls = cacheIgnoreWalls;
 
         Camera camera = Core.camera;
 
@@ -193,6 +204,7 @@ public class FloorRenderer{
         shader.bind();
         //coordinates of geometry are normalized to [0, 1] based on map size (normWidth/normHeight), so the matrix needs to be updated accordingly
         shader.setUniformMatrix4("u_projectionViewMatrix", combinedMat.set(Core.camera.mat).translate(-packPad, -packPad).scale(packWidth, packHeight));
+        shader.setUniformf("u_alpha", alpha);
 
         //only ever use the base environment texture
         texture.bind(0);
@@ -230,7 +242,7 @@ public class FloorRenderer{
 
                 if(dirty[x][y] && checkChanges){
                     dirty[x][y] = false;
-                    cacheChunk(x, y, false);
+                    cacheChunk(x, y, cacheIgnoresWalls);
                 }
 
                 var mesh = cache[x][y][layer.id];
@@ -267,13 +279,14 @@ public class FloorRenderer{
         for(int tilex = Math.max(cx * chunksize - 1, 0); tilex < (cx + 1) * chunksize + 1 && tilex < world.width(); tilex++){
             for(int tiley = Math.max(cy * chunksize - 1, 0); tiley < (cy + 1) * chunksize + 1 && tiley < world.height(); tiley++){
                 Tile tile = world.rawTile(tilex, tiley);
-                boolean wall = !ignoreWalls && tile.block().cacheLayer != CacheLayer.normal;
+                boolean wall = (!ignoreWalls || keepWallLayer) && tile.block().cacheLayer != CacheLayer.normal;
 
                 if(wall){
                     used.add(tile.block().cacheLayer);
                 }
 
-                if(!wall || world.isAccessible(tilex, tiley)){
+                //при ignoreWalls пол под стеной нужен всегда (стена может быть прозрачной), даже если слой стен тоже строится
+                if(!wall || ignoreWalls || world.isAccessible(tilex, tiley)){
                     used.add(tile.floor().cacheLayer);
                 }
             }
@@ -348,6 +361,7 @@ public class FloorRenderer{
     }
 
     public void reload(boolean ignoreWalls){
+        cacheIgnoresWalls = ignoreWalls;
         //dispose all old meshes
         if(cache != null){
             for(var x : cache){

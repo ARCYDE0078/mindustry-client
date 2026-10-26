@@ -30,6 +30,7 @@ public class SchematicBrowserFeature implements Feature {
                 .description("@feature.schematic-browser.description")
                 .icon(Icon.paste)
                 .order(2)
+                .onDemand(true)
                 .build();
         return cachedMetadata;
     }

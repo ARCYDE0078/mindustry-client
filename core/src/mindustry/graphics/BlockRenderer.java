@@ -297,15 +297,25 @@ public class BlockRenderer{
     }
 
     public void updateShadows(boolean ignoreBuildings, boolean ignoreTerrain){
+        updateShadows(ignoreBuildings ? 0f : 1f, ignoreTerrain ? 0f : 1f);
+    }
+
+    /** sonka: цвет тени тайла с учётом непрозрачности слоя (1 = ванильный blendShadowColor); для превью редактора. */
+    private Color shadowFor(Tile tile, float buildingsAlpha, float terrainAlpha){
+        float k = tile.block().isStatic() ? terrainAlpha : buildingsAlpha;
+        return k >= 1f ? blendShadowColor : Tmp.c1.set(Color.white).lerp(Color.black, shadowColor.a * k);
+    }
+
+    /** @param buildingsAlpha 0..1 непрозрачность теней зданий; @param terrainAlpha то же для статичных стен (0 = теней нет вовсе) */
+    public void updateShadows(float buildingsAlpha, float terrainAlpha){
         shadows.getTexture().setFilter(TextureFilter.linear, TextureFilter.linear);
         shadows.resize(world.width(), world.height());
         shadows.begin(Color.white);
         Draw.proj().setOrtho(0, 0, shadows.getWidth(), shadows.getHeight());
 
-        Draw.color(blendShadowColor);
-
         for(Tile tile : world.tiles){
-            if(tile.block().displayShadow(tile) && (tile.build == null || tile.build.wasVisible) && !(ignoreBuildings && !tile.block().isStatic()) && !(ignoreTerrain && tile.block().isStatic())){
+            if(tile.block().displayShadow(tile) && (tile.build == null || tile.build.wasVisible) && (tile.block().isStatic() ? terrainAlpha : buildingsAlpha) > 0f){
+                Draw.color(shadowFor(tile, buildingsAlpha, terrainAlpha));
                 Fill.rect(tile.x + 0.5f, tile.y + 0.5f, 1, 1);
             }
         }
@@ -487,6 +497,10 @@ public class BlockRenderer{
     }
 
     public void processShadows(boolean ignoreBuildings, boolean ignoreTerrain){
+        processShadows(ignoreBuildings ? 0f : 1f, ignoreTerrain ? 0f : 1f);
+    }
+
+    public void processShadows(float buildingsAlpha, float terrainAlpha){
         if(!shadowEvents.isEmpty()){
             Draw.flush();
 
@@ -496,7 +510,7 @@ public class BlockRenderer{
             for(Tile tile : shadowEvents){
                 if(tile == null) continue;
                 //draw white/shadow color depending on blend
-                Draw.color((!tile.block().displayShadow(tile) || (state.rules.fog && tile.build != null && !tile.build.wasVisible) || (ignoreBuildings && !tile.block().isStatic()) || (ignoreTerrain && tile.block().isStatic())) ? Color.white : blendShadowColor);
+                Draw.color((!tile.block().displayShadow(tile) || (state.rules.fog && tile.build != null && !tile.build.wasVisible) || (tile.block().isStatic() ? terrainAlpha : buildingsAlpha) <= 0f) ? Color.white : shadowFor(tile, buildingsAlpha, terrainAlpha));
                 Fill.rect(tile.x + 0.5f, tile.y + 0.5f, 1, 1);
             }
 

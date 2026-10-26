@@ -47,7 +47,11 @@ public class PlacementFragment{
 
     Seq<Block> returnArray = new Seq<>(), returnArray2 = new Seq<>();
     Seq<Category> returnCatArray = new Seq<>();
+    /** sonka: тумблер "в редакторе показывать в меню построек только разрешённые картой блоки" */
+    public static final String editorAllowedOnlyKey = "editor-allowed-only";
     boolean[] categoryEmpty = new boolean[Category.all.length];
+    /** сигнатура (фильтр + правила банов), по которой понимаем, что меню построек нужно пересобрать целиком */
+    int lastBanSignature = Integer.MIN_VALUE;
     ObjectMap<Category,Block> selectedBlocks = new ObjectMap<>();
     ObjectFloatMap<Category> scrollPositions = new ObjectFloatMap<>();
     /** helium: public - слоты быстрой палитры (HeQuickInv) показывают свой блок в topTable через это поле */
@@ -129,6 +133,14 @@ public class PlacementFragment{
 
     public Displayable hover(){
         return hover;
+    }
+
+    /** 0 вне редактора или с выключенным тумблером: правила банов тогда меню не касаются. */
+    static int banSignature(){
+        if(!state.isEditor() || !Core.settings.getBool(editorAllowedOnlyKey, false)) return 0;
+        int sig = state.rules.blockWhitelist ? 7 : 3;
+        for(Block b : state.rules.bannedBlocks) sig += 31 * b.id + 1;
+        return sig;
     }
 
     public void rebuild(){
@@ -920,7 +932,16 @@ public class PlacementFragment{
                 mainStack.add(heBlockCat); //helium: сетка внутри коллапсера
 
                 rebuildCategory.run();
+                lastBanSignature = banSignature();
                 frame.update(() -> {
+                    //sonka: правила банов правят прямо из окна правил / редактора, а список категорий (categoryEmpty)
+                    //считается только при полной сборке - при смене подписи пересобираем всё меню, но не из update
+                    int sig = banSignature();
+                    if(sig != lastBanSignature){
+                        lastBanSignature = sig;
+                        Core.app.post(this::rebuild);
+                        return;
+                    }
                     if(!control.input.commandMode && gridUpdate(control.input)){
                         rebuildCategory.run();
                     }
@@ -944,16 +965,25 @@ public class PlacementFragment{
         return returnCatArray.clear().addAll(Category.all).sort((c1, c2) -> Boolean.compare(categoryEmpty[c1.ordinal()], categoryEmpty[c2.ordinal()]));
     }
 
+    /**
+     * sonka: в редакторе (и в карте-в-игре) ваниль считает видимыми ВСЕ блоки, в том числе запрещённые правилами карты.
+     * Опция "только разрешённые" прячет из меню построек то, что карта банит (или не вайтлистит) - так видно, чем
+     * реально можно играть на карте. Выключено вне редактора, на выбор блока через СКМ/палитру редактора не влияет.
+     */
+    public static boolean hiddenInEditor(Block block){
+        return state.isEditor() && Core.settings.getBool(editorAllowedOnlyKey, false) && block.isBanned();
+    }
+
     Seq<Block> getByCategory(Category cat){
-        return returnArray.selectFrom(content.blocks(), block -> block.category == cat && block.isVisible() && block.environmentBuildable());
+        return returnArray.selectFrom(content.blocks(), block -> block.category == cat && block.isVisible() && block.environmentBuildable() && !hiddenInEditor(block));
     }
 
     Seq<Block> getUnlockedByCategory(Category cat){
-        return returnArray2.selectFrom(content.blocks(), block -> block.category == cat && block.isVisible() && unlocked(block)).sort((b1, b2) -> Boolean.compare(!b1.isPlaceable(), !b2.isPlaceable()));
+        return returnArray2.selectFrom(content.blocks(), block -> block.category == cat && block.isVisible() && unlocked(block) && !hiddenInEditor(block)).sort((b1, b2) -> Boolean.compare(!b1.isPlaceable(), !b2.isPlaceable()));
     }
 
     Seq<Block> getUnlockedBySearch(String txt){
-        return returnArray2.selectFrom(content.blocks(), block -> block.localizedName.toLowerCase().contains(txt.toLowerCase()) && block.isVisible() && unlocked(block)).sort((b1, b2) -> Boolean.compare(!b1.isPlaceable(), !b2.isPlaceable()));
+        return returnArray2.selectFrom(content.blocks(), block -> block.localizedName.toLowerCase().contains(txt.toLowerCase()) && block.isVisible() && unlocked(block) && !hiddenInEditor(block)).sort((b1, b2) -> Boolean.compare(!b1.isPlaceable(), !b2.isPlaceable()));
     }
 
     Block getSelectedBlock(Category cat){

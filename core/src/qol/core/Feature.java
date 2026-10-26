@@ -34,13 +34,20 @@ public interface Feature{
         String key = SETTINGS_KEY_CACHE.get(id);
         if(key == null){
             key = "qol-" + id + "-enabled";
+            //sonka: первый запуск - фича выключена (FirstRun); ключ собирается один раз на id, поэтому isEnabled() остаётся дешёвым
+            mindustry.client.FirstRun.offIfFresh(key, defaultEnabled());
             SETTINGS_KEY_CACHE.put(id, key);
         }
         return key;
     }
 
+    /** Состояние фичи у того, кто её ни разу не трогал. Выключенную по умолчанию фичу (AutoPossess) переопределяют здесь, а не в isEnabled - иначе чекбокс в настройках показал бы true. */
+    default boolean defaultEnabled(){
+        return true;
+    }
+
     default boolean isEnabled(){
-        return Core.settings.getBool(settingsKey(), true);
+        return Core.settings.getBool(settingsKey(), defaultEnabled());
     }
 
     /**

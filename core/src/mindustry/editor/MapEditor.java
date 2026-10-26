@@ -33,7 +33,11 @@ public class MapEditor{
     public int rotation;
     public Block drawBlock = Blocks.stone;
     public Team drawTeam = Team.sharded;
-    public boolean showTerrain = true, showFloor = true, showBuildings = true;
+    /**
+     * sonka: непрозрачность слоёв превью 0..1 вместо бывших флажков show* (0 = слой скрыт, 1 = как в ванили).
+     * terrain - статичные стены ("ландшафт"), floor - пол, buildings - блоки и здания. Сами тайлы карты не меняются.
+     */
+    public float terrainAlpha = 1f, floorAlpha = 1f, buildingsAlpha = 1f;
 
     public boolean isLoading(){
         return loading;

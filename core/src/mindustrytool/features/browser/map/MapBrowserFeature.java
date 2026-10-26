@@ -26,6 +26,7 @@ public class MapBrowserFeature implements Feature {
                 .description("@feature.map-browser.description")
                 .icon(Icon.map)
                 .order(1)
+                .onDemand(true)
                 .build();
         return cachedMetadata;
     }

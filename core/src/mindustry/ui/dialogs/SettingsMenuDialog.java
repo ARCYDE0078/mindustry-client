@@ -571,6 +571,7 @@ public class SettingsMenuDialog extends BaseDialog{
         client.checkPref("alwaysshowteams", false);
         client.checkPref("showuserid", false);
         client.checkPref("hidebannedblocks", false);
+        client.checkPref("editor-allowed-only", false);
         // sonka: свой текст вместо "Mindustry" в лого главного меню, буквы рисуются спрайтами logofont-*
         client.textPref("customlogotext", "");
 

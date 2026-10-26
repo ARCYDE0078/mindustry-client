@@ -37,7 +37,10 @@ public interface Feature {
     default String getSettingKey() {
         String key = SETTING_KEY_CACHE.get(this);
         if (key == null) {
-            key = "mindustrytool." + getMetadata().name() + ".enabled";
+            var metadata = getMetadata();
+            key = "mindustrytool." + metadata.name() + ".enabled";
+            //sonka: первый запуск - фича выключена, кроме тех, что живут кнопкой в меню (FirstRun)
+            mindustry.client.FirstRun.offIfFresh(key, metadata.enabledByDefault() && !metadata.onDemand());
             SETTING_KEY_CACHE.put(this, key);
         }
         return key;

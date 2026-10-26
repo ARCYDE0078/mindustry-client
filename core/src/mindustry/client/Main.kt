@@ -67,6 +67,10 @@ object Main : ApplicationListener {
     override fun init() {
         val start = Time.nanos()
 
+        // sonka: ПЕРВЫМ делом, до любого мода: загрузка класса фиксирует «свежая ли установка» (на ней настройки модов
+        // выключены - см. FirstRun); позже какой-нибудь мод уже мог бы прочитать свой дефолт true
+        FirstRun.init()
+
         // sonka's qol-suite, baked in as native code rather than a loadable mod - this is where
         // TileRecords.init() used to sit before the antigrief cut, i.e. the earliest point that
         // reliably runs before mods.eachClass(Mod::init) and Events.fire(ClientLoadEvent) further

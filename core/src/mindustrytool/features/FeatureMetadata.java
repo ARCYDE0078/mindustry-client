@@ -11,15 +11,17 @@ public class FeatureMetadata {
     int order;
     boolean enabledByDefault;
     boolean quickAccess;
+    boolean onDemand;
 
     private FeatureMetadata(String name, String description, Drawable icon, int order, boolean enabledByDefault,
-            boolean quickAccess) {
+            boolean quickAccess, boolean onDemand) {
         this.name = name;
         this.description = description;
         this.icon = icon;
         this.order = order;
         this.enabledByDefault = enabledByDefault;
         this.quickAccess = quickAccess;
+        this.onDemand = onDemand;
     }
 
     public String name() {
@@ -46,6 +48,11 @@ public class FeatureMetadata {
         return quickAccess;
     }
 
+    /** Фича без собственных окон/оверлеев: живёт кнопкой в меню и ничего не показывает, пока её не открыли. На первом запуске остаётся включённой (см. FirstRun). */
+    public boolean onDemand() {
+        return onDemand;
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -57,6 +64,7 @@ public class FeatureMetadata {
         private int order = 0;
         private boolean enabledByDefault = true;
         private boolean quickAccess = false;
+        private boolean onDemand = false;
 
         public Builder name(String name) {
             this.name = name;
@@ -88,6 +96,11 @@ public class FeatureMetadata {
             return this;
         }
 
+        public Builder onDemand(boolean onDemand) {
+            this.onDemand = onDemand;
+            return this;
+        }
+
         public FeatureMetadata build() {
             if (name == null)
                 throw new IllegalStateException("Name is required");
@@ -96,7 +109,7 @@ public class FeatureMetadata {
             if (icon == null)
                 throw new IllegalStateException("Icon is required");
 
-            return new FeatureMetadata(name, description, icon, order, enabledByDefault, quickAccess);
+            return new FeatureMetadata(name, description, icon, order, enabledByDefault, quickAccess, onDemand);
         }
     }
 }

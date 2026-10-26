@@ -30,6 +30,7 @@ public class PlayerConnectFeature implements Feature {
                 .description("@feature.player-connect.description")
                 .icon(Icon.planet)
                 .order(3)
+                .onDemand(true)
                 .build();
         return cachedMetadata;
     }
