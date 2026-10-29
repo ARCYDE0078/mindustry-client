@@ -193,7 +193,7 @@ object Client {
             }
         }
         //Enemy spawners
-        if (state.hasSpawns()) {
+        if (state.hasSpawns() && !CustomMode.defense()) {
             val tiles = Seq<Tile>()
             spawner.spawns.forEach { s ->
                 val intRad = Mathf.floor(state.rules.dropZoneRadius / tilesize)
