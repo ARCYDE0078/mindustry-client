@@ -125,7 +125,10 @@ public class BeControl{
      * осознанный выбор уйти с кастомной сборки, а не тихая подмена.
      */
     public void checkUpdate(Boolc done, String repo, boolean requireCustomChannel){
+        //sonka: у Arc Http таймаут по умолчанию 2 с (и на коннект, и на чтение) - на медленном канале/VPN проверка
+        //падала с "Read timed out", хотя GitHub отвечает; запрос крошечный, так что 15 с - просто запас на плохую сеть
         Http.get("https://api.github.com/repos/" + repo + "/releases/latest")
+            .timeout(15000)
             .error(e -> {
                 //sonka: анонимный api.github.com даёт 60 запросов/час на IP - за VPN/CGNAT/общим wifi лимит
                 //выбирают чужие, и проверка падает с 403/429. releases.atom лежит на github.com, под лимит
@@ -195,6 +198,7 @@ public class BeControl{
     /** Фолбэк {@link #checkUpdate}: берёт последний тег из releases.atom (без лимита API), ассет качается по стабильной ссылке /releases/download/. */
     private void checkUpdateAtom(Boolc done, String repo, boolean requireCustomChannel){
         Http.get("https://github.com/" + repo + "/releases.atom")
+            .timeout(15000) // см. checkUpdate: дефолт Arc - 2 с
             .error(e -> Core.app.post(() -> {
                 lastError = "GitHub API rate limit (403), fallback failed: " + (e.getMessage() != null ? e.getMessage() : e.toString());
                 done.get(false);
