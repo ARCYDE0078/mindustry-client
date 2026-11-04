@@ -11,6 +11,7 @@ import mindustry.async.PhysicsProcess.PhysicsWorld.*;
 import mindustry.client.*;
 import mindustry.core.*;
 import mindustry.entities.*;
+import mindustry.game.*;
 import mindustry.gen.*;
 
 import java.util.concurrent.*;
@@ -90,6 +91,12 @@ public class PhysicsProcess implements AsyncProcess{
 
         var items = refs.items;
 
+        //sonka: настройки читаем один раз за кадр, а не на каждого юнита - юнитов бывают тысячи, а getBool это поиск по хэш-карте
+        boolean noclipSelf = Core.settings.getBool("unitnoclip");
+        boolean noclipAllies = Core.settings.getBool("unitnoclipallies");
+        boolean noclipEnemies = Core.settings.getBool("unitnoclipenemies");
+        Team playerTeam = Vars.player == null ? null : Vars.player.team();
+
         for(int i = 0; i < refs.size; i++){
             PhysicRef ref = items[i];
             //stale entity, remove it
@@ -111,7 +118,17 @@ public class PhysicsProcess implements AsyncProcess{
                 ref.startX = ref.body.x = ref.entity.x;
                 ref.startY = ref.body.y = ref.entity.y;
                 ref.body.local = local || ref.entity.isLocal();
-                ref.body.noclip = ref.entity.isLocal() && Core.settings.getBool("unitnoclip");
+                //sonka: "без хитбокса" = тело не толкает и не толкается (стены/здания и пули это не трогает). Свой юнит - unitnoclip,
+                //чужие делятся по команде относительно игрока: союзники (в т.ч. юниты других игроков) и враги. На клиенте физику чужих
+                //юнитов считает сервер, так что там это меняет только то, упирается ли в них ВАШ юнит; в одиночной игре/на хосте -
+                //то, как они толкают друг друга
+                if(ref.entity.isLocal()){
+                    ref.body.noclip = noclipSelf;
+                }else if(playerTeam != null){
+                    ref.body.noclip = ref.entity.team == playerTeam ? noclipAllies : noclipEnemies;
+                }else{
+                    ref.body.noclip = false;
+                }
             }
         }
 

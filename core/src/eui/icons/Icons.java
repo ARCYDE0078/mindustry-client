@@ -162,7 +162,20 @@ public class Icons{
         registerAll(content.units());
         registerAll(content.statusEffects());
         registerAll(content.blocks());
+        //sonka 2026-11-04 ("в выборе иконки схемы нету всех иконок"): планеты, погода и секторные пресеты лежат в
+        //отдельных реестрах и в пикер не попадали. Кладём ПОСЛЕ блоков и только если имя свободно - чтобы они
+        //никогда не перекрывали одноимённые предметы/блоки (на экране остаётся то, что и было раньше)
+        registerAllIfAbsent(content.planets());
+        registerAllIfAbsent(content.weathers());
+        registerAllIfAbsent(content.sectors());
         spritesCached = true;
+    }
+
+    static <T extends UnlockableContent> void registerAllIfAbsent(Seq<T> items){
+        for(T item : items){
+            if(item == null || item.uiIcon == null || !item.uiIcon.found() || allSprites.containsKey(item.name)) continue;
+            allSprites.put(item.name, new TextureRegionDrawable(item.uiIcon));
+        }
     }
 
     static <T extends UnlockableContent> void registerAll(Seq<T> items){
