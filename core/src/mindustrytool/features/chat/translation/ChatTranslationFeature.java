@@ -8,6 +8,7 @@ import arc.util.Strings;
 import mindustry.Vars;
 import mindustry.core.NetClient;
 import mindustry.gen.SendMessageCallPacket;
+import mindustry.gen.Icon;
 import mindustry.gen.SendMessageCallPacket2;
 import mindustrytool.MindustryToolMod;
 import mindustrytool.features.Feature;
@@ -78,23 +79,57 @@ public class ChatTranslationFeature implements Feature {
 
     }
 
+    /* Тост об ошибке перевода не чаще раза в 20 с: на упавшем провайдере КАЖДОЕ входящее сообщение давало
+     * бы тост (в чат раньше падала простыня с текстом ошибки под каждой строкой) */
+    private static final long ERROR_TOAST_COOLDOWN_MS = 20_000L;
+    private long lastErrorToastTime = 0L;
+
+    private void notifyErrorThrottled(String errorMsg) {
+        long now = System.currentTimeMillis();
+        if (now - lastErrorToastTime < ERROR_TOAST_COOLDOWN_MS) {
+            return;
+        }
+        lastErrorToastTime = now;
+        String toastMsg = Core.bundle.format("chat-translation.error.incoming-failed", errorMsg);
+        Core.app.post(() -> {
+            if (Vars.ui != null && Vars.ui.hudfrag != null) {
+                Vars.ui.hudfrag.showToast(Icon.warning, "[scarlet]" + toastMsg);
+            }
+        });
+    }
+
     public void handleMessage(String message, Cons<String> cons) {
-        if (!isEnabled()) {
+        if (!isEnabled() || message == null || message.trim().isEmpty()) {
             cons.get(message);
             return;
         }
 
+        //координаты, ссылки, схемы, "gg" и серверные уведомления переводить незачем - показываем как есть
+        if (!ChatFilter.shouldTranslateIncoming(message)) {
+            cons.get(message);
+            return;
+        }
+
+        String original = Strings.stripColors(message).trim();
+
         translateContent(message)
-                .thenAccept(translated -> cons.get(Strings.format("@ [gold](@)[white]", message, translated)))
+                .thenAccept(translated -> Core.app.post(() -> {
+                    //перевод совпал с оригиналом (чат уже на нужном языке) - дубль "текст (текст)" не нужен
+                    if (translated == null || translated.trim().isEmpty() || translated.equalsIgnoreCase(original)) {
+                        cons.get(message);
+                    } else {
+                        cons.get(Strings.format("@ [gold](@)[white]", message, translated));
+                    }
+                }))
                 .exceptionally(e -> {
-                    lastError = e.getMessage();
+                    Throwable cause = e.getCause() != null ? e.getCause() : e;
+                    String reason = cause.getMessage() != null ? cause.getMessage() : "Unknown error";
+                    lastError = reason;
 
-                    String formated = Strings.format("@\n\n[scarlet]@[white]\n\n", message,
-                            Core.bundle.get("chat-translation.error.prefix") + e.getMessage());
-
-                    cons.get(formated);
-
-                    Log.err(e.getMessage());
+                    Log.err("Chat translation failed: " + reason);
+                    notifyErrorThrottled(reason);
+                    //сообщение игрока не теряем и не засоряем ошибкой: ошибка видна в настройках и тостом
+                    Core.app.post(() -> cons.get(message));
                     return null;
                 });
 
