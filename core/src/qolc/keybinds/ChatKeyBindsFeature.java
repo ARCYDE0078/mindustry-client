@@ -2,6 +2,7 @@ package qolc.keybinds;
 
 import arc.Core;
 import arc.Events;
+import arc.graphics.Color;
 import arc.input.KeyCode;
 import arc.scene.ui.ScrollPane;
 import arc.scene.ui.layout.Table;
@@ -14,6 +15,7 @@ import mindustry.gen.Icon;
 import mindustry.ui.Styles;
 import mindustry.ui.dialogs.BaseDialog;
 import mindustry.ui.fragments.ChatFragment;
+import qolc.CardUi;
 
 /**
  * Пользовательские КЛАВИАТУРНЫЕ бинды (ctrl/alt/shift + клавиша), запускающие чат-текст или команды.
@@ -39,13 +41,19 @@ import mindustry.ui.fragments.ChatFragment;
  * комбинации технически не ломались - удалена только строчка, которая раньше СТИРАЛА старый бинд с той
  * же комбинацией при добавлении нового (эмулировала объектную уникальность оригинала до v6.8).
  * <p>
- * НЕ портировано: привязка бинда к конкретным IP серверов (поле {@code ips} у оригинала, задаётся в
- * форме редактирования) - оригинал определяет текущий IP через рефлексию в приватное поле
- * {@code host} инстанса {@code NetClient} (или запасные варианты через настройки {@code qol-last-ip}/
- * {@code ip}), это внутренности движка, которые рискованно портировать вслепую без компиляции в этом
- * форке клиента. Поле {@code ips} читается/пишется в JSON (чтобы не терять данные игрока при
- * миграции/переключении на реальный мод), но не проверяется и не показывается в форме редактирования -
- * т.е. в этом порте ни один бинд не ограничен сервером, все выполняются везде, как раньше.
+ * v7.1 -&gt; v7.12: привязка бинда к серверу (поле {@code ips}, список {@code ip} / {@code ip:порт} через
+ * запятую, пусто = везде). Раньше пропускалась: оригинал берёт адрес рефлексией из приватного
+ * {@code NetClient.host}, а это рискованно портировать вслепую. В этом форке нужный адрес лежит в
+ * ПУБЛИЧНОМ поле {@code ui.join.lastHost} (его же читают счётчик игроков и отчёт о крэше), так что
+ * рефлексия не нужна. Запасной вариант оригинала - настройка {@code ip} (последний введённый в диалоге
+ * присоединения адрес) - оставлен для случая, когда {@code lastHost} пуст (steam-сервер, ручное
+ * подключение), но только при активном сетевом клиенте: оригинал сверял её и в одиночной игре, из-за
+ * чего бинд, ограниченный сервером, срабатывал и в синглплеере, если когда-то вводили тот же адрес.
+ * Второй запасной вариант оригинала ({@code qol-last-ip}) пишет только модуль server.js (быстрый вход
+ * на сервер), который здесь не портирован, - читать его нечем.
+ * <p>
+ * Диалоги переехали на карточки ({@link CardUi}) как в оригинале v7.x: в форме правки теперь есть
+ * галочка enabled и поле серверов.
  */
 public final class ChatKeyBindsFeature{
     private static final String settingsKey = "qol-binds";
@@ -61,7 +69,7 @@ public final class ChatKeyBindsFeature{
         String command;
         /** v7.1: можно выключить бинд, не удаляя - галочка в списке. */
         boolean enabled = true;
-        /** v7.1 оригинала: список разрешённых IP через запятую. Не проверяется в порте (см. javadoc класса) - хранится только для round-trip. */
+        /** Список разрешённых серверов через запятую, пусто = везде (см. {@link #allowedOnServer}). */
         String ips = "";
     }
 
@@ -142,8 +150,54 @@ public final class ChatKeyBindsFeature{
             if(!bind.enabled) continue; //v7.1: выключенный бинд не отрабатывает, но остаётся в списке
             if(!Core.input.keyTap(bind.key)) continue;
             if(bind.ctrl != Core.input.ctrl() || bind.alt != Core.input.alt() || bind.shift != Core.input.shift()) continue;
+            if(!allowedOnServer(bind.ips)) continue;
             execute(bind.command);
         }
+    }
+
+    /**
+     * Подходит ли текущий сервер под список {@code ip} / {@code ip:порт} (через запятую, без учёта регистра).
+     * Запись без порта сверяется только с адресом, с портом - с парой целиком. Пустой список разрешает всё;
+     * если адрес сервера определить не удалось - бинд с ограничением не срабатывает (безопаснее, чем
+     * выполнить чужую команду не на том сервере).
+     */
+    static boolean allowedOnServer(String ipsStr){
+        if(ipsStr == null || ipsStr.isBlank()) return true;
+
+        String ipOnly = null, ipAndPort = null;
+        if(Vars.net.client()){
+            var host = Vars.ui.join.lastHost;
+            if(host != null && host.address != null){
+                ipOnly = stripAddress(host.address);
+                ipAndPort = ipOnly + ":" + host.port;
+            }else{
+                //steam / ручное подключение: lastHost пуст, остаётся последний введённый в окне присоединения адрес
+                String typed = Core.settings.getString("ip", "");
+                if(!typed.isBlank()){
+                    ipAndPort = stripLeadingSlash(typed);
+                    ipOnly = stripAddress(typed);
+                }
+            }
+        }
+        if(ipOnly == null) return false;
+
+        for(String pattern : ipsStr.split(",")){
+            pattern = pattern.trim().toLowerCase();
+            if(pattern.isEmpty()) continue;
+            if(pattern.contains(":") ? pattern.equals(ipAndPort.toLowerCase()) : pattern.equals(ipOnly.toLowerCase())) return true;
+        }
+        return false;
+    }
+
+    private static String stripLeadingSlash(String address){
+        return address.startsWith("/") ? address.substring(1) : address;
+    }
+
+    /** Адрес без ведущего "/" (как у InetAddress.toString) и без порта. */
+    private static String stripAddress(String address){
+        address = stripLeadingSlash(address);
+        int colon = address.indexOf(':');
+        return colon == -1 ? address : address.substring(0, colon);
     }
 
     private static void execute(String text){
@@ -168,60 +222,101 @@ public final class ChatKeyBindsFeature{
     private static void rebuild(){
         dialog.cont.clear();
 
-        Table list = new Table();
-        list.top().left();
+        Table root = new Table();
+        root.top().left().margin(10f);
 
+        Table list = CardUi.card(root, Core.bundle.format("qolc.keybinds.configured", binds.size), "50fa7b");
         if(binds.isEmpty()){
-            list.add(Core.bundle.get("qolc.keybinds.empty")).color(arc.graphics.Color.lightGray).pad(10f).row();
+            list.add(Core.bundle.get("qolc.keybinds.empty")).color(Color.lightGray).pad(10f).left().row();
         }else{
             for(Bind bind : binds){
-                Table row = new Table();
-                //v7.1: галочка вкл/выкл бинда, не удаляя его из списка
+                Table row = list.table().growX().pad(2f).get();
+                //галочка вкл/выкл бинда, не удаляя его из списка
                 row.check("", bind.enabled, b -> {
                     bind.enabled = b;
                     save();
-                }).padRight(5f);
-                row.add("[accent]" + bind.raw).width(150f).left().padRight(10f);
-                var preview = row.add(bind.command.replace("\n", " | ")).left().growX().minWidth(0f).get();
-                preview.setEllipsis(true);
-                row.button(Icon.pencil, Styles.cleari, () -> showEdit(bind)).size(45f);
+                }).padRight(6f);
+
+                //кнопка-строка: комбинация + превью команды, клик открывает правку
+                var open = row.button(b -> {
+                    b.left();
+                    b.add("[accent]" + bind.raw).width(110f).left().padRight(10f).get().setEllipsis(true);
+                    b.add("[white]" + bind.command.replace("\r", "").replace("\n", " | ")).left().growX().minWidth(0f).get().setEllipsis(true);
+                }, Styles.grayt, () -> showEdit(bind));
+                open.growX().height(48f).left().padRight(8f);
+
+                row.button(Icon.pencil, Styles.cleari, () -> showEdit(bind)).size(40f, 48f).padRight(4f);
                 row.button(Icon.trash, Styles.cleari, () -> Vars.ui.showConfirm("@confirm", Core.bundle.format("qolc.keybinds.delete-confirm", bind.raw), () -> {
                     binds.remove(bind);
                     save();
                     rebuild();
-                })).size(45f);
-                list.add(row).growX().padBottom(5f).row();
+                })).size(40f, 48f);
+                list.row();
             }
         }
+        root.row();
 
-        dialog.cont.add(new ScrollPane(list)).width(520f).height(340f).row();
-        dialog.cont.button(Core.bundle.get("qolc.keybinds.add"), Icon.add, () -> showEdit(null)).size(520f, 50f).padTop(10f);
+        Table actions = root.table(Styles.black6).growX().padBottom(2f).get();
+        actions.margin(8f);
+        actions.button("[#73d216]" + Core.bundle.get("qolc.keybinds.add") + "[]", Icon.add, Styles.grayt, () -> showEdit(null)).size(220f, 40f);
+        root.row();
+
+        dialog.cont.add(scroll(root)).width(CardUi.width(0.95f, 680f)).height(CardUi.height(0.85f, 480f));
+    }
+
+    private static ScrollPane scroll(Table content){
+        ScrollPane pane = new ScrollPane(content);
+        pane.setScrollingDisabled(true, false);
+        pane.setOverscroll(false, true);
+        return pane;
     }
 
     private static void showEdit(Bind existing){
         BaseDialog d = new BaseDialog(Core.bundle.get(existing == null ? "qolc.keybinds.add" : "qolc.keybinds.edit"));
+        d.addCloseButton();
 
         String[] combo = {existing == null ? "" : existing.raw};
         StringBuilder command = new StringBuilder(existing == null ? "" : existing.command);
+        String[] ips = {existing == null ? "" : existing.ips};
+        boolean[] enabled = {existing == null || existing.enabled};
 
-        Table t = new Table();
-        t.add(Core.bundle.get("qolc.keybinds.key")).padRight(5f).right();
-        var keyButton = t.button(combo[0].isEmpty() ? Core.bundle.get("qolc.keybinds.click-to-set") : combo[0], () -> {}).size(280f, 50f).get();
+        Table root = new Table();
+        root.top().left().margin(10f);
+
+        //1. комбинация клавиш + вкл/выкл
+        Table keyCard = CardUi.card(root, Core.bundle.get("qolc.keybinds.card-key"), "50fa7b");
+        Table keyRow = keyCard.table().growX().pad(2f).get();
+        keyRow.add("[lightgray]" + Core.bundle.get("qolc.keybinds.key") + "[]").left().padRight(8f);
+        var keyButton = keyRow.button(combo[0].isEmpty() ? "[gray]" + Core.bundle.get("qolc.keybinds.click-to-set") + "[]" : "[accent]" + combo[0] + "[]", Styles.grayt, () -> {}).height(40f).growX().get();
         keyButton.clicked(() -> showListening(res -> {
             combo[0] = res;
-            keyButton.setText(res);
+            keyButton.setText("[accent]" + res + "[]");
         }));
-        t.row();
+        keyCard.row();
+        keyCard.check(Core.bundle.get("qolc.keybinds.enabled"), enabled[0], b -> enabled[0] = b).padTop(6f).left().row();
+        root.row();
 
-        t.add(Core.bundle.get("qolc.keybinds.command")).colspan(2).padTop(10f).left().row();
-        t.area(command.toString(), txt -> {
+        //2. команда / текст
+        Table cmdCard = CardUi.card(root, Core.bundle.get("qolc.keybinds.card-command"), "8be9fd");
+        cmdCard.add("[lightgray]" + Core.bundle.get("qolc.keybinds.command") + "[]").left().padBottom(4f).row();
+        cmdCard.area(command.toString(), txt -> {
             command.setLength(0);
             command.append(txt);
-        }).size(420f, 200f).colspan(2).padTop(5f).row();
+        }).growX().height(110f).row();
+        cmdCard.add("[gray]" + Core.bundle.get("qolc.keybinds.tip") + "[]").fontScale(0.85f).left().padTop(4f).row();
+        root.row();
 
-        d.cont.add(t).row();
-        d.buttons.button("@cancel", Icon.cancel, d::hide).size(150f, 50f);
-        d.buttons.button("@ok", Icon.ok, () -> {
+        //3. привязка к серверам (необязательно)
+        Table ipCard = CardUi.card(root, Core.bundle.get("qolc.keybinds.card-servers"), "ffd37f");
+        ipCard.add("[lightgray]" + Core.bundle.get("qolc.keybinds.servers") + "[]").left().padBottom(4f).row();
+        ipCard.field(ips[0], txt -> ips[0] = txt).growX().height(38f).row();
+        root.row();
+
+        //4. сохранить / отмена
+        Table actions = root.table(Styles.black6).growX().padBottom(2f).get();
+        actions.margin(8f);
+        Table actionRow = actions.table().center().get();
+        actionRow.button("[#73d216]" + Core.bundle.get("qolc.keybinds.save") + "[]", Icon.ok, Styles.grayt, () -> {
             if(combo[0].isEmpty() || command.length() == 0){
                 Vars.ui.showInfo(Core.bundle.get("qolc.keybinds.incomplete"));
                 return;
@@ -231,9 +326,11 @@ public final class ChatKeyBindsFeature{
                 Vars.ui.showInfo(Core.bundle.get("qolc.keybinds.incomplete"));
                 return;
             }
+            parsed.enabled = enabled[0];
+            parsed.ips = ips[0].trim();
             if(existing != null){
-                //правка на месте (не remove+add) - сохраняет позицию в списке и enabled/ips существующего бинда;
-                //v7.1 оригинала специально разрешает НЕСКОЛЬКО биндов на одну комбинацию, поэтому больше не
+                //правка на месте (не remove+add) - сохраняет позицию в списке;
+                //v7.1 оригинала специально разрешает НЕСКОЛЬКО биндов на одну комбинацию, поэтому не
                 //стираем другие бинды с тем же combo, как раньше (см. javadoc класса)
                 existing.raw = parsed.raw;
                 existing.ctrl = parsed.ctrl;
@@ -241,22 +338,34 @@ public final class ChatKeyBindsFeature{
                 existing.shift = parsed.shift;
                 existing.key = parsed.key;
                 existing.command = parsed.command;
+                existing.enabled = parsed.enabled;
+                existing.ips = parsed.ips;
             }else{
                 binds.add(parsed);
             }
             save();
             d.hide();
             rebuild();
-        }).size(150f, 50f);
+        }).size(170f, 40f).padRight(10f);
+        actionRow.button(Core.bundle.get("cancel"), Icon.cancel, Styles.grayt, d::hide).size(140f, 40f);
+        root.row();
 
+        d.cont.add(scroll(root)).width(CardUi.width(0.95f, 640f)).height(CardUi.height(0.85f, 520f));
         d.show();
     }
 
     /** Диалог захвата комбинации: опрос клавиатуры в update() самого диалога - работает и на паузе, где Trigger.update молчит. */
     private static void showListening(arc.func.Cons<String> callback){
         BaseDialog d = new BaseDialog(Core.bundle.get("qolc.keybinds.listening"));
-        d.cont.add(Core.bundle.get("qolc.keybinds.press-combo")).row();
-        d.cont.button("@cancel", d::hide).size(150f, 50f).padTop(10f);
+        d.addCloseButton();
+
+        Table root = new Table();
+        root.top().margin(16f);
+        Table card = CardUi.card(root, Core.bundle.get("qolc.keybinds.press-combo-title"), "50fa7b");
+        card.add("[lightgray]" + Core.bundle.get("qolc.keybinds.press-combo") + "[]").padBottom(10f).row();
+        card.button(Core.bundle.get("cancel"), Icon.cancel, Styles.grayt, d::hide).size(160f, 42f);
+        d.cont.add(root).width(CardUi.width(0.95f, 480f));
+
         d.update(() -> {
             for(KeyCode k : KeyCode.all){
                 if(k == KeyCode.controlLeft || k == KeyCode.controlRight
