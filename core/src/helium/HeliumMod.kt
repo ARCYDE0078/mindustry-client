@@ -11,7 +11,7 @@ import mindustry.client.ui.ModsSettings
 import mindustry.game.EventType
 
 /**
- * Порт выбранных фич мода "Helium" (EB-wilson, beta-1.6, Kotlin) как нативный пакет клиента.
+ * Порт выбранных фич мода "Helium" (EB-wilson, beta-1.7, Kotlin) как нативный пакет клиента.
  * Оригинальный оркестратор {@code helium.He} + главный класс {@code helium.Helium extends Mod}
  * свёрнуты в этот класс по образцу QolSuiteMod/MI2UMod: конструктор вызывается из
  * mindustry.client.Main.init() ДО Events.fire(ClientLoadEvent), поэтому здесь только слушатели.
