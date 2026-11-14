@@ -1,14 +1,19 @@
 package dustdustry.patcheditor.core;
 
+import arc.*;
+import arc.audio.*;
 import arc.graphics.*;
 import arc.math.*;
 import arc.struct.*;
 import arc.struct.ObjectMap.*;
 import arc.util.*;
 import mindustry.*;
+import mindustry.content.*;
+import mindustry.entities.*;
 import mindustry.entities.Units.*;
 import mindustry.gen.*;
 import mindustry.graphics.*;
+import mindustry.logic.LogicFx.*;
 import mindustry.mod.*;
 import mindustry.type.*;
 import mindustry.world.meta.*;
@@ -26,6 +31,8 @@ public class EditorList{
     private static Seq<String> visibilityList, interpList, attributeList, sortfList, partProgressList;
     private static Seq<ColorEntry> colorList;
     private static Seq<Field> partProgressFields, interpFields;
+    private static Seq<EffectEntry> effectList;
+    private static Seq<SoundEntry> soundFields;
 
     public static Seq<Weapon> getWeapons(){
         if(weaponList == null){
@@ -82,10 +89,6 @@ public class EditorList{
         return partProgressList;
     }
 
-    /**
-     * Static PartProgress variables available in the progress script scope.
-     * Read only. Do not hold the reference.
-     */
     public static Seq<Field> getPartProgressFields(){
         if(partProgressFields == null){
             partProgressFields = Seq.with(PartProgress.class.getFields()).select(f -> f.getType() == PartProgress.class);
@@ -93,10 +96,6 @@ public class EditorList{
         return partProgressFields;
     }
 
-    /**
-     * Static Interp variables available in the progress script scope.
-     * Read only. Do not hold the reference.
-     */
     public static Seq<Field> getInterpFields(){
         if(interpFields == null){
             interpFields = Seq.with(Interp.class.getFields()).select(f -> Interp.class.isAssignableFrom(f.getType()));
@@ -134,6 +133,31 @@ public class EditorList{
         return colorList;
     }
 
+    public static Seq<EffectEntry> getEffectList(){
+        if(effectList == null){
+            effectList = Seq.select(Fx.class.getFields(), f -> f.getType() == Effect.class).map(f -> new EffectEntry(Reflect.get(f)).name(f.getName()));
+            effectList.sortComparing(e -> e.name);
+        }
+        return effectList;
+    }
+
+    // Sound list is a mutable
+    public static Seq<SoundEntry> getSoundEntries(){
+        if(soundFields == null){
+            soundFields = new Seq<>();
+            for(var entry : PatchJsonIO.getKeyEntryMap(Sound.class)){
+                soundFields.add(new SoundEntry(entry.key, entry.value));
+            }
+        }
+
+        ObjectSet<SoundEntry> entries = new ObjectSet<>();
+        entries.addAll(soundFields);
+        for(var entry : Core.assets.getAllEntries(Sound.class, new Seq<>())){
+            entries.add(new SoundEntry(Strings.getFileNameWithoutExtension(entry.key), entry.value));
+        }
+        return entries.toSeq();
+    }
+
     public enum UnitConstructorType{
         flying(UnitEntity.class),
         mech(MechUnit.class),
@@ -150,6 +174,36 @@ public class EditorList{
 
         UnitConstructorType(Class<?> type){
             this.type = type;
+        }
+    }
+
+    public static class SoundEntry{
+        public String name;
+        public Sound sound;
+
+        public SoundEntry(String name, Sound sound){
+            this.name = name;
+            this.sound = sound;
+        }
+
+        @Override
+        public boolean equals(Object o){
+            if(!(o instanceof SoundEntry that)) return false;
+            return Objects.equals(name, that.name) && Objects.equals(sound, that.sound);
+        }
+
+        @Override
+        public int hashCode(){
+            return Objects.hash(name, sound);
+        }
+
+
+        @Override
+        public String toString(){
+            return "SoundEntry{" +
+            "name='" + name + '\'' +
+            ", sound=" + sound +
+            '}';
         }
     }
 
