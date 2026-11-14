@@ -11,7 +11,7 @@ import arc.input.*;
  * Отличия от мода: выброшен scheme_ai (GammaAI не портирован - у клиента Navigation/AssistPath,
  * у mi2u FullAI), добавлены бинды на диалоги, до которых мод добирался только через мобильную
  * панель (она не портирована): rulesetter/adminscfg/rendercfg, плюс смена слоя схем и
- * тумблер панели ресурсов ядра.
+ * тумблер панели ресурсов ядра. Бинд alternative (v3.0.0) - у нас без дефолта, см. поле.
  */
 public class SBinding{
     public static final KeyBind
@@ -31,7 +31,15 @@ public class SBinding{
     layerBind = KeyBind.add("scheme_layer", KeyCode.unset, "SchemeSize"),
     toggleCoreItemsBind = KeyBind.add("scheme_toggle_core_items", KeyCode.unset, "SchemeSize"),
     toggleBtBind = KeyBind.add("scheme_toggle_bt", KeyCode.unset, "SchemeSize"),
-    returnBind = KeyBind.add("scheme_return", KeyCode.unset, "SchemeSize");
+    returnBind = KeyBind.add("scheme_return", KeyCode.unset, "SchemeSize"),
+    /**
+     * Клавиша-модификатор из v3.0.0: вместе с ванильными клавишами даёт альтернативные действия
+     * (Alt+респавн = despawn, Alt+движение мышью = телепорт и т. д., см. SchemeInput.altCombo).
+     * В моде дефолт altLeft, но у форка на altLeft уже висит около десятка биндов (команды, выделение
+     * через экран, force place, мост...) - молча занять её значило бы сломать их, поэтому здесь unset:
+     * пока sonka не назначит клавишу, комбо выключены.
+     */
+    alternative = KeyBind.add("scheme_alternative", KeyCode.unset, "SchemeSize");
 
     /**
      * Вшитая копия регистрирует бинды позже, чем Vars.loadSettings() прогоняет
@@ -55,5 +63,6 @@ public class SBinding{
         toggleCoreItemsBind.load();
         toggleBtBind.load();
         returnBind.load();
+        alternative.load();
     }
 }

@@ -359,6 +359,7 @@ public class DesktopInput extends InputHandler{
 
     @Override
     public void update(){ // FINISHME v8: This has been cleaned up in v8. We should mirror those changes and ideally have an updateClient() or something for handling client keybinds.
+        if(SchemeInput.altCombo(this)) return; //scheme-size: Alt-комбо идут до ванильного ввода, иначе тот же keyTap сработает дважды
         super.update();
 
         if(Core.input.keyTap(Binding.playerList) && (scene.getKeyboardFocus() == null || scene.getKeyboardFocus().isDescendantOf(ui.listfrag.content) || scene.getKeyboardFocus().isDescendantOf(ui.minimapfrag.elem))){
