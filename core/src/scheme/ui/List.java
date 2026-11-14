@@ -26,6 +26,8 @@ public class List<T>{
     public Func<T, TextureRegion> texture;
     public Func<T, Color> color;
     public Cons<T> onChanged = value -> {};
+    /** Строится сверху списка при каждой пересборке, до элементов; null - без шапки. */
+    public Cons<Table> header;
 
     public Cell<ScrollPane> pane;
     public Table list = new Table();
@@ -48,6 +50,7 @@ public class List<T>{
     public void rebuild(boolean minimize){
         list.clear();
         list.defaults().size(minimize ? 144f : 264f, 74f).padBottom(16f);
+        if(header != null) header.get(list);
 
         iterator.get(item -> {
             Button check = new Button(Styles.cleart);

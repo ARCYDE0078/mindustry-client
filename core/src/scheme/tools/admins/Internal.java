@@ -32,62 +32,72 @@ public class Internal implements AdminsTools{
 
     public String keyName(){ return "internal"; }
 
-    public void manageRuleBool(boolean value, String name){
-        if(unusable()) return;
+    public boolean manageRuleBool(boolean value, String name){
+        if(unusable()) return false;
         try{
             Field field = Rules.class.getField(name);
             field.setBoolean(Vars.state.rules, value);
             Call.setRules(Vars.state.rules);
+            return true;
         }catch(Exception e){
             Log.err("scheme rule set", e);
+            return false;
         }
     }
 
-    public void manageRuleStr(String value, String name){
-        if(unusable()) return;
+    public boolean manageRuleStr(String value, String name){
+        if(unusable()) return false;
         try{
             Field field = Rules.class.getField(name);
             setFieldValue(field, Vars.state.rules, value);
             Call.setRules(Vars.state.rules);
+            return true;
         }catch(Exception e){
             Log.err("scheme rule set", e);
+            return false;
         }
     }
 
-    public void manageTeamRuleBool(int teamId, boolean value, String name){
-        if(unusable()) return;
+    public boolean manageTeamRuleBool(int teamId, boolean value, String name){
+        if(unusable()) return false;
         try{
             Team team = Team.all[teamId];
             Rules.TeamRule tr = Vars.state.rules.teams.get(team);
             Field field = Rules.TeamRule.class.getField(name);
             field.setBoolean(tr, value);
             Call.setRules(Vars.state.rules);
+            return true;
         }catch(Exception e){
             Log.err("scheme team rule set", e);
+            return false;
         }
     }
 
-    public void manageTeamRuleStr(int teamId, String value, String name){
-        if(unusable()) return;
+    public boolean manageTeamRuleStr(int teamId, String value, String name){
+        if(unusable()) return false;
         try{
             Team team = Team.all[teamId];
             Rules.TeamRule tr = Vars.state.rules.teams.get(team);
             Field field = Rules.TeamRule.class.getField(name);
             setFieldValue(field, tr, value);
             Call.setRules(Vars.state.rules);
+            return true;
         }catch(Exception e){
             Log.err("scheme team rule set", e);
+            return false;
         }
     }
 
-    public void manageRuleObjectSet(String fieldName, ObjectSet<?> value){
-        if(unusable()) return;
+    public boolean manageRuleObjectSet(String fieldName, ObjectSet<?> value){
+        if(unusable()) return false;
         try{
             Field field = Rules.class.getField(fieldName);
             field.set(Vars.state.rules, value);
             Call.setRules(Vars.state.rules);
+            return true;
         }catch(Exception e){
             Log.err("scheme rule set", e);
+            return false;
         }
     }
 
@@ -222,8 +232,6 @@ public class Internal implements AdminsTools{
         Floor tileFloor = tile.floor();
 
         if((floor != null && tile.floor() != floor) || (overlay != null && tile.overlay() != overlay)){
-            //при смене оверлея сперва кладём воду, чтобы форсировать обновление региона (трюк из мода)
-            if(overlay != null) tile.setFloor(Blocks.water.asFloor());
             tile.setFloorNet(floor == null ? tileFloor : floor, overlay == null ? tile.overlay() : overlay);
         }
 

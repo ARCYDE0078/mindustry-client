@@ -1,12 +1,19 @@
 package scheme.tools;
 
 import arc.Events;
+import arc.func.Boolf2;
 import arc.func.Cons;
 import arc.func.Cons2;
 import arc.func.Cons4;
 import arc.math.Mathf;
+import arc.math.geom.Geometry;
+import arc.math.geom.Point2;
+import arc.struct.IntQueue;
+import arc.struct.IntSeq;
+import arc.struct.IntSet;
 import arc.struct.Seq;
 import arc.util.Strings;
+import mindustry.content.Blocks;
 import mindustry.content.Items;
 import mindustry.entities.Units;
 import mindustry.entities.units.BuildPlan;
@@ -35,6 +42,9 @@ import static scheme.SchemeVars.*;
  * прямоугольная заливка только для env-блоков).
  */
 public class BuildingTools{
+
+    /** Потолок одной заливки пола/оверлея/стат.блоков: на огромной однородной карте без него заливка охватила бы всю карту. */
+    public static final int maxFillCells = 16384;
 
     public Seq<Mode> useful;
 
@@ -94,7 +104,7 @@ public class BuildingTools{
             iterated = tile.floor();
             if(iterated == null || block() == iterated) return;
             tileLayer = TileLayer.floor;
-            iterateTileSafe(tile);
+            fillTile(tile);
             return;
         }
 
@@ -102,7 +112,7 @@ public class BuildingTools{
             iterated = tile.overlay();
             if(iterated == null || block() == iterated) return;
             tileLayer = TileLayer.overlay;
-            iterateTileSafe(tile);
+            fillTile(tile);
             return;
         }
 
@@ -111,7 +121,7 @@ public class BuildingTools{
             if(!(iterated instanceof Prop) && !(iterated instanceof StaticWall)) return;
             if(block() == iterated) return;
             tileLayer = TileLayer.block;
-            iterateTileSafe(tile);
+            fillTile(tile);
             return;
         }
 
@@ -156,21 +166,44 @@ public class BuildingTools{
         return tile.block();
     }
 
-    private void iterateTileSafe(Tile tile){
-        try{ iterateTile(tile); }catch(Throwable ignored){}
-    }
-
-    private void iterateTile(Tile tile){
-        if(tile == null) return;
-        if(tileBlockAt(tile) != iterated) return;
+    private void fillTile(Tile tile){
+        // воздух - это пустой слой оверлея/блока: заливка по нему накрыла бы всю карту
+        if(iterated == Blocks.air) return;
+        // replace() вызывается каждый кадр, пока кнопка зажата: область уже запланирована
         if(plan.contains(p -> p.x == tile.x && p.y == tile.y)) return;
 
-        plan(tile.x, tile.y, 0);
+        IntSeq cells = floodFill(tile.x, tile.y, world.width(), world.height(), maxFillCells,
+            (x, y) -> tileBlockAt(world.tile(x, y)) == iterated);
+        for(int i = 0; i < cells.size; i++) plan(Point2.x(cells.items[i]), Point2.y(cells.items[i]), 0);
+    }
 
-        iterateTile(world.tile(tile.x + 1, tile.y));
-        iterateTile(world.tile(tile.x - 1, tile.y));
-        iterateTile(world.tile(tile.x, tile.y + 1));
-        iterateTile(world.tile(tile.x, tile.y - 1));
+    /**
+     * Упакованные (Point2.pack) позиции 4-связной области вокруг (x, y), клетки которой проходят фильтр,
+     * не больше limit штук. Итеративный обход в ширину: прежняя рекурсия на большой области
+     * переполняла стек, а Throwable глоталось молча и заливка обрывалась на полпути.
+     */
+    public static IntSeq floodFill(int x, int y, int width, int height, int limit, Boolf2<Integer, Integer> filter){
+        IntSeq cells = new IntSeq();
+        if(x < 0 || y < 0 || x >= width || y >= height || !filter.get(x, y)) return cells;
+
+        IntSet visited = new IntSet();
+        IntQueue queue = new IntQueue();
+        int start = Point2.pack(x, y);
+        visited.add(start);
+        queue.addLast(start);
+
+        while(!queue.isEmpty() && cells.size < limit){
+            int pos = queue.removeFirst();
+            cells.add(pos);
+
+            int cx = Point2.x(pos), cy = Point2.y(pos);
+            for(Point2 d : Geometry.d4){
+                int nx = cx + d.x, ny = cy + d.y;
+                if(nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+                if(visited.add(Point2.pack(nx, ny)) && filter.get(nx, ny)) queue.addLast(Point2.pack(nx, ny));
+            }
+        }
+        return cells;
     }
 
     public void connect(int x, int y, Cons2<Integer, Integer> callback){
