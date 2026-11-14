@@ -145,6 +145,46 @@ public class ChatStore {
         Events.fire(new MessagesUpdateEvent(channelId, !isInitial));
     }
 
+    /**
+     * Убирает сообщения из ленты (серверное удаление или сверка после разрыва потока). Если среди удалённых были
+     * ещё не прочитанные (хвост ленты длиной в счётчик непрочитанных), счётчик уменьшается: иначе значок
+     * "непрочитано" навсегда оставался бы на сообщении, которого уже нет.
+     *
+     * @return сколько сообщений реально убрано
+     */
+    public int removeMessages(String channelId, ObjectSet<String> ids) {
+        Seq<ChatMessage> seq = messagesByChannel.get(channelId);
+        if (seq == null || seq.isEmpty() || ids.isEmpty()) {
+            return 0;
+        }
+
+        int unread = unreadByChannel.get(channelId, 0);
+        int removedUnread = 0;
+        int sizeBefore = seq.size;
+
+        for (int i = 0; i < seq.size; i++) {
+            if (ids.contains(seq.get(i).id) && sizeBefore - i <= unread) {
+                removedUnread++;
+            }
+        }
+
+        int removed = seq.size;
+        seq.removeAll(m -> ids.contains(m.id));
+        removed -= seq.size;
+
+        if (removed == 0) {
+            return 0;
+        }
+
+        if (removedUnread > 0) {
+            unreadByChannel.put(channelId, unread - removedUnread);
+            unreadCountState.set(Math.max(0, unreadCountState.get() - removedUnread));
+        }
+
+        Events.fire(new MessagesUpdateEvent(channelId, false));
+        return removed;
+    }
+
     public boolean isFullyLoaded(String channelId) {
         return fullyLoadedChannels.contains(channelId);
     }

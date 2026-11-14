@@ -15,6 +15,7 @@ import arc.util.serialization.Jval;
 import mindustrytool.Config;
 import mindustrytool.Utils;
 import mindustrytool.features.auth.AuthService;
+import mindustrytool.features.chat.global.dto.ChatDeleteEvent;
 import mindustrytool.features.chat.global.dto.ChatMessage;
 
 public class ChatStreamClient {
@@ -27,11 +28,16 @@ public class ChatStreamClient {
     private static final String DATA_EVENT = "data";
     private static final String MESSAGE_EVENT = "message";
     private static final String HEARTBEAT_EVENT = "heartbeat";
+    private static final String ENVELOPE_TYPE_FIELD = "type";
+    private static final String ENVELOPE_DATA_FIELD = "data";
+    private static final String ENVELOPE_TYPE_MESSAGE = "message";
+    private static final String ENVELOPE_TYPE_DELETE = "delete";
     private static final String CHAT_ID_SETTING_KEY = "mindustrytool.chat.chat-id";
     private static final int CONNECT_TIMEOUT_MS = 10000;
     private static final long RECONNECT_DELAY_MS = 5000L;
 
     private final Cons<Seq<ChatMessage>> onMessages;
+    private final Cons<ChatDeleteEvent> onDelete;
     private final Cons<Boolean> onConnectionChange;
     private final AtomicBoolean isStreaming = new AtomicBoolean(false);
     private final AtomicBoolean isConnected = new AtomicBoolean(false);
@@ -45,8 +51,10 @@ public class ChatStreamClient {
      */
     private volatile int generation = 0;
 
-    public ChatStreamClient(Cons<Seq<ChatMessage>> onMessages, Cons<Boolean> onConnectionChange) {
+    public ChatStreamClient(Cons<Seq<ChatMessage>> onMessages, Cons<ChatDeleteEvent> onDelete,
+            Cons<Boolean> onConnectionChange) {
         this.onMessages = onMessages;
+        this.onDelete = onDelete;
         this.onConnectionChange = onConnectionChange;
     }
 
@@ -226,10 +234,34 @@ public class ChatStreamClient {
                 return;
             }
 
+            if (json.isObject() && json.has(ENVELOPE_TYPE_FIELD) && json.get(ENVELOPE_TYPE_FIELD).isString()
+                    && json.has(ENVELOPE_DATA_FIELD)) {
+                dispatchEnvelope(json.getString(ENVELOPE_TYPE_FIELD), json.get(ENVELOPE_DATA_FIELD));
+                return;
+            }
+
             Seq<ChatMessage> messages = parseMessages(json, data);
             Core.app.post(() -> onMessages.get(messages));
         } catch (Exception e) {
             Log.err("Failed to parse chat message", e);
+        }
+    }
+
+    /**
+     * Новый формат потока: конверт {type, data} вместо голого сообщения. Старые форматы (массив и голый объект)
+     * остаются в parseMessages, чтобы клиент не ломался на сервере, который ещё не переехал на конверт.
+     * Неизвестный type молча пропускаем: сервер может добавить события, о которых этот клиент не знает.
+     */
+    private void dispatchEnvelope(String type, Jval payload) {
+        String payloadJson = payload.toString();
+
+        if (ENVELOPE_TYPE_MESSAGE.equals(type)) {
+            ChatMessage message = Utils.fromJson(ChatMessage.class, payloadJson);
+            Seq<ChatMessage> messages = Seq.with(message);
+            Core.app.post(() -> onMessages.get(messages));
+        } else if (ENVELOPE_TYPE_DELETE.equals(type)) {
+            ChatDeleteEvent event = Utils.fromJson(ChatDeleteEvent.class, payloadJson);
+            Core.app.post(() -> onDelete.get(event));
         }
     }
 
