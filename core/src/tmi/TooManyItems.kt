@@ -48,20 +48,25 @@ import tmi.util.TmiAssets
  * управления. Спрайты - core/assets/tmi/ui/ (пакуются в Core.atlas, см. TmiAssets.loadSprites),
  * документы - core/assets/tmi/documents/.
  * <p>
- * 2026-09-12: синк с upstream master (после тега 3.2 - fix для Mindustry 159 + мелкие правки).
- * Портировано: баги ModAPI.readJsonAPI (return вместо continue рвал загрузку рецептов всех
- * следующих модов; recipeInfos вместо it/recipeInfo - поля предмета/craftTime из recipes.json
- * молча брались с "неправильного" уровня JSON и всегда уходили в дефолт), RecipeItem.compareTo
- * (сравнение по typeTag вместо typeID), и новая фича RecipeGraph.requiredMods - калькулятор
- * пишет в .shd список модов-источников рецептов графа и при загрузке кидает понятную
- * MissingModException вместо мусора в интерфейсе, если нужного мода сейчас нет. НЕ портировано:
- * upstream заодно переименовал RecipeItem.ownMod -> mod и поменял состав RecipeGraph.write/read
- * (Vars.platform.showFileChooser -> FileChooser.FileChooserParams, Seq.groupBy/flatMap ->
- * ObjectMap/Seq) - у нас это уже своё: tmi.util.showFileChooser и .asIterable() перед groupBy/
- * flatMap (см. комментарии на местах) решают ту же проблему совместимости с движком этого
- * форка, так что оставлено как есть. Также не тронут порядок/состав Recipe.flattenID (upstream
- * убрал amount из ID и поменял местами materials/productions без объяснения в коммите - слишком
- * рискованно трогать вслепую, т.к. flattenID - это ключ поиска рецепта при загрузке .shd).
+ * 2026-09-12: синк с upstream master (после тега 3.2): исправления ModAPI.readJsonAPI
+ * (return вместо continue рвал загрузку рецептов всех следующих модов; поля предмета/craftTime из
+ * recipes.json брались «не с того» уровня JSON), RecipeItem.compareTo (по typeTag) и
+ * RecipeGraph.requiredMods (понятная MissingModException вместо мусора, если мода из .shd нет).
+ * <p>
+ * Обновление до 3.3 (upstream 3.2..3.3): новая страница статистики рецептов (StatisticDialog),
+ * переписанный калькулятор (CalculatorLayout/RecipeLayerAssignment - раскладка по слоям,
+ * CalculatorTransactions/ITransaction - отмена/повтор, ShadowTab - теневые карточки циклов),
+ * KeyBinds стал объектом (save/saveAs/saveAll/undo/redo), RecipeItem.ownMod -> mod,
+ * сборка панели инструментов и меню калькулятора переехала из CalculatorDialog в TmiUI. Наши адаптации сохранены:
+ * tmi.util.showFileChooser вместо FileChooser.FileChooserParams (там имя файла по умолчанию -
+ * title), TmiMarkdown вместо UniverseKit-markdown, .asIterable() перед groupBy/flatMap, обёртка
+ * init() в try/catch, bulletTypes.add(0, ..) вместо addFirst (JVM 17).
+ * <p>
+ * ID рецепта (Recipe.flattenID) в 3.3 больше не содержит количества предметов - так .shd не
+ * ломаются, когда патч карты меняет числа. Старые .shd (3.2) подписаны прежним ID, поэтому
+ * Recipe.legacyFlattenID/RecipesManager.getByID ищут по нему запасным путём; при первом
+ * сохранении файл перезаписывается уже новым ID. Известный риск самого апстрима: два рецепта
+ * одного блока с одинаковым составом названий (но разными количествами) теперь делят один ID.
  */
 class TooManyItems {
   companion object {
@@ -71,9 +76,6 @@ class TooManyItems {
     var itemsManager: RecipeItemManager = RecipeItemManager()
     @JvmField
     var api: ModAPI = ModAPI()
-    @JvmField
-    val binds = KeyBinds()
-
     /** Guard пройден и ClientLoadEvent отработал (строка в FeaturesDialog). */
     @JvmStatic
     var enabled = false
@@ -144,7 +146,7 @@ class TooManyItems {
   private fun init() {
     TmiAssets.loadSprites()
     Cursor.init()
-    binds.load()
+    KeyBinds.load()
     api.init()
 
     recipesManager.init()

@@ -14,6 +14,8 @@ object RecipeGraphLayout {
     val nodeList = mutableListOf<Node>()
 
     graph.eachNode { depth, node ->
+      if (node.graph != graph) return@eachNode
+
       val rec = RecNode(node, node.recipe)
       rec.contextDepth = depth
       copyMap[node] = rec
@@ -21,22 +23,29 @@ object RecipeGraphLayout {
     }
 
     graph.eachNode { node ->
-      val rec = copyMap[node]?: throw NoSuchElementException()
-
-      node.childrenWithItem().forEach { (item, child) ->
-        val cpyCld = copyMap[child]?: throw NoSuchElementException()
-        rec.setInput(item, cpyCld)
+      val rec = copyMap[node] ?: run {
+        CalculatorLayout.defect("The linked node in layout node not exist, Illegal node format.")
+        return@eachNode
       }
-      node.parentsWithItem().forEach { (item, parents) ->
-        parents.forEach { parent ->
-          val cpyParents = copyMap[parent]?: throw NoSuchElementException()
-          rec.setOutput(item, cpyParents)
+
+      node.parentsWithItem().forEach { (item, parent) ->
+        val cpyParent = copyMap[parent]
+        if (cpyParent == null) CalculatorLayout.defect("No such input in this recipe: ${item.name}, recipe: ${node.recipe}")
+        else rec.setInput(item, cpyParent)
+      }
+      node.childrenWithItem().forEach { (item, children) ->
+        children.forEach { child ->
+          val cpyChild = copyMap[child]
+          if (cpyChild == null) CalculatorLayout.defect("No such output in this recipe: ${item.name}, recipe: ${node.recipe}")
+          else rec.setOutput(item, cpyChild)
         }
       }
     }
 
+    nodeList.addAll(attachShadowNodes(graph, copyMap))
+
     val layered = nodeList.sortedBy { it.contextDepth }
-    val resolved = resolveLoops(layered)
+    val resolved = reduceLongEdges(resolveLoops(layered))
 
     val layers = Array(resolved.maxOf { it.contextDepth } + 1){ Seq<Node>() }
     resolved.forEach { node ->
@@ -50,6 +59,37 @@ object RecipeGraphLayout {
     return sortedLayers
   }
 
+  /**进行一次线性规划最小化图中的长边。*/
+  private fun reduceLongEdges(nodes: List<Node>): List<Node> {
+    if (nodes.size <= 1) return nodes
+
+    val index = HashMap<Node, Int>(nodes.size)
+    nodes.forEachIndexed { i, node -> index[node] = i }
+
+    val consumers = Array(nodes.size) { ArrayList<Int>(4) }
+    val providers = Array(nodes.size) { ArrayList<Int>(4) }
+    nodes.forEachIndexed { i, node ->
+      node.children().forEach { child ->
+        val childIndex = index[child] ?: return@forEach
+
+        consumers[i].add(childIndex)
+        providers[childIndex].add(i)
+      }
+    }
+
+    val depth = RecipeLayerAssignment.solve(
+      Array(nodes.size) { consumers[it].toIntArray() },
+      Array(nodes.size) { providers[it].toIntArray() },
+    ) { CalculatorLayout.warnOnce(it) }
+    if (depth == null) {
+      CalculatorLayout.warnOnce("Long edge reduction skipped: the layout graph still contains a cycle.")
+      return nodes
+    }
+
+    nodes.forEachIndexed { i, node -> node.contextDepth = depth[i] }
+    return nodes
+  }
+
   private fun sortLayers(layers: Array<Seq<Node>>): Array<Seq<Node>> {
     val swap = layers.map { it.copy() }
 
@@ -58,17 +98,29 @@ object RecipeGraphLayout {
       val sorting = swap[i]
       val order = FloatArray(sorting.size)
 
+      val sortIndex = HashMap<Node, Int>(sorting.size)
+      sorting.forEachIndexed { l, node -> sortIndex[node] = l }
+
+      val refIndex = HashMap<Node, Int>(ref.size)
+      ref.forEachIndexed { l, node -> refIndex[node] = l }
+
       for (l in 0..<sorting.size) {
         val node = sorting[l]
-        var o = 0f
-        val parents = node.parents()
-        for (parent in parents) {
-          o += ref.indexOf(parent).toFloat()
+        val children = node.children()
+
+        if (children.isEmpty()) {
+          order[l] = l.toFloat()
+          continue
         }
-        order[l] = o/parents.size
+
+        var o = 0f
+        for (child in children) {
+          o += (refIndex[child] ?: -1).toFloat()
+        }
+        order[l] = o/children.size
       }
 
-      sorting.sort{ a, b -> order[sorting.indexOf(a)].compareTo(order[sorting.indexOf(b)]) }
+      sorting.sort{ a, b -> order[sortIndex.getValue(a)].compareTo(order[sortIndex.getValue(b)]) }
       sorting.forEachIndexed { i, node -> node.layerIndex = i }
     }
 
@@ -87,9 +139,9 @@ object RecipeGraphLayout {
       val node = stack.pop()
       if (node == other) findOther = true
       if (checkingSet.add(node)){
-        node.children().forEach { child ->
-          if (child == this@findLoop) isLoop = true
-          stack.push(child)
+        node.parents().forEach { parent ->
+          if (parent == this@findLoop) isLoop = true
+          stack.push(parent)
         }
       }
 
@@ -105,9 +157,9 @@ object RecipeGraphLayout {
     while (anySorted) {
       anySorted = false
       nodes.forEach { node ->
-        node.children().forEach { child ->
-          if (child != node && child.contextDepth <= node.contextDepth) {
-            child.contextDepth = node.contextDepth + 1
+        node.parents().forEach { parent ->
+          if (parent != node && parent.contextDepth <= node.contextDepth) {
+            parent.contextDepth = node.contextDepth + 1
             anySorted = true
           }
         }
@@ -115,6 +167,30 @@ object RecipeGraphLayout {
     }
 
     return nodes
+  }
+  private fun shadowInput(consumer: RecNode, item: RecipeItem<*>, shadow: ShadowNode) {
+    consumer.disInput(item)
+    consumer.linkInput(item, shadow)
+  }
+
+  private fun attachShadowNodes(
+    graph: RecipeGraph,
+    copyMap: Map<RecipeGraphNode, RecNode>,
+  ): List<ShadowNode> {
+    val shadows = mutableListOf<ShadowNode>()
+
+    graph.shadowLinks().forEach { link ->
+      val consumer = copyMap[link.consumer] ?: return@forEach
+      val source = copyMap[link.source] ?: return@forEach
+
+      if (consumer.parentsWithItem()[link.item] !== source) return@forEach
+
+      val shadow = ShadowNode(source, ShadowKind.USER)
+      shadowInput(consumer, link.item, shadow)
+      shadows.add(shadow)
+    }
+
+    return shadows
   }
 
   private fun resolveLoops(nodes: List<Node>): List<Node> {
@@ -124,13 +200,12 @@ object RecipeGraphLayout {
     nodes.forEach { node ->
       swap.add(node)
       if (node !is RecNode) return@forEach
-      node.childrenWithItem().forEach { (item, child) ->
-        if (child is RecNode && ((child.contextDepth < node.contextDepth && child.findLoop(node)) || child == node)) {
-          val shadowed = shadowedMap.computeIfAbsent(child) { _ ->
-            ShadowNode(child).also { swap.add(it) }
+      node.parentsWithItem().forEach { (item, parent) ->
+        if (parent is RecNode && ((parent.contextDepth < node.contextDepth && parent.findLoop(node)) || parent == node)) {
+          val shadowed = shadowedMap.computeIfAbsent(parent) { _ ->
+            ShadowNode(parent, ShadowKind.LOOP).also { swap.add(it) }
           }
-          node.disInput(item)
-          node.linkInput(item, shadowed)
+          shadowInput(node, item, shadowed)
 
           standardDepth(swap)
         }
@@ -146,25 +221,26 @@ object RecipeGraphLayout {
     for (node in layers.flatMap { it }) {
       if (node is LineMark) continue
       node as RecNode
-      for (pair in node.childrenWithItem()) {
+      for (pair in node.parentsWithItem()) {
         val item = pair.key
-        val child = pair.value
+        val parent = pair.value
 
-        if (child.contextDepth - node.contextDepth > 1) {
+        if (parent.contextDepth - node.contextDepth > 1) {
+          val stack = node.recipe.getMaterial(item)
+          if (stack == null) {
+            CalculatorLayout.defect("No such item in recipe found ${item.name}，recipe: ${node.recipe}")
+            continue
+          }
+
           node.disInput(item)
 
           var curr = node
-          for (dep in 1..<child.contextDepth - node.contextDepth) {
+          for (dep in 1..<parent.contextDepth - node.contextDepth) {
             val fc = curr
 
             val lay = swap[node.contextDepth + dep]
-            var ins = lay.find { n ->
-              val parent = n.parentsWithItem().entries.firstOrNull()?: return@find false
-              n is LineMark && parent.key == item && parent.value == fc
-            }
+            var ins = lay.find { n -> n is LineMark && n.stack.item == item && n.child == fc }
             if (ins == null) {
-              val stack = node.recipe.getMaterial(item)
-                          ?: throw IllegalStateException("insert lineMarks with item $item, but no such item consuming in the recipe found.")
               ins = LineMark(stack)
               curr.linkInput(item, ins)
               ins.contextDepth = node.contextDepth + dep
@@ -172,7 +248,7 @@ object RecipeGraphLayout {
             }
             curr = ins
           }
-          curr.linkInput(item, child)
+          curr.linkInput(item, parent)
         }
       }
     }
@@ -184,25 +260,27 @@ object RecipeGraphLayout {
     internal var contextDepth = 0
     internal var layerIndex = 0
 
+    open val isRoot: Boolean get() = contextDepth == 0
+
     abstract fun parents(): List<Node>
-    abstract fun parentsWithItem(): Map<RecipeItem<*>, List<Node>>
+    abstract fun parentsWithItem(): Map<RecipeItem<*>, Node>
 
     abstract fun children(): List<Node>
-    abstract fun childrenWithItem(): Map<RecipeItem<*>, Node>
+    abstract fun childrenWithItem(): Map<RecipeItem<*>, List<Node>>
 
     fun disInput(item: RecipeItem<*>) {
-      val children = childrenWithItem()
+      val parents = parentsWithItem()
       unInput(item)
-      children[item]?.unOutput(item, this)
+      parents[item]?.unOutput(item, this)
     }
-    fun linkInput(item: RecipeItem<*>, ins: Node) {
-      setInput(item, ins)
-      ins.setOutput(item, this)
+    fun linkInput(item: RecipeItem<*>, parent: Node) {
+      setInput(item, parent)
+      parent.setOutput(item, this)
     }
 
-    abstract fun setOutput(item: RecipeItem<*>, ins: Node)
-    abstract fun unOutput(item: RecipeItem<*>, ins: Node)
-    abstract fun setInput(item: RecipeItem<*>, ins: Node)
+    abstract fun setOutput(item: RecipeItem<*>, child: Node)
+    abstract fun unOutput(item: RecipeItem<*>, child: Node)
+    abstract fun setInput(item: RecipeItem<*>, parent: Node)
     abstract fun unInput(item: RecipeItem<*>)
   }
 
@@ -213,24 +291,27 @@ object RecipeGraphLayout {
     private val outputs = mutableMapOf<RecipeItem<*>, MutableList<Node>>()
     private val inputs = mutableMapOf<RecipeItem<*>, Node>()
 
-    override fun parents() = outputs.values.flatMap { it }
-    override fun parentsWithItem() = outputs.toMap()
-    override fun children() = inputs.values.toList()
-    override fun childrenWithItem() = inputs.toMap()
+    override val isRoot: Boolean get() = targetNode.isFinalProduct()
 
-    override fun setOutput(item: RecipeItem<*>, ins: Node) {
-      outputs.computeIfAbsent(item) { mutableListOf() }.add(ins)
+    override fun parents() = inputs.values.toList()
+    override fun parentsWithItem() = inputs.toMap()
+
+    override fun children() = outputs.values.flatMap { it }
+    override fun childrenWithItem() = outputs.toMap()
+
+    override fun setOutput(item: RecipeItem<*>, child: Node) {
+      outputs.computeIfAbsent(item) { mutableListOf() }.add(child)
     }
 
-    override fun unOutput(item: RecipeItem<*>, ins: Node) {
+    override fun unOutput(item: RecipeItem<*>, child: Node) {
       val outs = outputs[item]?: return
-      outs.remove(ins)
+      outs.remove(child)
 
       if (outs.isEmpty()) outputs.remove(item)
     }
 
-    override fun setInput(item: RecipeItem<*>, ins: Node) {
-      inputs[item] = ins
+    override fun setInput(item: RecipeItem<*>, parent: Node) {
+      inputs[item] = parent
     }
 
     override fun unInput(item: RecipeItem<*>) {
@@ -238,8 +319,17 @@ object RecipeGraphLayout {
     }
   }
 
+  /**影子节点的来源标记。*/
+  enum class ShadowKind {
+    /**断环：[resolveLoops] 为了断开环边自动造出来的，只服务于断环。*/
+    LOOP,
+    /**用户的：由用户登记的 [RecipeGraph.ShadowLink] 创建的副本。*/
+    USER,
+  }
+
   class ShadowNode(
-    val shadowed: RecNode
+    val shadowed: RecNode,
+    val kind: ShadowKind,
   ): RecNode(shadowed.targetNode, shadowed.recipe)
 
   class LineMark(
@@ -248,32 +338,30 @@ object RecipeGraphLayout {
     var parent: Node? = null
     var child: Node? = null
 
-    fun getTargetNode(): RecNode = child?.let { if (it is LineMark) it.getTargetNode() else it as RecNode }?:
-      throw IllegalStateException("This line mark was not linked to any recipe node.")
-    fun getOriginNode(): RecNode = parent?.let { if (it is LineMark) it.getOriginNode() else it as RecNode }?:
-      throw IllegalStateException("This line mark was not linked to any recipe node.")
+    fun getTargetNode(): RecNode? = parent?.let { if (it is LineMark) it.getTargetNode() else it as RecNode }
+    fun getOriginNode(): RecNode? = child?.let { if (it is LineMark) it.getOriginNode() else it as RecNode }
 
-    override fun parents() = listOf(parent!!)
-    override fun parentsWithItem() = mapOf(stack.item to listOf(parent!!))
+    override fun parents() = listOfNotNull(parent)
+    override fun parentsWithItem() = parent?.let { mapOf(stack.item to it) } ?: emptyMap()
 
-    override fun children() = listOf(child!!)
-    override fun childrenWithItem() = mapOf(stack.item to child!!)
+    override fun children() = listOfNotNull(child)
+    override fun childrenWithItem() = child?.let { mapOf(stack.item to listOf(it)) } ?: emptyMap()
 
-    override fun setInput(item: RecipeItem<*>, ins: Node) {
+    override fun setInput(item: RecipeItem<*>, parent: Node) {
       if (item != stack.item) throw IllegalArgumentException("Item does not match the recipe item.")
-      child = ins
+      this.parent = parent
     }
 
     override fun unInput(item: RecipeItem<*>) {
       throw UnsupportedOperationException("line mark does not support un-output items.")
     }
 
-    override fun setOutput(item: RecipeItem<*>, ins: Node) {
+    override fun setOutput(item: RecipeItem<*>, child: Node) {
       if (item != stack.item) throw IllegalArgumentException("Item does not match the recipe item.")
-      parent = ins
+      this.child = child
     }
 
-    override fun unOutput(item: RecipeItem<*>, ins: Node) {
+    override fun unOutput(item: RecipeItem<*>, child: Node) {
       throw UnsupportedOperationException("line mark does not support un-output items.")
     }
   }

@@ -3,6 +3,7 @@ package tmi.ui.calculator
 import arc.struct.*
 import mindustry.content.Items
 import tmi.TooManyItems
+import tmi.recipe.AmountFormatter
 import tmi.recipe.Recipe
 import tmi.recipe.RecipeItemStack
 import tmi.recipe.types.RecipeItem
@@ -42,21 +43,21 @@ class RecipeStatistic(
         val item = stack.item
         val out = node.recipe.getProduction(item)!!
         val nodeOut = out.amount*node.balanceAmount*if(out.itemType == RecipeItemType.ISOLATED) 1f else node.efficiency
-        val parents = node.getOutputs(item)
+        val consumers = node.getOutputs(item)
         var requireAmount = 0f
 
-        if (!parents.isNullOrEmpty()) {
-          parents.forEach { parent ->
-            parent.recipe.getMaterial(item)?.also { stack ->
+        if (!consumers.isNullOrEmpty()) {
+          consumers.forEach { consumer ->
+            consumer.recipe.getMaterial(item)?.also { stack ->
               val mul =
-                if (stack.itemType == RecipeItemType.BOOSTER || stack.itemType == RecipeItemType.NORMAL) parent.multiplier
+                if (stack.itemType == RecipeItemType.BOOSTER || stack.itemType == RecipeItemType.NORMAL) consumer.multiplier
                 else 1f
 
               requireAmount +=
-                if (stack.itemType == RecipeItemType.BOOSTER) stack.amount*ceil(parent.balanceAmount)*mul
-                else stack.amount*parent.balanceAmount*mul
+                if (stack.itemType == RecipeItemType.BOOSTER) stack.amount*ceil(consumer.balanceAmount)*mul
+                else stack.amount*consumer.balanceAmount*mul
 
-              inputs.computeIfAbsent(parent){ mutableSetOf() }.add(item)
+              inputs.computeIfAbsent(consumer){ mutableSetOf() }.add(item)
             }
           }
 
@@ -103,18 +104,20 @@ class RecipeStatistic(
       val buildRecipe = TooManyItems.recipesManager.getRecipesByBuilding(block.item)
       buildRecipe.forEach { r ->
         r.materials.forEach { item ->
-          buildMaterials.get(item.item){ RecipeItemStack(item.item) }.amount += item.amount
+          buildMaterials.get(item.item){
+            RecipeItemStack(item.item).setFormat(AmountFormatter.integerFormatter())
+          }.amount += item.amount
         }
       }
     }
   }
 
-  fun resultInputs() = inputs.values().filter { it.amount > 0 }.map { listOf(it) } + inputGroups.filter { !it.first().isOptional }.map { it.toList() }
-  fun resultOptionalInputs() = optionalInputs.values().filter { it.amount > 0 }.map { listOf(it) } + inputGroups.filter { it.first().isOptional }.map { it.toList() }
-  fun resultOutputs() = outputs.values().filter { it.amount > 0 }
-  fun resultRedundant() = redundant.values().filter { it.amount > 0 }.sortedBy { -it.amount }
+  fun resultInputs() = inputs.values().filter { it.amount > 0.00001 }.map { listOf(it) } + inputGroups.filter { !it.first().isOptional }.map { it.toList() }
+  fun resultOptionalInputs() = optionalInputs.values().filter { it.amount > 0.00001 }.map { listOf(it) } + inputGroups.filter { it.first().isOptional }.map { it.toList() }
+  fun resultOutputs() = outputs.values().filter { it.amount > 0.00001 }
+  fun resultRedundant() = redundant.values().filter { it.amount > 0.00001 }.sortedBy { -it.amount }
 
-  fun resultBuildMaterials() = buildMaterials.values().filter { it.amount > 0 }
+  fun resultBuildMaterials() = buildMaterials.values().filter { it.amount > 0.00001 }
 
   @Suppress("UNCHECKED_CAST")
   fun allBlocks(): List<RecipeItemStack<*>> = allRecipes.map {

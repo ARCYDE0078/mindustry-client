@@ -17,9 +17,10 @@ import arc.scene.ui.Button
 import arc.scene.ui.Label
 import arc.scene.ui.Tooltip
 import arc.scene.ui.layout.Table
+import arc.struct.ObjectMap
+import arc.struct.OrderedMap
 import arc.struct.Seq
 import arc.util.Align
-import arc.util.Log
 import arc.util.Scaling
 import mindustry.Vars
 import mindustry.gen.Icon
@@ -28,7 +29,7 @@ import mindustry.graphics.Pal
 import mindustry.ui.Fonts
 import mindustry.ui.Styles
 import mindustry.ui.dialogs.BaseDialog
-import tmi.ui.TmiUI
+import tmi.ui.TmiUI.document
 import tmi.ui.TmiUI.showChoiceIcons
 import tmi.ui.addEventBlocker
 import tmi.util.*
@@ -37,6 +38,17 @@ import kotlin.math.max
 class CalculatorDialog: BaseDialog("") {
   companion object{
     val exportDialog = ExportDialog()
+
+    /**
+     * Справка калькулятора. Документ рисует свой мини-рендер [TmiMarkdown] (UniverseKit-markdown
+     * не вендорится), поэтому картинки из справки (png из каталога images апстрима) не нужны и не берутся.
+     */
+    fun showCalculatorHelp(){
+      document.showMarkdown(
+        Core.bundle["misc.calculatorHelp"],
+        TmiAssets.getDocument("calculator-help.md")
+      )
+    }
   }
 
   private var menuFolded = true
@@ -47,11 +59,12 @@ class CalculatorDialog: BaseDialog("") {
   private val topMenuTabSet = Seq<MenuTab>()
   private val menuHiddens = Seq<Runnable>()
 
-  private val keyBinds = CombineKeyTree<Runnable>()
+  private val _pages = mutableListOf<ViewPage>()
+  private val _recentPages = mutableListOf<ViewPage>()
 
-  private val pages = Seq<ViewPage>()
-  private val recentPages = Seq<ViewPage>()
-  private var currPage: ViewPage? = null
+  var currPage: ViewPage? = null
+    private set
+  val pages: List<ViewPage> = _pages
 
   private lateinit var topTable: Table
   private lateinit var tipsTable: Table
@@ -66,18 +79,7 @@ class CalculatorDialog: BaseDialog("") {
       titleFont = Fonts.def
     }
 
-    setupTools()
-    setupMenu()
-
     loadRecentPages()
-    setupMenuBinds()
-
-    addListener(object: InputListener(){
-      override fun touchDown(event: InputEvent?, x: Float, y: Float, pointer: Int, button: KeyCode?): Boolean {
-        hideMenu()
-        return false
-      }
-    })
   }
 
   private fun Element.findTips(x: Float, y: Float): TipsProvider? {
@@ -122,13 +124,10 @@ class CalculatorDialog: BaseDialog("") {
         hideTips()
       }
     }
-
-    if (Core.scene.hasField()) return
-    keyBinds.checkTap(Core.input)?.run()
   }
 
   private fun loadRecentPages(){
-    recentPages.clear()
+    _recentPages.clear()
     val raw = Core.settings.getString("tmi-calculator-recent-pages", "")
     val entries = raw.split(";")
 
@@ -136,269 +135,35 @@ class CalculatorDialog: BaseDialog("") {
       addRecentPage(Fi(it))
     }
 
-    recentPages.removeAll { it.fi?.exists()?.let { b -> !b }?: true }
+    _recentPages.removeAll { it.fi?.exists()?.let { b -> !b } ?: true }
   }
 
   private fun addRecentPage(fi: Fi) {
-    recentPages.removeAll { it.fi?.exists()?.let { b -> !b }?: true }
+    _recentPages.removeAll { it.fi?.exists()?.let { b -> !b } ?: true }
 
     if (!fi.exists()) return
-    if (recentPages.contains { it.fi == fi }) return
-    recentPages.add(ViewPage(fi, fi.nameWithoutExtension()){ CalculatorView() })
+    if (_recentPages.any { it.fi == fi }) return
+    _recentPages.add(ViewPage(fi, fi.nameWithoutExtension()){ CalculatorView() })
 
     Core.settings.put(
       "tmi-calculator-recent-pages",
-      recentPages.joinToString(";") { it.fi!!.path() }
+      _recentPages.joinToString(";") { it.fi!!.path() }
     )
   }
 
   private fun removeRecentPage(fi: Fi) {
-    recentPages.removeAll { it.fi?.exists()?.let { b -> !b }?: true }
+    _recentPages.removeAll { it.fi?.exists()?.let { b -> !b } ?: true }
 
     if (!fi.exists()) return
-    if (!recentPages.remove { it.fi == fi }) return
+    if (!_recentPages.removeAll { it.fi == fi }) return
 
     Core.settings.put(
       "tmi-calculator-recent-pages",
-      recentPages.joinToString(";") { it.fi!!.path() }
+      _recentPages.joinToString(";") { it.fi!!.path() }
     )
   }
 
-  private fun setupTools() {
-    addTool(
-      ToolTab(
-        Core.bundle["dialog.calculator.addRecipe"],
-        Icon.add,
-        disabled = { it != null },
-      ){ v, _ ->
-        v!!
-        TmiUI.recipesDialog.showWith {
-          callbackRecipe(Icon.add) { rec ->
-            val node = RecipeGraphNode(rec)
-            v.graph.addNode(node)
-            v.linkExisted(node)
-            v.graphUpdated()
-            hide()
-          }
-          showDoubleRecipe(true)
-        }
-      },
-
-      ToolTab(
-        { v -> Core.bundle[if (v?.browsMode?:false) "dialog.calculator.browseMode" else "dialog.calculator.editMode"] },
-        { v -> if (v?.browsMode?:false) Icon.zoom else Icon.pencil },
-        disabled = { it != null },
-      ){ v, _ ->
-        v!!.browsMode = !v.browsMode
-      },
-
-      ToolTab(
-        Core.bundle["dialog.calculator.showGrid"],
-        { v -> if (v?.showGrid?:true) Consts.showGrid else Consts.hideGrid },
-        disabled = { it != null },
-      ){ v, _ ->
-        v!!.showGrid = !v.showGrid
-      },
-
-      ToolTab(
-        Core.bundle["dialog.calculator.autoLink"],
-        {
-          it?.let { v ->
-            when {
-              v.autoLinkInput && v.autoLinkOutput -> Consts.autolinkAll
-              v.autoLinkInput && !v.autoLinkOutput -> Consts.autolinkInputs
-              !v.autoLinkInput && v.autoLinkOutput -> Consts.autolinkOutputs
-              else -> Consts.autolinkOff
-            }
-          }?: Consts.autolinkAll
-        },
-        disabled = { it != null },
-      ){ v, b ->
-        v!!
-        showMenu(b, Align.topRight){ tab ->
-          tab.table(Consts.padDarkGrayUI) { m ->
-            m.left().defaults().growX().fillY().minWidth(240f).left()
-
-            m.button(Core.bundle["autolink.all"], Consts.autolinkAll, Styles.clearTogglet) {
-              v.autoLinkInput = true
-              v.autoLinkOutput = true
-            }.margin(8f).update { it.isChecked = v.autoLinkInput && v.autoLinkOutput }
-
-            m.row()
-            m.button(Core.bundle["autolink.inputs"], Consts.autolinkInputs, Styles.clearTogglet) {
-              v.autoLinkInput = true
-              v.autoLinkOutput = false
-            }.margin(8f).update { it.isChecked = v.autoLinkInput && !v.autoLinkOutput }
-
-            m.row()
-            m.button(Core.bundle["autolink.outputs"], Consts.autolinkOutputs, Styles.clearTogglet) {
-              v.autoLinkInput = false
-              v.autoLinkOutput = true
-            }.margin(8f).update { it.isChecked = !v.autoLinkInput && v.autoLinkOutput }
-
-            m.row()
-            m.button(Core.bundle["autolink.off"], Consts.autolinkOff, Styles.clearTogglet) {
-              v.autoLinkInput = false
-              v.autoLinkOutput = false
-            }.margin(8f).update { it.isChecked = !v.autoLinkInput && !v.autoLinkOutput }
-          }
-        }
-      },
-    )
-  }
-
-  private fun setupMenu(){
-    addMenu(
-      // files
-      MenuTab(
-        Core.bundle["misc.new"], "file",
-        group = "fileIO"
-      ){
-        createNewPage()
-      },
-      MenuTab(
-        Core.bundle["misc.open"], "file", Icon.fileSmall,
-        group = "fileIO"
-      ){
-        openFile()
-      },
-      MenuTab(
-        Core.bundle["misc.export"], "file",
-        group = "export",
-        valid = { currPage != null && currPage!!.view.graph.any() },
-        subTabs = arrayOf(
-          MenuTab(Core.bundle["misc.exportImg"], "file", Icon.imageSmall){
-            exportDialog.show(it!!.view)
-          },
-          MenuTab(Core.bundle["misc.exportText"], "file", Icon.fileTextSmall){
-            //TODO
-          },
-          MenuTab(Core.bundle["misc.exportStat"], "file", Icon.bookSmall){
-            //TODO
-          },
-        )
-      ),
-      MenuTab(
-        Core.bundle["misc.save"], "file", Icon.saveSmall,
-        group = "fileIO",
-        valid = { it != null },
-        keyBind = CombinedKeys(KeyCode.controlLeft, KeyCode.s),
-      ){ currPage ->
-        val page = currPage!!
-        if (page.fi != null) {
-          if (page.shouldSave()) save(page, page.fi!!)
-        }
-        else {
-          tmi.util.showFileChooser(false, page.title, "shd") { file ->
-            if (save(page, file)) {
-              page.fi = file
-              page.title = file.nameWithoutExtension()
-            }
-          }
-        }
-      },
-      MenuTab(
-        Core.bundle["misc.saveAs"], "file",
-        group = "fileIO",
-        valid = { currPage != null },
-        keyBind = CombinedKeys(KeyCode.altLeft, KeyCode.s),
-      ){ currPage ->
-        val page = currPage!!
-        tmi.util.showFileChooser(false, page.title, "shd") { file ->
-          if (save(page, file)) {
-            page.fi = file
-            page.title = file.nameWithoutExtension()
-          }
-        }
-      },
-      MenuTab(
-        Core.bundle["misc.saveAll"], "file", Icon.saveSmall,
-        group = "fileIO",
-        valid = { currPage != null },
-        keyBind = CombinedKeys(KeyCode.controlLeft, KeyCode.shiftLeft, KeyCode.s),
-      ){
-        pages.forEach { it.fi?.also { f -> it.view.save(f) } }
-      },
-
-      // view
-      MenuTab(
-        Core.bundle["dialog.calculator.refresh"], "view", Icon.refreshSmall,
-        group = "normal",
-        keyBind = CombinedKeys(KeyCode.f5),
-        valid = { currPage != null }
-      ){ currPage ->
-        currPage!!.view.graphUpdated()
-      },
-      MenuTab(
-        Core.bundle["misc.closeAllPage"], "view",
-        group = "pages",
-        valid = { pages.any() }
-      ){
-        pages.toList().also { closePages(it) }
-      },
-      MenuTab(
-        Core.bundle["misc.closeOtherPage"], "view",
-        group = "pages",
-        valid = { pages.any { it != currPage } }
-      ){
-        pages.filter { it != currPage }.also { closePages(it) }
-      },
-      MenuTab(
-        Core.bundle["misc.closeAllSaved"], "view",
-        group = "pages",
-        valid = { pages.any { !it.shouldSave() } }
-      ){
-        pages.filter { !it.shouldSave() }.forEach { deletePage(it) }
-      },
-      MenuTab(
-        Core.bundle["misc.resetView"], "view", Icon.refreshSmall,
-        group = "view",
-        valid = { currPage != null }
-      ){ currPage ->
-        currPage!!.view.resetView()
-      },
-
-      // help
-      MenuTab(
-        Core.bundle["misc.calculatorHelp"], "help", Icon.infoSmall
-      ){
-        showHelp()
-      },
-      MenuTab(
-        Core.bundle["misc.about"], "help",
-        valid = { false }
-      ){
-        //TODO
-      },
-    )
-  }
-
-  private fun showHelp(){
-    val docText = TmiAssets.getDocument("calculator-help.md")
-    TmiUI.document.showMarkdown(
-      Core.bundle["misc.calculatorHelp"],
-      docText
-    )
-  }
-
-  fun setupMenuBinds() {
-    keyBinds.clear()
-
-    setBinds(topMenuTabSet)
-  }
-
-  private fun setBinds(topMenuTabSet: Iterable<MenuTab>) {
-    topMenuTabSet.forEach { tab ->
-      if (tab.subTabs != null) {
-        setBinds(tab.subTabs)
-      }
-      else if (tab.keyBind != null) {
-        keyBinds.putKeyBinding(tab.keyBind!!) { tab.clicked?.get(currPage) }
-      }
-    }
-  }
-
-  private fun closePages(
+  fun closePages(
     viewPages: List<ViewPage>,
   ) {
     if (viewPages.any { it.shouldSave() }) {
@@ -414,7 +179,7 @@ class CalculatorDialog: BaseDialog("") {
                 deletePage(it)
               }
               else {
-                tmi.util.showFileChooser(false, it.title, "shd") { file ->
+                showFileChooser(false, it.title, "shd") { file ->
                   it.view.save(file)
                   deletePage(it)
                 }
@@ -443,6 +208,7 @@ class CalculatorDialog: BaseDialog("") {
 
     margin(0f)
     getCell(cont).pad(0f)
+    cont.clear()
     cont.background(Consts.grayUI)
     cont.defaults().pad(0f)
     cont.table{
@@ -469,6 +235,39 @@ class CalculatorDialog: BaseDialog("") {
     buildTop()
     buildSide()
     buildView()
+
+    hovered { requestKeyboard() }
+
+    addMenuBindListener()
+    addListener(object: InputListener(){
+      override fun touchDown(event: InputEvent?, x: Float, y: Float, pointer: Int, button: KeyCode?): Boolean {
+        hideMenu()
+        return false
+      }
+    })
+  }
+
+  private fun buildKeyBinds(topMenuTabSet: Iterable<MenuTab>): CombineKeyTree<Runnable> {
+    val keyBinds = CombineKeyTree<Runnable>()
+    topMenuTabSet.forEach { tab ->
+      if (tab.subTabs != null) {
+        buildKeyBinds(tab.subTabs)
+      }
+      else if (tab.keyBind != null) {
+        keyBinds.putKeyBinding(tab.keyBind!!) { tab.clicked?.get(currPage) }
+      }
+    }
+
+    return keyBinds
+  }
+
+  private fun addMenuBindListener(){
+    val binds = buildKeyBinds(topMenuTabSet)
+    addListener(object: CombineKeyListener<Runnable>(binds){
+      override fun keysDown(event: InputEvent?, keycode: KeyCode?, combinedKeys: CombinedKeys, rec: Runnable) {
+        rec.run()
+      }
+    })
   }
 
   //Top bar
@@ -477,10 +276,18 @@ class CalculatorDialog: BaseDialog("") {
       it.image(Consts.tmi).scaling(Scaling.fit).size(32f)
     }.growY().marginLeft(8f).marginRight(8f)
 
-    //arc форка: Seq.groupBy -> ObjectMap перекрывает Kotlin-овский, нужен Map -> через asIterable()
-    val tabs = topMenuTabSet.asIterable().groupBy { it.tabName }
-      .map{ groups -> groups.key to groups.value.groupBy { it.group } }
-      .toMap()
+    //Seq.groupBy из Arc форка отдаёт ObjectMap с хэш-порядком: вкладки меню и их группы тогда стояли бы
+    //в порядке хэшей имён, а нужен порядок регистрации (как у Kotlin-овского groupBy) - группируем вручную
+    val tabs = linkedMapOf<String, ObjectMap<String, Seq<MenuTab>>>()
+    topMenuTabSet.forEach { tab ->
+      val groups = tabs.getOrPut(tab.tabName) { OrderedMap() }
+      var list = groups.get(tab.group)
+      if (list == null) {
+        list = Seq()
+        groups.put(tab.group, list)
+      }
+      list.add(tab)
+    }
 
     var menuTable: Table? = null
 
@@ -517,7 +324,7 @@ class CalculatorDialog: BaseDialog("") {
   }
 
   private fun buildUnfoldedMenuTabs(
-    tabs: Map<String, Map<String, List<MenuTab>>>,
+    tabs: Map<String, ObjectMap<String, Seq<MenuTab>>>,
     menu: Table,
   ) {
     var currHover: Button? = null
@@ -538,7 +345,7 @@ class CalculatorDialog: BaseDialog("") {
           showMenu(this, Align.bottomLeft, Align.topLeft, true) { menu ->
             menu.table(Consts.padDarkGrayUI) { m ->
               m.defaults().growX().fillY().minWidth(300f)
-              buildMenuTab(m, groups.values)
+              buildMenuTab(m, groups.values())
             }.fill()
           }
         }
@@ -695,22 +502,22 @@ class CalculatorDialog: BaseDialog("") {
               openFile()
             }.margin(8f)
 
-            if (pages.any()) {
+            if (_pages.any()) {
               m.row()
               m.image().color(Pal.darkerGray).height(4f).growX().padTop(4f).padBottom(4f)
               m.row()
               m.add(Core.bundle["dialog.calculator.openedFile"]).pad(4f).color(Color.darkGray)
               m.row()
 
-              pages.forEach { p ->
+              _pages.forEach { p ->
                 buildPageTab(m, p, false)
                 m.row()
               }
             }
 
-            val recents = recentPages
+            val recents = _recentPages
               .filter { a -> a.fi?.exists()?: false }
-              .filter { a -> !pages.contains { b -> a.fi == b.fi } }
+              .filter { a -> !_pages.any { b -> a.fi == b.fi } }
 
             if (recents.isNotEmpty()) {
               m.row()
@@ -742,7 +549,7 @@ class CalculatorDialog: BaseDialog("") {
         if (currPage.shouldSave()) save(currPage, currPage.fi!!)
       }
       else {
-        tmi.util.showFileChooser(false, currPage.title, "shd") { file ->
+        showFileChooser(false, currPage.title, "shd") { file ->
           if (save(currPage, file)) {
             currPage.fi = file
             currPage.title = file.nameWithoutExtension()
@@ -792,7 +599,7 @@ class CalculatorDialog: BaseDialog("") {
                     deletePage(page)
                   }
                   else {
-                    tmi.util.showFileChooser(false, "shd") { file ->
+                    showFileChooser(false, "shd") { file ->
                       save(page, file)
                       deletePage(page)
                     }
@@ -834,7 +641,7 @@ class CalculatorDialog: BaseDialog("") {
     ) {
       hideMenu()
 
-      if (isRecent) pages.add(page)
+      if (isRecent) _pages.add(page)
       currPage = page
       buildView()
     }.grow().margin(4f).marginLeft(10f).marginRight(10f)
@@ -878,7 +685,7 @@ class CalculatorDialog: BaseDialog("") {
 
     sideTable.row()
     sideTable.button(Icon.infoCircle, Styles.clearNonei, 32f) {
-      showHelp()
+      showCalculatorHelp()
     }.padBottom(0f).size(40f).padBottom(8f)
   }
 
@@ -895,24 +702,15 @@ class CalculatorDialog: BaseDialog("") {
         }
 
         viewTable.add(viewPage.view).grow()
-      } catch (e: RecipeGraph.MissingModException) {
+      }
+      catch (e: RecipeGraph.MissingModException) {
         viewTable.table { t ->
           t.left().defaults().fill().left()
           t.add(Core.bundle["dialog.calculator.missingMod"]).fontScale(1.2f).color(Pal.accent)
           t.row()
           val mods = e.requiredMods.joinToString(";\n")
           t.add(Core.bundle.format("dialog.calculator.mods", mods))
-        }.fill()
-      } catch (e: Exception) {
-        Log.err(e)
-        viewTable.table{ t ->
-          t.left().defaults().fill().left()
-          t.add(Core.bundle["dialog.calculator.fileCorruption"]).fontScale(1.2f).color(Color.crimson)
-          t.row()
-          t.pane{ p ->
-            p.add(e.stackTraceToString()).padTop(8f)
-          }
-        }.fill()
+        }
       }
     }
     else {
@@ -1029,18 +827,19 @@ class CalculatorDialog: BaseDialog("") {
 
   //Handles
   private fun setCurrPage(page: ViewPage?){
-    if (page != null && !pages.contains(page)) throw IllegalArgumentException("No such page existed in dialog, please create this page first")
+    if (page != null && !_pages.contains(page)) throw IllegalArgumentException("No such page existed in dialog, please create this page first")
     currPage = page
+    CalculatorLayout.resetPolicy()
     buildView()
   }
 
-  private fun createNewPage(
+  fun createNewPage(
     fi: Fi? = null,
     title: String = fi?.nameWithoutExtension() ?: "untitled",
     activate: Boolean = true,
   ) = ViewPage(fi, title){ CalculatorView() }
     .also { page ->
-      pages.add(page)
+      _pages.add(page)
 
       if (fi != null) addRecentPage(fi)
 
@@ -1048,7 +847,7 @@ class CalculatorDialog: BaseDialog("") {
       setCurrPage(page)
     }
 
-  private fun save(page: ViewPage, fi: Fi): Boolean {
+  fun save(page: ViewPage, fi: Fi): Boolean {
     if (page.view.save(fi)) {
       addRecentPage(fi)
       return true
@@ -1057,9 +856,9 @@ class CalculatorDialog: BaseDialog("") {
     return false
   }
 
-  private fun openFile(){
-    tmi.util.showFileChooser(true, "shd") { file ->
-      val existed = pages.find { it.fi == file }
+  fun openFile(){
+    showFileChooser(true, "shd") { file ->
+      val existed = _pages.find { it.fi == file }
       if (existed == null){
         createNewPage(file)
       }
@@ -1070,11 +869,11 @@ class CalculatorDialog: BaseDialog("") {
     }
   }
 
-  private fun deletePage(page: ViewPage) {
-    val index = pages.indexOf(page)
-    pages.remove(index)
+  fun deletePage(page: ViewPage) {
+    val index = _pages.indexOf(page)
+    _pages.removeAt(index)
     if (page == currPage){
-      setCurrPage(if (pages.isEmpty) null else pages[max(index - 1, 0)])
+      setCurrPage(if (_pages.isEmpty()) null else _pages[max(index - 1, 0)])
     }
     page.reset()
   }

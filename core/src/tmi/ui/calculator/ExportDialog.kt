@@ -13,6 +13,7 @@ import arc.util.*
 import mindustry.Vars
 import mindustry.gen.Tex
 import mindustry.graphics.Pal
+import mindustry.ui.FileChooser
 import mindustry.ui.Styles
 import mindustry.ui.dialogs.BaseDialog
 import tmi.graphic.ChunkedFrameBuffer

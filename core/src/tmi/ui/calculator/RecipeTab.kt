@@ -36,11 +36,13 @@ import tmi.ui.addEventBlocker
 import tmi.util.*
 import kotlin.math.ceil
 
+/**真身卡片的编辑器：方块、材料、产出、可选项 / 环境项以及产量都在这里编辑。
+ *
+ * 影子节点的卡片是另一个类（[ShadowTab]），它不参与编辑，所以只画方块与产出。*/
 class RecipeTab(
   override val node: RecipeGraphLayout.RecNode,
   val view: CalculatorView,
-  val isShadow: Boolean,
-): Table(), RecipeGraphElement, CalculatorDialog.TipsProvider {
+): Table(), RecipeGraphElement {
   val graphNode = node.targetNode
 
   private val allCells = Seq<RecipeItemCell>()
@@ -84,18 +86,22 @@ class RecipeTab(
     centerDown.refresh()
   }
 
-  override fun getTip(): String = Core.bundle["calculator.tips.shadowed"]
-  override fun tipValid(): Boolean = isShadow
+  /**产量 / 平衡数量变了之后刷新一遍：格子的文字是缓存的，卡片尺寸也可能跟着变。*/
+  fun refreshLayout() {
+    allCells.forEach { it.updateText() }
+
+    invalidate()
+    validate()
+    pack()
+  }
 
   fun setupEnvParameters(env: InputTable) {
-    if (isShadow) return
-
     env.clear()
     graphNode.recipe.materialGroups
       .filter { it.first().itemType == RecipeItemType.POWER }
       .forEach { p -> p.forEach { env.setFull(it) } }
 
-    if (node.contextDepth == 0) graphNode.balanceAmount = graphNode.targetAmount.toFloat()
+    if (node.isRoot) graphNode.balanceAmount = graphNode.targetAmount.toFloat()
 
     materialCells.values()
       .toSet()
@@ -113,36 +119,28 @@ class RecipeTab(
     allCells.forEach { it.updateText() }
   }
 
-  fun getRecipeCells() = allCells.toList()
-
   override fun centerOffset() = blockPos.value
 
-  override fun inputOffset(item: RecipeItem<*>): Vec2 {
-    val pos = materialPos.get(item)?:
-      throw IllegalArgumentException("This node item does not match to line item.")
+  override fun inputOffset(item: RecipeItem<*>): Vec2? = materialPos.get(item)?.value
+  override fun outputOffset(item: RecipeItem<*>): Vec2? = productionPos.get(item)?.value
 
-    return pos.value
-  }
-  override fun outputOffset(item: RecipeItem<*>): Vec2 {
-    val pos = productionPos.get(item)?:
-      throw IllegalArgumentException("This node item does not match to line item.")
-
-    return pos.value
-  }
-
-  override fun setupInputOverListener(line: CalculatorView.LinkLine) {
+  override fun setupInputOverListener(line: CalculatorLayout.LinkLine) {
     val item = line.item
-    val node = materialCells.get(item)?:
-      throw IllegalArgumentException("This node item does not match to line item.")
+    val node = materialCells.get(item) ?: run {
+      CalculatorLayout.warnOnce("No such input line found with item：${item.name}")
+      return
+    }
 
     node.enterSt { line.isOver = true }
     node.exitSt { line.isOver = false }
   }
 
-  override fun setupOutputOverListener(line: CalculatorView.LinkLine) {
+  override fun setupOutputOverListener(line: CalculatorLayout.LinkLine) {
     val item = line.item
-    val node = productionCells.get(item)?:
-      throw IllegalArgumentException("This node item does not match to line item.")
+    val node = productionCells.get(item) ?: run {
+      CalculatorLayout.warnOnce("No such output line found with item：${item.name}")
+      return
+    }
 
     node.enterSt { line.isOver = true }
     node.exitSt { line.isOver = false }
@@ -150,7 +148,7 @@ class RecipeTab(
 
   private fun buildCell(type: CellType, vararg groupItems: RecipeItemStack<*>) =
     object: RecipeItemCell(type, *groupItems, clickListener = { stack, type, mode ->
-      if (!isShadow) cellCallback(type, stack, groupItems, mode)
+      cellCallback(type, stack, groupItems, mode)
     }), CalculatorDialog.TipsProvider{
       override fun getTip(): String {
         val input = if (Vars.mobile) "mobile" else "desktop"
@@ -175,10 +173,6 @@ class RecipeTab(
   ) {
     cell.addEventBlocker()
     allCells.add(cell)
-
-    if (isShadow) {
-      cell.isDisabled = true
-    }
 
     val posProv = wrap {
       val cent = Vec2(cell.width/2f, cell.height/2f)
@@ -263,37 +257,24 @@ class RecipeTab(
     groupItems: Array<out RecipeItemStack<*>>,
     mode: RecipesDialog.Mode,
   ) {
-    when {
-      type == MATERIAL
-      && TooManyItems.recipesManager.anyProduction(stack.item)
-      && stack.itemType != RecipeItemType.POWER -> {
+    when (type) {
+      MATERIAL
+        if TooManyItems.recipesManager.anyProduction(stack.item)
+           && stack.itemType != RecipeItemType.POWER -> {
         if (mode != RecipesDialog.Mode.RECIPE) {
-          resetLockedItem()
-          graphNode.disInput(stack.item)
-          view.graphUpdated()
+          view.commitTransaction(CalculatorTransactions.DisconnectInput(view, graphNode, stack.item))
         }
         else {
-          view.showRecipeSelector(this, stack.item, graphNode)
+          view.showRecipeSelector(stack.item, graphNode)
         }
       }
-      type == OPTIONAL -> {
+      OPTIONAL -> {
         // Should update the graph structure with optional items. (switch)
-        if (!graphNode.optionals.contains(stack.item) && mode == RecipesDialog.Mode.RECIPE) {
-          graphNode.optionals.add(stack.item)
-          setChosenItem(stack.item)
+        val enable = !graphNode.optionals.contains(stack.item) && mode == RecipesDialog.Mode.RECIPE
 
-          view.graphUpdated()
-        }
-        else {
-          resetLockedItem()
-          graphNode.optionals.remove(stack.item)
-
-          graphNode.disInput(stack.item)
-
-          view.graphUpdated()
-        }
+        view.commitTransaction(CalculatorTransactions.SetOptional(view, graphNode, stack.item, enable))
       }
-      type == ATTRIBUTE -> {
+      ATTRIBUTE -> {
         if (mode != RecipesDialog.Mode.RECIPE) {
           if (groupItems.size == 1) {
             TmiUI.recipesDialog.showWith {
@@ -301,32 +282,28 @@ class RecipeTab(
             }
           }
           else {
-            resetLockedItem()
-            graphNode.attributes.remove(stack.item)
-            view.balanceUpdated()
+            view.commitTransaction(CalculatorTransactions.SetAttribute(
+              view, graphNode, stack.item, groupItems.map { it.item }, false
+            ))
           }
         }
         else {
-          chosenItem?.also { graphNode.attributes.remove(it) }
-
-          setChosenItem(stack.item)
-          graphNode.attributes.add(stack.item)
-          view.balanceUpdated()
+          view.commitTransaction(CalculatorTransactions.SetAttribute(
+            view, graphNode, stack.item, groupItems.map { it.item }
+          ))
         }
       }
-      type == BLOCK && mode != RecipesDialog.Mode.RECIPE -> {
-        graphNode.remove()
-        view.graphUpdated()
+      BLOCK if mode != RecipesDialog.Mode.RECIPE -> {
+        view.commitTransaction(CalculatorTransactions.RemoveRecipeCard(view, graphNode))
       }
-      type == PRODUCTION && mode != RecipesDialog.Mode.RECIPE -> {
+      PRODUCTION if mode != RecipesDialog.Mode.RECIPE -> {
         TmiUI.recipesDialog.showWith {
           setCurrSelecting(stack.item, RecipesDialog.Mode.USAGE, true)
           setFilter { it.recipeType != RecipeType.building }
           callbackRecipe(Icon.add) {
-            val node = RecipeGraphNode(it)
-            view.graph.addNode(node)
-            view.linkExisted(node)
-            view.graphUpdated()
+            view.commitTransaction(
+              CalculatorTransactions.AddRecipeCard(view, RecipeGraphNode(it))
+            )
             hide()
           }
         }
@@ -351,13 +328,11 @@ class RecipeTab(
     val optionals = mats.filter { it.first().isOptional }
     val nonOptionals = mats.filter { !it.first().isOptional }
 
-    val realMats = if (isShadow) emptyList() else {
-      nonOptionals + optionals.map {
-        listOfNotNull(it.find { s ->
-          graphNode.optionals.contains(s.item) || graphNode.hasInput(s.item)
-        })
-      }.filter { it.isNotEmpty() }
-    }
+    val realMats = nonOptionals + optionals.map {
+      listOfNotNull(it.find { s ->
+        graphNode.optionals.contains(s.item) || graphNode.hasInput(s.item)
+      })
+    }.filter { it.isNotEmpty() }
 
     val attrs = materials.filter { it.first().itemType == RecipeItemType.ATTRIBUTE }
     val prod = productions.filter { it.itemType != RecipeItemType.POWER }
@@ -447,12 +422,12 @@ class RecipeTab(
     }).height(64f).fill()
     row()
     table{ center ->
-      val t = center.table(if (isShadow) Tex.buttonDisabled else Consts.darkGrayUI){ cent ->
+      val t = center.table(Consts.darkGrayUI){ cent ->
         cent.table { c ->
           val cell = buildCell(BLOCK, blockStack)
           c.add(cell).size(80f).pad(8f)
 
-          if (graphNode.contextDepth > 0) {
+          if (!node.isRoot) {
             c.table { amount ->
               amount.add("").update {
                 if (graphNode.balanceAmount > 0) it.setText("${ceil(graphNode.balanceAmount).toInt()}x")
@@ -468,8 +443,10 @@ class RecipeTab(
             num.field(graphNode.targetAmount.toString(), TextField.TextFieldStyle(Styles.defaultField)) { str ->
               if (str.isBlank()) return@field
               val a = str.toIntOrNull()?.let { if (it > 10000) 0 else it } ?: 0
-              graphNode.targetAmount = a
-              view.balanceUpdated()
+
+              if (a != graphNode.targetAmount) view.commitTransaction(
+                CalculatorTransactions.SetTargetAmount(view, graphNode, a)
+              )
             }.width(80f).update {
               if (it.text.isBlank()) return@update
               val a = it.text.toIntOrNull()
@@ -498,13 +475,6 @@ class RecipeTab(
               attr.add(cell).size(64f).pad(8f).margin(6f).get().setFontScl(0.8f)
             }
           }.pad(-4f)
-        }
-
-        if (isShadow) {
-          cent.fill { over ->
-            over.top().left()
-            over.image(Icon.copy).size(42f).pad(8f)
-          }
         }
       }.margin(8f).get()
 
