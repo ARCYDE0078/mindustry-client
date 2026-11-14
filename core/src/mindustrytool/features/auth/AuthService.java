@@ -1,6 +1,5 @@
 package mindustrytool.features.auth;
 
-import java.net.SocketTimeoutException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
@@ -39,6 +38,11 @@ public class AuthService {
 
     private CompletableFuture<Boolean> refreshFuture;
     private CompletableFuture<Void> loginFuture;
+    /* Отмена входа кнопкой диалога: без флага опрос login-token продолжал бы жить до 5 минут и, получив токены,
+     * молча залогинил бы пользователя, который нажал "Отмена" */
+    private volatile boolean loginCancelled = false;
+    /* id входа, чей диалог сейчас на экране: завершение СТАРОГО опроса не должно закрывать диалог нового входа */
+    private volatile String activeLoginId;
     private AuthLoginDialog loginDialog;
     private Table authWindow;
 
@@ -67,8 +71,7 @@ public class AuthService {
             Instant expiry = Instant.ofEpochMilli(Core.settings.getLong(KEY_LOGIN_EXPIRY, 0));
 
             if (expiry.isBefore(Instant.now())) {
-                Core.settings.remove(KEY_LOGIN_ID);
-                Core.settings.remove(KEY_LOGIN_EXPIRY);
+                clearPendingLoginKeys();
             } else {
                 pollLoginToken(logindId).exceptionally(e -> {
                     Log.err("Background login polling failed", e);
@@ -181,7 +184,9 @@ public class AuthService {
             return loginFuture;
         }
 
+        loginCancelled = false;
         loginFuture = new CompletableFuture<>();
+        CompletableFuture<Void> thisLogin = loginFuture;
 
         if (loginDialog == null) {
             loginDialog = new AuthLoginDialog(this);
@@ -197,7 +202,7 @@ public class AuthService {
                 .error(err -> {
                     Core.app.post(() -> {
                         loginDialog.hide();
-                        loginFuture.completeExceptionally(new RuntimeException("Failed to get login URI", err));
+                        thisLogin.completeExceptionally(new RuntimeException("Failed to get login URI", err));
                     });
                 })
                 .submit(res -> {
@@ -207,29 +212,42 @@ public class AuthService {
                         String loginUrl = json.getString("loginUrl");
                         String loginId = json.getString("loginId");
 
+                        //пока шёл запрос ссылки, пользователь мог нажать "Отмена" - тогда вход начинать не надо
+                        if (loginCancelled || thisLogin.isDone()) {
+                            return;
+                        }
+
                         Core.app.post(() -> {
                             loginDialog.showLoginUrl(loginUrl);
                         });
 
                         Core.settings.put(KEY_LOGIN_ID, loginId);
                         Core.settings.put(KEY_LOGIN_EXPIRY, Instant.now().plus(Duration.ofMinutes(5)).toEpochMilli());
+                        activeLoginId = loginId;
 
                         // Start polling for token
-                        pollLoginToken(loginId).whenComplete((v, e) -> {
-                            if (e != null) {
-                                loginFuture.completeExceptionally(e);
-                            } else {
-                                loginFuture.complete(null);
+                        pollWithRetry(loginId, true).whenComplete((v, e) -> {
+                            boolean current = loginId.equals(activeLoginId);
+                            if (current) {
+                                activeLoginId = null;
                             }
-                            Core.app.post(() -> loginDialog.hide());
+
+                            if (e != null) {
+                                thisLogin.completeExceptionally(e);
+                            } else {
+                                thisLogin.complete(null);
+                            }
+
+                            if (current) {
+                                Core.app.post(() -> loginDialog.hide());
+                            }
                         });
 
-                        if (!Core.app.openURI(loginUrl)) {
-                            Core.app.setClipboardText(loginUrl);
-                        }
+                        openLoginUrl(loginUrl);
 
                     } catch (Exception e) {
-                        loginFuture.completeExceptionally(new RuntimeException("Failed to start login flow", e));
+                        activeLoginId = null;
+                        thisLogin.completeExceptionally(new RuntimeException("Failed to start login flow", e));
                         Core.app.post(() -> loginDialog.hide());
                     }
                 });
@@ -237,37 +255,114 @@ public class AuthService {
         return loginFuture;
     }
 
-    void cancelLogin() {
+    /** Открывает ссылку входа в браузере; если не вышло (Android без браузера, sandbox) - копирует в буфер. */
+    private void openLoginUrl(String loginUrl) {
+        try {
+            if (Core.app.openURI(loginUrl)) {
+                return;
+            }
+        } catch (Throwable t) {
+            Log.warn("Failed to open login URI via browser", t);
+        }
+
+        try {
+            Core.app.setClipboardText(loginUrl);
+            Core.app.post(() -> Vars.ui.showInfoFade(Core.bundle.get("auth.login.browser-fallback")));
+        } catch (Throwable t) {
+            Log.err("Failed to copy login URI to clipboard", t);
+        }
+    }
+
+    synchronized void cancelLogin() {
         if (loginFuture != null && !loginFuture.isDone()) {
+            loginCancelled = true;
+            activeLoginId = null;
+            //id входа в настройках пережил бы перезапуск и init() снова стал бы опрашивать отменённый вход
+            clearPendingLoginKeys();
             loginFuture.completeExceptionally(new RuntimeException("Login cancelled"));
         }
     }
 
+    private void clearPendingLoginKeys() {
+        Core.settings.remove(KEY_LOGIN_ID);
+        Core.settings.remove(KEY_LOGIN_EXPIRY);
+    }
+
     private CompletableFuture<Void> pollLoginToken(String loginId) {
+        return pollWithRetry(loginId, false);
+    }
+
+    private CompletableFuture<Void> pollWithRetry(String loginId, boolean cancellable) {
         CompletableFuture<Void> future = new CompletableFuture<>();
+        long expiry = Core.settings.getLong(KEY_LOGIN_EXPIRY, 0);
+        long expiryMillis = expiry > 0 ? expiry : Instant.now().plus(Duration.ofMinutes(5)).toEpochMilli();
+
+        pollAttempt(loginId, expiryMillis, future, cancellable);
+        return future;
+    }
+
+    /**
+     * Одна попытка опроса login-token. Раньше любой сбой (таймаут long-poll, 5xx, обрыв сети, пока пользователь
+     * ещё входит в браузере) убивал весь вход; теперь повторяем каждые 2 с до истечения срока входа и сдаёмся
+     * сразу только на окончательных 4xx.
+     */
+    private void pollAttempt(String loginId, long expiryMillis, CompletableFuture<Void> future, boolean cancellable) {
+        if (future.isDone()) {
+            return;
+        }
+
+        if (cancellable && loginCancelled) {
+            future.completeExceptionally(new RuntimeException("Login cancelled"));
+            return;
+        }
+
+        String stored = Core.settings.getString(KEY_LOGIN_ID, null);
+        if (stored == null || !stored.equals(loginId)) {
+            //id заменили новым входом или вышли - этот опрос уже никому не нужен
+            future.completeExceptionally(new RuntimeException(Core.bundle.get("auth.login.failed")));
+            return;
+        }
+
+        if (Instant.now().toEpochMilli() >= expiryMillis) {
+            clearPendingLoginKeys();
+            future.completeExceptionally(new RuntimeException(Core.bundle.get("auth.login.timeout")));
+            return;
+        }
 
         Http.get(Config.API_v4_URL + "auth/app/login-token?loginId=" + loginId)
+                .timeout(60 * 1000)
                 .error(e -> {
-                    if (e instanceof SocketTimeoutException) {
-                        future.completeExceptionally(e);
+                    if (future.isDone()) {
                         return;
                     }
 
-                    Core.settings.remove(KEY_LOGIN_ID);
-                    future.completeExceptionally(new RuntimeException("Failed to get login token", e));
+                    if (isTerminalLoginError(e)) {
+                        clearPendingLoginKeys();
+                        future.completeExceptionally(new RuntimeException("Failed to get login token", e));
+                    } else if (Instant.now().toEpochMilli() >= expiryMillis) {
+                        clearPendingLoginKeys();
+                        future.completeExceptionally(new RuntimeException(Core.bundle.get("auth.login.timeout"), e));
+                    } else {
+                        schedulePollRetry(loginId, expiryMillis, future, cancellable);
+                    }
                 })
-                .timeout(60 * 1000)
                 .submit(res -> {
-                    try {
-                        Core.settings.remove(KEY_LOGIN_ID);
+                    if (future.isDone()) {
+                        return;
+                    }
 
+                    try {
                         Jval json = Jval.read(res.getResultAsString());
 
                         if (json.has("accessToken") && json.has("refreshToken")) {
-                            String accessToken = json.getString("accessToken");
-                            String refreshToken = json.getString("refreshToken");
+                            //пользователь нажал "Отмена", пока ответ был в пути - токены не сохраняем
+                            if (cancellable && loginCancelled) {
+                                future.completeExceptionally(new RuntimeException("Login cancelled"));
+                                return;
+                            }
 
-                            saveTokens(accessToken, refreshToken);
+                            saveTokens(json.getString("accessToken"), json.getString("refreshToken"));
+                            clearPendingLoginKeys();
 
                             fetchSession().whenComplete((v, e) -> {
                                 if (e != null) {
@@ -277,14 +372,32 @@ public class AuthService {
                                     future.complete(null);
                                 }
                             });
+                        } else if (Instant.now().toEpochMilli() >= expiryMillis) {
+                            clearPendingLoginKeys();
+                            future.completeExceptionally(new RuntimeException(Core.bundle.get("auth.login.timeout")));
                         } else {
-                            future.completeExceptionally(new RuntimeException("Invalid response: missing tokens"));
+                            //ответ без токенов = пользователь ещё не подтвердил вход в браузере
+                            schedulePollRetry(loginId, expiryMillis, future, cancellable);
                         }
                     } catch (Exception e) {
                         future.completeExceptionally(e);
                     }
                 });
-        return future;
+    }
+
+    private void schedulePollRetry(String loginId, long expiryMillis, CompletableFuture<Void> future,
+            boolean cancellable) {
+        Timer.schedule(() -> pollAttempt(loginId, expiryMillis, future, cancellable), 2);
+    }
+
+    /** 4xx (кроме 408 "запрос слишком долгий") - сервер сказал "нет" окончательно, повтор ничего не изменит. */
+    private boolean isTerminalLoginError(Throwable err) {
+        if (err instanceof HttpStatusException httpError && httpError.status != null) {
+            int code = httpError.status.code;
+            return code >= 400 && code < 500 && code != 408;
+        }
+
+        return false;
     }
 
     public void saveTokens(String accessToken, String refreshToken) {
@@ -403,7 +516,9 @@ public class AuthService {
                             Log.info("Remove tokens");
                         }
 
-                        Log.err(httpError.response.getResultAsString());
+                        if (httpError.response != null) {
+                            Log.err(httpError.response.getResultAsString());
+                        }
                     }
                     refreshFuture.completeExceptionally(err);
                 })
