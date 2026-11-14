@@ -87,22 +87,22 @@ object Main : ApplicationListener {
         // same way and for the same reason - see CampaignUtilsMod's own javadoc.
         guarded("campaignutils") { CampaignUtilsMod() }
 
-        // Port of the third-party "QoL Control" mod's REMAINDER (most of it already exists as
+        // Port of the third-party "QoL Control" mod's REMAINDER (v7.12) (most of it already exists as
         // qol-suite/EUI/native features) - see QolControlMod's javadoc for the full inventory.
         guarded("qolc") { QolControlMod() }
 
-        // Port of the third-party "MI2-Utilities Java" mod (BlackDeluxeCat, v1.15.2) - Mindow2
+        // Port of the third-party "MI2-Utilities Java" mod (BlackDeluxeCat, v1.16.2) - Mindow2
         // window framework, zone/distribution rendering, Core Info, FullAI, Logic Helper etc.
         // See MI2UMod's javadoc for the adaptation notes and the self-disable guard.
         guarded("mi2u") { MI2UMod() }
 
-        // Port of the third-party "Agzam's Mod" (Agzam4, v155.4.a) REMAINDER - industry calculator,
+        // Port of the third-party "Agzam's Mod" (Agzam4, v160.7.b) REMAINDER - industry calculator,
         // processor/display generators, unit spawner, AFK auto-reply, custom light render, unlocks,
         // chat gradient. See AgzamMod's javadoc for the full skip-list (most of the mod already
         // exists natively or via qol/eui/mi2u).
         guarded("agzam4") { AgzamMod() }
 
-        // Port of the third-party "Scheme Size Port" mod (00SunRay00/RE2b2m22 v2.2.0) REMAINDER -
+        // Port of the third-party "Scheme Size Port" mod (00SunRay00/RE2b2m22 v3.0.0) REMAINDER -
         // admin tools (unit spawn/team switch/effects/items/teleport), Rule Setter, building tools
         // (fill/square/circle/replace/chain-remove/power-connect), schematic layers, renderer
         // extras (x-ray/grid/ruler), wave-approaching alert. See SchemeSizeMod's javadoc for the
@@ -148,7 +148,7 @@ object Main : ApplicationListener {
         // (sonkaextras.campaign.CampaignProfiles, раздел «Маркер» в javadoc); сам диалог - по кнопкам
         sonkaextras.campaign.CampaignProfiles.init()
 
-        // Port of the third-party "Helium" mod (EB-wilson, beta-1.6) SELECTION - gauss-blur UI
+        // Port of the third-party "Helium" mod (EB-wilson, beta-1.7) SELECTION - gauss-blur UI
         // background, quick block palette in the placement panel, reworked mods manager/browser.
         // Attack/effect range outlines and shield stacks deliberately skipped (sonka's call) -
         // see HeliumMod's javadoc for the adaptation notes and the self-disable guard.
@@ -189,7 +189,7 @@ object Main : ApplicationListener {
         // which HUD panel is shown. See TestUtilsMod's javadoc for the inventory and skip-list.
         guarded("testing") { testing.TestUtilsMod() }
 
-        // Port of the third-party "Too Many Items" mod (EB-wilson, v3.2, Kotlin) - NEI/JEI-style
+        // Port of the third-party "Too Many Items" mod (EB-wilson, v3.3, Kotlin) - NEI/JEI-style
         // recipe browser (what produces X / where X is used / what a factory does, all vanilla
         // block types parsed, mod recipe API kept) plus the Schematic Calculator (recipe-graph
         // planner with balancing, statistics, PNG/text export). UniverseKit markdown/reflection
