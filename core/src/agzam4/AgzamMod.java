@@ -22,7 +22,7 @@ import mindustry.input.Binding;
 import mindustry.world.Tile;
 
 /**
- * Порт мода "Agzam's Mod" (Agzam4, v155.4.a) как нативный пакет клиента - оркестратор по образцу
+ * Порт мода "Agzam's Mod" (Agzam4, v155.4.a, обновлён до v160.7.b) как нативный пакет клиента - оркестратор по образцу
  * {@link qol.QolSuiteMod}/{@link mi2u.MI2UMod}: конструктор вызывается из mindustry.client.Main.init()
  * ДО Events.fire(ClientLoadEvent), вся инициализация - внутри ClientLoadEvent (контент и UI готовы).
  * <p>

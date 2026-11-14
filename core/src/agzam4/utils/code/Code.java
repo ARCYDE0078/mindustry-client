@@ -166,6 +166,14 @@ public class Code {
 		line("draw triangle " + xs[0] + " " + ys[0] + " " + xs[1] + " " + ys[1] + " " + xs[2] + " " + ys[2]);
 	}
 
+	public void drawPoly(int x, int y, int sides, int radius, int rotation) {
+		line("draw poly " + x + " " + y + " " + sides + " " + radius + " " + rotation + " 0");
+	}
+
+	public void control(String type, String var, String value) {
+		line("control " + type + " " + var + " " + value + " 0 0 0");
+	}
+
 	public void drawflush(String display) {
 		line("drawflush " + display);
 	}

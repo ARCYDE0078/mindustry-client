@@ -1,0 +1,131 @@
+package agzam4.flow.metric.collectors;
+
+import agzam4.ModWork;
+import agzam4.flow.metric.ClassRegistry;
+import agzam4.flow.metric.metrics.HeatMetric;
+import agzam4.flow.metric.metrics.ItemsMetric;
+import agzam4.flow.metric.metrics.LiquidMetric;
+import agzam4.flow.metric.metrics.Metrics;
+import agzam4.flow.metric.metrics.PowerMetrics;
+import arc.util.Strings;
+import mindustry.content.Blocks;
+import mindustry.entities.units.BuildPlan;
+import mindustry.gen.Building;
+import mindustry.world.Block;
+
+public class BlockCollector<T extends Block, B extends Building> {
+
+	public Metrics metrics;
+	
+	/** May be changed */
+	public ClassRegistry<ConsumeCollector<?>> consumersRegistry;
+
+	protected PowerMetrics power;
+	protected ItemsMetric items;
+	protected LiquidMetric liquids;
+	protected HeatMetric heat; // TODO: remove
+
+	
+	public BlockCollector() {
+		
+	}
+	
+	public void setupMetric() {
+		items = metrics.get(ItemsMetric.class);
+		liquids = metrics.get(LiquidMetric.class);
+		power = metrics.get(PowerMetrics.class);
+		heat = metrics.get(HeatMetric.class);
+	}
+
+	@SuppressWarnings("unchecked")
+	public final void from(Building building) {
+		collect((B) building);
+	}
+
+	@SuppressWarnings("unchecked")
+	public final void from(BuildPlan plan) {
+		collect((T) plan.block, plan.x, plan.y, plan.rotation, plan.config);
+	}
+	
+	@SuppressWarnings("unchecked")
+	public final void from(Block block, int x, int y, int rotation, Object config) {
+		collect((T) block, x, y, rotation, config);
+	}
+
+	protected void collect(T block, int x, int y, int rotation, Object config) {
+		float craftSpeed = ModWork.getCraftSpeed(block, x, y, config);
+		// FIXME: consume generator is wrong
+		ModWork.consumeBlock(block, x, y, config, craftSpeed, items::sub, liquids::sub, power::sub, heat::sub);
+		ModWork.produceBlock(block, x, y, config, craftSpeed, items::add, liquids::add, power::add, heat::add);
+	}
+
+	protected void collect(B building) {
+		produce(building);
+		consume(building);
+	}
+
+	protected void produce(B building) {
+		producePower(building);
+	}
+
+	protected void consume(B building) {
+		consumeConsumers(building);
+	}
+
+	protected void consumeConsumers(B building) {
+		float scale = consumersScale(building);
+		for (int i = 0; i < building.block.consumers.length; i++) {
+			var cons = building.block.consumers[i];
+			var cc = consumersRegistry.get(cons.getClass());
+			if(cc == null) continue;
+			cc.from(cons, building, scale);
+		}
+	}
+	
+	protected void producePower(B building) {
+		power.power += building.getPowerProduction() * 60 * building.timeScale();
+	}
+	
+	@SuppressWarnings("unchecked")
+	public final T block(B buiding) {
+		return (T) buiding.block;
+	}
+	
+	
+	/**
+	 * Used for consumer called by Building::consume (BuildingComp::consume)
+	 */
+	protected float consumersScale(B building) {
+		return building.timeScale();
+	}
+
+	protected String debug(B building) {
+		float scale = consumersScale(building);
+		StringBuilder builder = new StringBuilder();
+		builder.append("[stat]consumers:[] ").append(building.block.consumers.length);
+		builder.append("[stat]consumersScale:[] ").append(scale);
+		for (int i = 0; i < building.block.consumers.length; i++) {
+			var cons = building.block.consumers[i];
+			var cc = consumersRegistry.get(cons.getClass());
+			if(cc == null) continue;
+			builder.append("\n").append(cc.getClass().getSimpleName()).append(": ").append(cc.debugFrom(cons, building, scale));
+		}
+		return builder.toString();
+	}
+	
+	protected String debug(T block) {
+		return "";
+	}
+	
+	@SuppressWarnings("unchecked")
+	public String debugBuilding(Building building) {
+		if(building == null) return "";
+		return debug((B)building);
+	}
+
+	@SuppressWarnings("unchecked")
+	public String debugBlock(Block block) {
+		if(block == null) return "";
+		return debug((T)block);
+	}
+}

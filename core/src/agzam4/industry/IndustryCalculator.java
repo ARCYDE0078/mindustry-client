@@ -2,12 +2,15 @@ package agzam4.industry;
 
 import static agzam4.ModWork.*;
 
+import java.util.Arrays;
+
 import agzam4.ModWork;
-import agzam4.ModWork.KeyBinds;
-import agzam4.utils.Bungle;
-import agzam4.utils.Prefs;
+import agzam4.flow.metric.Collectors;
 import agzam4.render.MyDraw;
 import agzam4.render.Text;
+import agzam4.utils.Bungle;
+import agzam4.utils.Prefs;
+import agzam4.ModWork.KeyBinds;
 import arc.Core;
 import arc.Events;
 import arc.func.Cons;
@@ -24,19 +27,20 @@ import arc.struct.Seq;
 import arc.util.*;
 import arc.util.pooling.Pools;
 import mindustry.Vars;
+import mindustry.content.Blocks;
 import mindustry.core.World;
 import mindustry.entities.units.BuildPlan;
 import mindustry.game.EventType.*;
 import mindustry.gen.Building;
 import mindustry.gen.*;
 import mindustry.graphics.*;
+import mindustry.logic.LAccess;
 import mindustry.logic.LExecutor;
+import mindustry.logic.LVar;
 import mindustry.type.*;
 import mindustry.ui.Fonts;
 import mindustry.world.*;
 import mindustry.world.blocks.ConstructBlock.ConstructBuild;
-import mindustry.world.blocks.defense.turrets.*;
-import mindustry.world.blocks.defense.turrets.BaseTurret.BaseTurretBuild;
 import mindustry.world.blocks.production.*;
 import mindustry.world.blocks.production.Drill.DrillBuild;
 import mindustry.world.blocks.heat.HeatProducer;
@@ -44,22 +48,23 @@ import mindustry.world.blocks.logic.LogicBlock.LogicBuild;
 import mindustry.world.blocks.logic.LogicDisplay.LogicDisplayBuild;
 import mindustry.world.blocks.logic.MemoryBlock.MemoryBuild;
 import mindustry.world.blocks.power.HeaterGenerator;
-import mindustry.world.consumers.Consume;
 
 /**
  * Флагман Agzam's Mod - "промышленный калькулятор":
  * <ul>
  * <li>выделение построек прямоугольником (бинд "selection", по умолчанию G; "clear-selection" - Q)
- *     с онлайн-балансом предметов/жидкостей/энергии/тепла в правом верхнем углу, включая ДПС турелей
- *     и подсказки "сколько буров/помп/крафтеров нужно, чтобы закрыть дефицит";</li>
+ *     с онлайн-балансом предметов/жидкостей/энергии/тепла/нагрузки payload в правом верхнем углу,
+ *     включая ДПС турелей и подсказки "сколько буров/помп/крафтеров нужно, чтобы закрыть дефицит";</li>
  * <li>учёт планов строительства в балансе (buildplans-calculations);</li>
  * <li>тултип блока под курсором (show-blocks-tooltip): потребление/производство в секунду,
  *     подсветка жилы бура, буфер логических дисплеев/процессоров, остаток стройматериалов;</li>
  * <li>цифра здоровья постройки под курсором (show-units-health - ключ оригинала).</li>
  * </ul>
- * Адаптация: выброшен debug-инспектор объектов (Debug/ObjectInspector не портированы), обёртка
- * Events мода заменена на arc.Events (вшитой копии нечего отписывать). ВАЖНО: класс нельзя
- * инициализировать до загрузки контента - статические массивы размечаются по Vars.content.
+ * Расчёт ведёт система сборщиков {@code agzam4.flow.metric} (по сборщику на класс блока и на тип
+ * потребителя), а не прежняя россыпь {@link ModWork}.produce/consume*.
+ * Адаптация: выброшен debug-инспектор объектов и отладочный вывод сборщиков (Debug/ObjectInspector
+ * не портированы), обёртка Events мода заменена на arc.Events (вшитой копии нечего отписывать).
+ * ВАЖНО: класс нельзя инициализировать до загрузки контента - статические массивы размечаются по Vars.content.
  */
 public class IndustryCalculator {
 
@@ -68,24 +73,48 @@ public class IndustryCalculator {
 	private static final IntQueue drillOres = new IntQueue(128);
 	private static final IntSet drillPositions = new IntSet(128);
 
-	private static final Seq<Drill> drills = ModWork.getBlocks(Drill.class);
-	private static final Seq<Pump> pumps = ModWork.getBlocks(Pump.class);
-	private static final Seq<HeaterGenerator> heatGenerators = ModWork.getBlocks(HeaterGenerator.class);
-	private static final Seq<HeatProducer> heatProducers = ModWork.getBlocks(HeatProducer.class);
-
-	private static final Seq<Block>[] crafters = createCrafters();
-	private static final Seq<Block>[] liquidCrafters = createLiquidCrafters();
-
+	private static Seq<Drill> drills = ModWork.getBlocks(Drill.class);
+	private static Seq<Pump> pumps = ModWork.getBlocks(Pump.class);
+	private static Seq<HeaterGenerator> heatGenerators = ModWork.getBlocks(HeaterGenerator.class);
+	private static Seq<HeatProducer> heatProducers = ModWork.getBlocks(HeatProducer.class);
+	
+	private static Seq<Block>[] crafters = createCrafters();
+	private static Seq<Block>[] liquidCrafters = createLiquidCrafters();
+	
 	/** Жидкости, которые в принципе можно добыть помпами на текущей карте. */
 	public static boolean[] hasLiquid = new boolean[Vars.content.liquids().size];
-
-	static BalanceFragment balanceFragment;
-
+	
+	private static BalanceFragment balanceFragment;
+	public static AveragedItemsMetrics items;
+	public static AveragedLiquidsMetrics liquids;
+	
 	public static void init() {
+		{
+			items = new AveragedItemsMetrics(60);
+			liquids = new AveragedLiquidsMetrics(60);
+			Collectors.items = items;
+			Collectors.liquids = liquids;
+			Collectors.init();
+		}
+		
 		balanceFragment = new BalanceFragment();
 		balanceFragment.build();
+		
+		Events.on(DataPatchLoadEvent.class, e -> {
+			
+		});
 
 		Events.on(WorldLoadEndEvent.class, e -> {
+			if(hasLiquid.length != Vars.content.liquids().size) hasLiquid = new boolean[Vars.content.liquids().size]; // that can be got using pumps
+
+			drills = ModWork.getBlocks(Drill.class);
+			pumps = ModWork.getBlocks(Pump.class);
+			heatGenerators = ModWork.getBlocks(HeaterGenerator.class);
+			heatProducers = ModWork.getBlocks(HeatProducer.class);
+
+			crafters = createCrafters();
+			liquidCrafters = createLiquidCrafters();
+			
 			for (int i = 0; i < hasLiquid.length; i++) {
 				hasLiquid[i] = false;
 			}
@@ -103,6 +132,7 @@ public class IndustryCalculator {
 			}
 		});
 	}
+	
 
 	public static BuildTooltip buildTooltip = new BuildTooltip();
 
@@ -110,15 +140,16 @@ public class IndustryCalculator {
 		drawSelect();
 	}
 
+	private static LVar memoryIterator = new LVar("");
+	private static LVar memoryReader = new LVar("");
+	
 	public static void drawUi() {
-
-		buildTooltip.rebuild();
 
 		final float mouseX = Core.input.mouseWorldX();
 		final float mouseY = Core.input.mouseWorldY();
 		float drawX = mouseX;
 		float drawY = mouseY;
-
+		
 		Tile tile = Vars.world.tileWorld(mouseX, mouseY);
 		if(tile == null) return;
 		if(tile.build == null) return;
@@ -127,25 +158,19 @@ public class IndustryCalculator {
 		float multiplier = Vars.state.rules.blockHealthMultiplier*building.team.rules().blockHealthMultiplier;
 		float health = building.health()*multiplier;
 		float maxHealth = building.maxHealth()*multiplier;
-
+		
 		int index = ModWork.getGradientIndex(health, maxHealth);
-
+		
 		if(Prefs.settings.bool("show-units-health")) {
 			Text.size(1f);
 			Draw.color(rs[index], gs[index], bs[index]);
 			Text.at(ModWork.roundSimple(health), building.x, building.y + (building.block.size+1)*Vars.tilesize/2f, Align.center);
 		}
+		
 
 		if(building.team == Vars.player.team() && Prefs.settings.bool("show-blocks-tooltip")) {
 			Block block = building.block;
 
-			if(building instanceof ConstructBuild) {
-				ConstructBuild cb = (ConstructBuild) building;
-				buildTooltip.line(cb.current, "[white]" + cb.current.localizedName.toUpperCase());
-				ModWork.getRequired(cb, (item, amount) -> {
-					buildTooltip.line(item, "[white]" + amount);
-				});
-			}
 
 			if(building instanceof DrillBuild drill && drill.dominantItem != null) {
 				IntQueue ores = drillOres;
@@ -163,33 +188,33 @@ public class IndustryCalculator {
 				for (int i = 0; i < 128 && !ores.isEmpty(); i++) {
 					Tile ore = Vars.world.tile(ores.removeFirst());
 					if(ore == null) continue;
-					Draw.color(drill.dominantItem.color, .75f);
-					Fill.rect(ore.worldx(), ore.worldy(), Vars.tilesize, Vars.tilesize);
+			        Draw.color(drill.dominantItem.color, .75f);
+			        Fill.rect(ore.worldx(), ore.worldy(), Vars.tilesize, Vars.tilesize);
+			        
+			        right = Math.max(right, ore.worldx()+2f);
+			        top = Math.max(top, ore.worldy()-Vars.tilesize+2f);
 
-					right = Math.max(right, ore.worldx()+2f);
-					top = Math.max(top, ore.worldy()-Vars.tilesize+2f);
-
-					for (int a = 0; a < 4; a++) {
+			        for (int a = 0; a < 4; a++) {
 						Tile near = Vars.world.tile(ore.x + Geometry.d4x[a], ore.y + Geometry.d4y[a]);
 						if(near == null || near.drop() != drill.dominantItem) {
-							Draw.color(draker);
-							Fill.rect(
-									(ore.worldx()) + Geometry.d4x[a]*Vars.tilesize/2f,
-									(ore.worldy()) + Geometry.d4y[a]*Vars.tilesize/2f,
-									a%2==0 ? 1 : Vars.tilesize+1, a%2==0 ? Vars.tilesize+1 : 1);
-							continue;
+					        Draw.color(draker);
+					        Fill.rect(
+					        		(ore.worldx()) + Geometry.d4x[a]*Vars.tilesize/2f, 
+					        		(ore.worldy()) + Geometry.d4y[a]*Vars.tilesize/2f, 
+					        		a%2==0 ? 1 : Vars.tilesize+1, a%2==0 ? Vars.tilesize+1 : 1);
+					        continue;
 						}
 						if(positions.contains(near.pos())) continue;
-
+						
 						if(positions.size > 128) continue;
 						ores.addLast(near.pos());
 						positions.add(near.pos());
 					}
-					for (int a = 0; a < 4; a++) {
+			        for (int a = 0; a < 4; a++) {
 						Tile near = Vars.world.tile(ore.x + Geometry.d8edge[a].x, ore.y + Geometry.d8edge[a].y);
 						if(near == null || near.drop() != drill.dominantItem) continue;
 						if(positions.contains(near.pos())) continue;
-
+						
 						if(positions.size > 128) continue;
 						ores.addLast(near.pos());
 						positions.add(near.pos());
@@ -202,73 +227,20 @@ public class IndustryCalculator {
 			final float tootlipX = drawX;
 			final float tootlipY = drawY;
 
-			ModWork.getCraftSpeed(building, (craftSpeed, craftSpeedMultiplier) -> {
-				if(building instanceof ConstructBuild) {
-					Draw.z(Layer.playerName);
-					buildTooltip.draw(tootlipX, tootlipY);
-					return;
-				}
-
-				buildTooltip.line(block, "[white]" + block.localizedName.toUpperCase());
-
-				if(building instanceof LogicDisplayBuild) {
-					LogicDisplayBuild ldb = (LogicDisplayBuild) building;
-					buildTooltip.line("[gray]Commands buffer: [white]" + ldb.commands.size);
-					buildTooltip.line("[gray]Operations: [white]" + ldb.operations);
-				}
-				if(building instanceof MemoryBuild) {
-					MemoryBuild mb = (MemoryBuild) building;
-					int capacity = ((mindustry.world.blocks.logic.MemoryBlock) mb.block).memoryCapacity;
-					mindustry.logic.LVar position = new mindustry.logic.LVar("tmp");
-					mindustry.logic.LVar output = new mindustry.logic.LVar("tmp");
-					for (int i = 0; i < capacity; i++) {
-						position.setnum(i);
-						mb.read(position, output);
-						Object value = output.isobj ? output.objval : output.numval;
-						if(value != null && !value.equals(0.0)) buildTooltip.line("[gray]" + i + ". [white]" + value);
-					}
-				}
-				if(building instanceof LogicBuild) {
-					LogicBuild mb = (LogicBuild) building;
-
-					if(mb.executor.counter != null) {
-						buildTooltip.line("[gray]Line: [white]" + Mathf.round((float) (mb.executor.counter.numval)));
-					}
-
-					if(mb.executor.graphicsBuffer.size > 0) {
-						buildTooltip.line("[gray]Draw buffer: [white]" + mb.executor.graphicsBuffer.size + "/" + LExecutor.maxGraphicsBuffer);
-					}
-				}
-
-				if(craftSpeed > 0) {
-					if(block.consumers != null) {
-						for (int i = 0; i < block.consumers.length; i++) {
-							ModWork.consumeItems(block.consumers[i], building, craftSpeed, (item, ips) -> {
-								addItemInfo(buildTooltip, block, item, ips, false);
-							});
-							ModWork.consumeLiquids(block.consumers[i], building, craftSpeedMultiplier, (liquid, lps) -> {
-								addLiquidInfo(buildTooltip, block, liquid, lps, false);
-							});
-						}
-					}
-				}
-
-				float heat = ModWork.consumeHeat(building, craftSpeed);
-				if(heat > 0) {
-					buildTooltip.line("[red]" + Iconc.waves + " [lightgray]" + ModWork.round(heat) + Bungle.core("unit.persecond"));
-					addHeatCrafters(buildTooltip, block, heat);
-				}
-				if(buildTooltip.size() <= 1) return;
-
+			if(building instanceof ConstructBuild) {
 				Draw.z(Layer.playerName);
 				buildTooltip.draw(tootlipX, tootlipY);
-			});
+				return;
+			}
+			if(buildTooltip.size() <= 1) return;
+			Draw.z(Layer.playerName);
+			buildTooltip.draw(tootlipX, tootlipY);
 		}
 	}
-
+	
 	private static void drawSelect() {
 		if(!Prefs.settings.bool("selection-calculations")) return;
-		final float ts = Vars.tilesize/2f;
+        final float ts = Vars.tilesize/2f;
 		if(selectStart.x != -1 && selectEnd.x != -1) {
 			int minX = Math.min(selectStart.x, selectEnd.x);
 			int maxX = Math.max(selectStart.x, selectEnd.x)+1;
@@ -276,14 +248,14 @@ public class IndustryCalculator {
 			int maxY = Math.max(selectStart.y, selectEnd.y);
 
 			Draw.z(Layer.plans);
-			Lines.stroke(2f);
-			Draw.color(selectBack);
-			Lines.rect(minX*Vars.tilesize - ts, minY*Vars.tilesize - 1 - ts, (maxX-minX)*Vars.tilesize, (maxY-minY+1)*Vars.tilesize);
-			Draw.color(select);
-			Lines.rect(minX*Vars.tilesize - ts, minY*Vars.tilesize - ts, (maxX-minX)*Vars.tilesize, (maxY-minY+1)*Vars.tilesize);
+	        Lines.stroke(2f);
+	        Draw.color(selectBack);
+	        Lines.rect(minX*Vars.tilesize - ts, minY*Vars.tilesize - 1 - ts, (maxX-minX)*Vars.tilesize, (maxY-minY+1)*Vars.tilesize);
+	        Draw.color(select);
+	        Lines.rect(minX*Vars.tilesize - ts, minY*Vars.tilesize - ts, (maxX-minX)*Vars.tilesize, (maxY-minY+1)*Vars.tilesize);
 
-			Lines.stroke(1);
-			for (int y = minY; y <= maxY; y++) {
+	        Lines.stroke(1);
+	        for (int y = minY; y <= maxY; y++) {
 				for (int x = minX; x < maxX; x++) {
 					Tile tile = Vars.world.tile(x, y);
 					if(tile == null || tile.build == null) continue;
@@ -297,23 +269,23 @@ public class IndustryCalculator {
 					int ty = Math.min(Math.max(minY, zeroY), maxY);
 
 					needDraw = x == tx && y == ty;
-
+					
 					if(!tile.block().isMultiblock()) needDraw = true;
 					if(needDraw) {
 						float dSize = tile.block().size*Vars.tilesize;
-						float dx = zeroX*Vars.tilesize + dSize/2f - ts;
-						float dy = zeroY*Vars.tilesize + dSize/2f - ts;
+						float dx = zeroX*Vars.tilesize + dSize/2f - ts;//(tile.build.tileX() - size/2f)*Vars.tilesize;
+						float dy = zeroY*Vars.tilesize + dSize/2f - ts;//(tile.build.tileY() - size/2f)*Vars.tilesize;
 						Draw.z(Layer.blockAdditive);
-						Draw.color(select);
-						Lines.rect(dx-dSize/2f, dy-dSize/2f, dSize, dSize);
+				        Draw.color(select);
+				        Lines.rect(dx-dSize/2f, dy-dSize/2f, dSize, dSize);
 						Draw.z(Layer.blockAdditive);
-						Draw.color(selectHower);
-						Fill.rect(dx, dy, dSize, dSize);
+				        Draw.color(selectHower);
+				        Fill.rect(dx, dy, dSize, dSize);
 					}
 				}
 			}
 		}
-
+	        
 		for (int i = 0; i < selected.size; i++) {
 			Tile tile = selected.get(i);
 			Block block = tile.block();
@@ -331,15 +303,19 @@ public class IndustryCalculator {
 			Fill.rect(dx, dy, dSize, dSize);
 		}
 	}
-
-	private static final Color select = Color.valueOf("ffffff"),
+	
+	
+	// a73e3e
+	// D8D8D8 A3A3A3
+	// 00DB00 3EA53E 00DB00
+	private static final Color select = Color.valueOf("ffffff"), 
 			selectBack = Color.valueOf("a3a3a3"), selectHower = Color.valueOf("ffffff").a(.5f);
-
+	
 	private static Seq<Tile> selected = new Seq<>();
 
 	private static Point2 selectStart = new Point2(-1, -1);
 	private static Point2 selectEnd = new Point2(-1, -1);
-
+	
 	public static void update() {
 		if(!Prefs.settings.bool("selection-calculations")) return;
 		int tileX = World.toTile(Core.input.mouseWorldX());
@@ -348,15 +324,15 @@ public class IndustryCalculator {
 		if(tileY < 0) return;
 		if(tileX >= Vars.world.width()) return;
 		if(tileY >= Vars.world.height()) return;
-
+		
 		if(ModWork.acceptKey()) {
 			if(ModWork.keyDown(KeyBinds.clearSelection)) {
 				clearSelection();
 			}
 		}
-
-		if(ModWork.acceptKey() && (ModWork.hasKeyBoard() ?
-				ModWork.keyDown(KeyBinds.selection)
+		
+		if(ModWork.acceptKey() && (ModWork.hasKeyBoard() ? 
+				ModWork.keyDown(KeyBinds.selection) 
 				: (ModWork.keyDown(KeyBinds.selection) && Core.input.isTouched()))) {
 			if(selectStart.x == -1 || selectStart.y == -1) {
 				selectStart.x = tileX;
@@ -370,7 +346,7 @@ public class IndustryCalculator {
 				int maxX = Math.max(selectStart.x, selectEnd.x)+1;
 				int minY = Math.min(selectStart.y, selectEnd.y);
 				int maxY = Math.max(selectStart.y, selectEnd.y);
-
+				
 				Building startBuilding = Vars.world.build(selectStart.x, selectStart.y);
 				boolean add = true;
 				if(startBuilding != null) {
@@ -378,7 +354,7 @@ public class IndustryCalculator {
 						add = false;
 					}
 				}
-				for (int y = minY; y <= maxY; y++) {
+		        for (int y = minY; y <= maxY; y++) {
 					for (int x = minX; x < maxX; x++) {
 						Building build = Vars.world.build(x, y);
 						if(build == null) continue;
@@ -390,82 +366,141 @@ public class IndustryCalculator {
 							selected.remove(build.tileOn());
 						}
 					}
-				}
-
+		        }
+				
 			}
 			selectStart.x = -1;
 			selectStart.y = -1;
 		}
-
+		
 		calcBalance();
+		calcTooltip();
 	}
+	
 
+	public static void calcTooltip() {
+		if(!Prefs.settings.bool("show-blocks-tooltip")) return;
+		
+		buildTooltip.rebuild();
+
+		final float mouseX = Core.input.mouseWorldX();
+		final float mouseY = Core.input.mouseWorldY();
+		
+		Tile tile = Vars.world.tileWorld(mouseX, mouseY);
+		if(tile == null) return;
+		if(tile.build == null) return;
+		Building building = tile.build;
+
+		if(building.team != Vars.player.team()) return;
+		
+		Block block = building.block;
+
+		if(building instanceof ConstructBuild) {
+			ConstructBuild cb = (ConstructBuild) building;
+			buildTooltip.line(cb.current, "[white]" + cb.current.localizedName.toUpperCase());
+			ModWork.getRequired(cb, (item, amount) -> {
+				buildTooltip.line(item, "[white]" + amount);
+			});
+			return;
+		}
+		
+		
+		buildTooltip.line(block, "[white]" + block.localizedName.toUpperCase());
+
+		if(building instanceof LogicDisplayBuild) {
+			LogicDisplayBuild ldb = (LogicDisplayBuild) building;
+			buildTooltip.line("[gray]Commands buffer: [white]" + ldb.commands.size);
+			buildTooltip.line("[gray]Operations: [white]" + ldb.operations);
+		}
+		
+		if(building instanceof MemoryBuild) {
+			MemoryBuild mb = (MemoryBuild) building;
+			for (int i = 0; i < mb.sense(LAccess.memoryCapacity); i++) {
+				memoryIterator.setnum(i);
+				mb.read(memoryIterator, memoryReader);
+				if(memoryReader.isobj) {
+					if(memoryReader.objval != null) buildTooltip.line("[gray]" + i + ". [white]" + memoryReader.objval);
+				} else {
+					if(memoryReader.numval != 0) buildTooltip.line("[gray]" + i + ". [white]" + memoryReader.numval);
+				}
+			}
+		}
+		
+		if(building instanceof LogicBuild) {
+			LogicBuild mb = (LogicBuild) building;
+
+			if(mb.executor.counter != null) {
+				buildTooltip.line("[gray]Line: [white]" + Mathf.round((float) (mb.executor.counter.numval)));
+			}
+
+			if(mb.executor.graphicsBuffer.size > 0) {
+				buildTooltip.line("[gray]Draw buffer: [white]" + mb.executor.graphicsBuffer.size + "/" + LExecutor.maxGraphicsBuffer);
+			}
+		}
+
+		Collectors.collectors.reset();
+		Collectors.collectors.collector(block).from(building);
+		
+		{
+
+
+			for (int i = 0; i < Collectors.items.size(); i++) {
+				Item item = Vars.content.item(i);
+				float ips = Collectors.items.balance[i];
+				if(ips == 0) continue;
+				addItemInfo(buildTooltip, block, item, ips, false);
+			}
+
+			for (int i = 0; i < Collectors.liquids.size(); i++) {
+				Liquid liquid = Vars.content.liquid(i);
+				float lps = Collectors.liquids.balance[i];
+				if(lps == 0) continue;
+				addLiquidInfo(buildTooltip, block, liquid, lps, false);
+			}
+
+			if(Collectors.heat.heat < 0) {
+				buildTooltip.line("[red]" + Iconc.waves + " [lightgray]" + ModWork.round(Collectors.heat.heat) + Bungle.core("unit.persecond"));
+				addHeatCrafters(buildTooltip, block, Collectors.heat.heat);
+			}
+
+		}
+	}
+	
 	public static void clearSelection() {
 		if(selected.size > 0) {
 			selected.clear();
 			return;
 		}
 	}
-
+	
 	public static Seq<Tile> selected() {
 		return selected;
 	}
 
-	public static float itemsBalance[] = new float[Vars.content.items().size];
-	private static float liquidBalance[] = new float[Vars.content.liquids().size];
+	
+	private static float[] selectionItems = new float[0];
 
-	private static float itemsBalanceTotal[] = new float[Vars.content.items().size];
-	private static float liquidBalanceTotal[] = new float[Vars.content.liquids().size];
-	private static boolean itemsWarn[] = new boolean[Vars.content.items().size];
-
-	private static float itemsBalanceFixed[] = new float[Vars.content.items().size];
-	private static float liquidBalanceFixed[] = new float[Vars.content.liquids().size];
+	/** Баланс предмета (в секунду) по выделению/планам на момент последнего кадра расчёта. */
+	public static float selectionItemBalance(Item item) {
+		return item.id < selectionItems.length ? selectionItems[item.id] : 0f;
+	}
 
 	private static int blockRequirements[] = new int[Vars.content.items().size];
 
-	private static float airDps = 0;
-	private static float groundDps = 0;
-	private static float power = 0;
-	private static float heat = 0;
-
-	static int updates = 0;
 
 	private static void calcBalance() {
-		for (int i = 0; i < itemsBalance.length; i++) {
-			itemsBalance[i] = 0;
-			itemsWarn[i] = false;
+		
+		if(blockRequirements.length != Vars.content.items().size) {
+			blockRequirements = new int[Vars.content.items().size];
 		}
-		for (int i = 0; i < liquidBalance.length; i++) {
-			liquidBalance[i] = 0;
-		}
+		Arrays.fill(blockRequirements, 0);
+		
 
-		for (int i = 0; i < blockRequirements.length; i++) {
-			blockRequirements[i] = 0;
-		}
 
-		if(selected.size == 0) {
-			for (int i = 0; i < itemsBalance.length; i++) {
-				itemsBalanceFixed[i] = itemsBalanceTotal[i] = 0;
-			}
-			for (int i = 0; i < liquidBalance.length; i++) {
-				liquidBalanceFixed[i] = liquidBalanceTotal[i] = 0;
-			}
-			updates = 0;
-		}
-
-		airDps = 0;
-		groundDps = 0;
-		power = 0;
-		heat = 0;
-
-		Cons<Float> heatProduce = hps -> heat += hps;
-		Cons<Float> heatConsume = hps -> heat -= hps;
-
-		Cons<Float> powerProduce = pps -> power += pps;
-		Cons<Float> powerConsume = pps -> power -= pps;
-
+		Collectors.collectors.reset();
+		
 		balanceFragment.element.rebuild();
-
+		
 		boolean buildPlans = false;
 		if(Prefs.settings.bool("buildplans-calculations")) {
 			Cons<BuildPlan> calcFor = buildPlan -> {
@@ -475,17 +510,8 @@ public class IndustryCalculator {
 					for (var r : buildPlan.block.requirements) blockRequirements[r.item.id] += r.amount * Vars.state.rules.buildCostMultiplier;
 				}
 				if(buildPlan.breaking) return;
-				float craftSpeed = ModWork.getCraftSpeed(buildPlan.block, buildPlan.x, buildPlan.y, buildPlan.config);
-				ModWork.consumeBlock(buildPlan.block, buildPlan.x, buildPlan.y,
-						buildPlan.config, craftSpeed,
-						(item, ips) -> itemsBalance[item.id] -= ips,
-						(liquid, lps) -> liquidBalance[liquid.id] -= lps,
-						powerConsume, heatConsume);
-				ModWork.produceBlock(buildPlan.block, buildPlan.x, buildPlan.y,
-						buildPlan.config, craftSpeed,
-						(item, ips) -> itemsBalance[item.id] += ips,
-						(liquid, lps) -> liquidBalance[liquid.id] += lps,
-						powerProduce, heatProduce);
+				Collectors.collectors.collector(buildPlan.block).from(buildPlan);
+				
 			};
 			if(Vars.player.unit() != null) {
 				if(Vars.player.unit().plans != null) {
@@ -510,7 +536,8 @@ public class IndustryCalculator {
 				buildPlans = true;
 			}
 		}
-
+		
+		
 		if(selected.size > 0) {
 			balanceFragment.element.line(buildPlans ? Bungle.calculator("header.selected-and-plans") : Bungle.calculator("header.selected"));
 		} else if(buildPlans) {
@@ -518,161 +545,111 @@ public class IndustryCalculator {
 		}
 
 		Seq<Tile> selected_ = new Seq<>();
-
+		
 		for (int s = 0; s < selected.size; s++) {
 			Tile tile = selected.get(s);
 			if(tile.build == null) continue;
 			if(selected_.contains(tile.build.tile)) continue;
 			selected_.add(tile);
 		}
-
+		
 		selected = selected_;
-
+		
 		ObjectMap<Block, Integer> count = new ObjectMap<>();
-
+		
 		for (int s = 0; s < selected.size; s++) {
 			Tile tile = selected.get(s);
 			Building building = tile.build;
 			Block block = tile.block();
 			if(building == null) continue;
-
+			Collectors.collectors.collector(block).from(building); //(block, building);
 			count.put(block, count.get(block, 0)+1);
 
-			if(building instanceof BaseTurretBuild && block instanceof BaseTurret) {
-				BaseTurretBuild baseTurretBuild = (BaseTurretBuild) building;
-				float dps = baseTurretBuild.estimateDps();
-				BaseTurret baseTurret = (BaseTurret) block;
-				if(baseTurret.coolant != null && block instanceof ReloadTurret && building.liquids != null) {
-					Liquid liquid = building.liquids.current();
-					if(building.liquids.get(liquid) > 0.01f) {
-						ReloadTurret reloadTurret = (ReloadTurret) block;
-						float reload = reloadTurret.reload;
-						float maxUsed = baseTurret.coolant.amount;
-						float multiplier = baseTurret.coolantMultiplier;
+		}
 
-						float reloadRate = 1f + maxUsed * multiplier * liquid.heatCapacity;
-						float standardReload = reload;
-						float result = standardReload / (reload / reloadRate);
-						dps *= result;
+
+		/* Снимок баланса ВЫДЕЛЕНИЯ: метрики общие с тултипом, а он сбрасывает их сразу после calcBalance
+		 * (Collectors.collectors.reset() в calcTooltip), так что читать Collectors.items напрямую
+		 * вне этого метода (генератор процессоров) нельзя - там уже баланс блока под курсором. */
+		if(selectionItems.length != Collectors.items.balance.length) selectionItems = new float[Collectors.items.balance.length];
+		System.arraycopy(Collectors.items.balance, 0, selectionItems, 0, selectionItems.length);
+
+		{
+			if(Collectors.power.power != 0) {
+				balanceFragment.element.line(Icon.power.getRegion(), (Collectors.power.power > 0 ? "[green]" : "[scarlet]") + ModWork.round(Collectors.power.power) + Bungle.core("unit.persecond"));
+				balanceFragment.element.color(Pal.engine);
+			}
+			if(Collectors.heat.heat != 0) {
+				balanceFragment.element.line("[red]" + Iconc.waves + (Collectors.heat.heat > 0 ? " [green]" : " [scarlet]") + ModWork.round(Collectors.heat.heat) + Bungle.core("unit.persecond"));
+				if(Collectors.heat.heat < 0) addHeatCrafters(balanceFragment.element, null, -Collectors.heat.heat);
+			}
+			if(Collectors.combat.airDps != 0 || Collectors.combat.groundDps != 0) {
+				balanceFragment.element.line(Icon.modeAttack.getRegion(), "[sky]" + ModWork.round(Collectors.combat.airDps) + " " + Bungle.calculator("line.air-dps"));
+				balanceFragment.element.line(Icon.modeAttack.getRegion(), "[olive]" + ModWork.round(Collectors.combat.groundDps)  + " " + Bungle.calculator("line.ground-dps"));
+			}
+			
+
+			for (int i = 0; i < Collectors.items.size(); i++) {
+				Item item = Vars.content.item(i);
+				float ips = Collectors.items.balance[i];
+				boolean warn = Collectors.items.overflow[i];
+				
+				if(ips == 0) {
+					if(warn) {
+						balanceFragment.element.line(item, "[yellow]0" + Bungle.core("unit.persecond") + " " + Iconc.warning);
 					}
+					continue;
 				}
-				dps *= building.team().rules().blockDamageMultiplier*Vars.state.rules.blockDamageMultiplier;
-				if(block instanceof Turret) {
-					Turret turret = (Turret) block;
-					if(turret.targetAir) airDps += dps;
-					if(turret.targetGround) groundDps += dps;
+				if(ips < 0) {
+					addItemInfo(balanceFragment.element, null, item, ips, warn);
 				} else {
-					airDps += dps;
-					groundDps += dps;
+					balanceFragment.element.line(item, " [green]+" + ModWork.round(ips) + Bungle.core("unit.persecond") + (warn ? (" [yellow]" + Iconc.warning) : ""));
 				}
 			}
 
-			ModWork.getCraftSpeed(building, (craftSpeed, craftSpeedMultiplier) -> {
-				ModWork.produceItems(building, craftSpeed, (item, ips) -> {
-					itemsBalance[item.id] += ips;
-					if(building.items != null) {
-						if(building.items.get(item) >= building.getMaximumAccepted(item)) {
-							itemsWarn[item.id] = true;
-						}
+			for (int i = 0; i < Collectors.liquids.size(); i++) {
+				Liquid liquid = Vars.content.liquid(i);
+				float lps = Collectors.liquids.balance[i];
+				if(lps == 0) continue;
+				if(lps < 0) {
+					addLiquidInfo(balanceFragment.element, null, liquid, lps, false);
+				} else {
+					balanceFragment.element.line(liquid, " [green]+" + ModWork.round(lps) + Bungle.core("unit.persecond"));
+				}
+			}
+			
+			if(Collectors.payload.size() > 0) {
+				Collectors.payload.each((item, ips) -> {
+					if(ips < 0) {
+						balanceFragment.element.line(item, " [scarlet]" + ModWork.round(ips) + Bungle.core("unit.persecond"));
+						ips = -ips;
+					} else {
+						balanceFragment.element.line(item, " [lightgray]" + ModWork.round(ips) + Bungle.core("unit.persecond"));
 					}
 				});
-
-				ModWork.produceLiquids(building, craftSpeed, (liquid, lps) -> {
-					liquidBalance[liquid.id] += lps;
-				});
-
-				ModWork.producePower(building, craftSpeed, powerProduce);
-				ModWork.produceHeat(building, craftSpeed, heatProduce);
-
-				for (int c = 0; c < block.consumers.length; c++) {
-					Consume consume = block.consumers[c];
-					ModWork.consumeItems(consume, building, craftSpeed, (item, ips) -> {
-						itemsBalance[item.id] -= ips;
-					});
-					ModWork.consumeLiquids(consume, building, craftSpeedMultiplier, (liquid, lps) -> {
-						liquidBalance[liquid.id] -= lps;
-					});
-					ModWork.consumePower(consume, building, powerConsume);
-				}
-				heat -= ModWork.consumeHeat(building, craftSpeed);
-			});
-		}
-
-		for (int i = 0; i < itemsBalance.length; i++) {
-			itemsBalanceTotal[i] += itemsBalance[i];
-		}
-		for (int i = 0; i < liquidBalance.length; i++) {
-			liquidBalanceTotal[i] += liquidBalance[i];
-		}
-
-		if(updates%60 == 0 && updates > 0) {
-			for (int i = 0; i < itemsBalance.length; i++) {
-				itemsBalanceFixed[i] = itemsBalanceTotal[i]/60f;
-				itemsBalanceTotal[i] = 0;
 			}
-			for (int i = 0; i < liquidBalance.length; i++) {
-				liquidBalanceFixed[i] = liquidBalanceTotal[i]/60f;
-				liquidBalanceTotal[i] = 0;
-			}
-		}
 
-		if(power != 0) {
-			balanceFragment.element.line(Icon.power.getRegion(), (power > 0 ? "[green]" : "[scarlet]") + ModWork.round(power) + Bungle.core("unit.persecond"));
-			balanceFragment.element.color(Pal.engine);
+			
 		}
-		if(heat != 0) {
-			balanceFragment.element.line("[red]" + Iconc.waves + (heat > 0 ? " [green]" : " [scarlet]") + ModWork.round(heat) + Bungle.core("unit.persecond"));
-			if(heat < 0) addHeatCrafters(balanceFragment.element, null, -heat);
-		}
-		if(airDps != 0 || groundDps != 0) {
-			balanceFragment.element.line(Icon.modeAttack.getRegion(), "[sky]" + ModWork.round(airDps) + " " + Bungle.calculator("line.air-dps"));
-			balanceFragment.element.line(Icon.modeAttack.getRegion(), "[olive]" + ModWork.round(groundDps)  + " " + Bungle.calculator("line.ground-dps"));
-		}
-
-		for (int i = 0; i < itemsBalance.length; i++) {
-			Item item = Vars.content.item(i);
-			float ips = itemsBalanceFixed[i];
-			if(updates < 60) ips = itemsBalance[i];
-			if(ips == 0) {
-				if(itemsWarn[i]) {
-					balanceFragment.element.line(item, "[yellow]0" + Bungle.core("unit.persecond") + " " + Iconc.warning);
-				}
-				continue;
-			}
-			if(ips < 0) {
-				addItemInfo(balanceFragment.element, null, item, ips, itemsWarn[i]);
-			} else {
-				balanceFragment.element.line(item, " [green]+" + ModWork.round(ips) + Bungle.core("unit.persecond") + (itemsWarn[i] ? (" [yellow]" + Iconc.warning) : ""));
-			}
-		}
-
-		for (int i = 0; i < liquidBalance.length; i++) {
-			Liquid liquid = Vars.content.liquid(i);
-			float lps = liquidBalanceFixed[i];
-			if(updates < 60) lps = liquidBalance[i];
-			if(lps == 0) continue;
-			if(lps < 0) {
-				addLiquidInfo(balanceFragment.element, null, liquid, lps, false);
-			} else {
-				balanceFragment.element.line(liquid, " [green]+" + ModWork.round(lps) + Bungle.core("unit.persecond"));
-			}
-		}
+		
+		
+		
+		
 
 		count.each((block, c) -> {
 			balanceFragment.element.line(block, "[white]x" + c);
 			balanceFragment.element.color(Color.white);
 		});
-
+		
 		for (int i = 0; i < blockRequirements.length; i++) {
 			int r = blockRequirements[i];
 			if(r == 0) continue;
 			balanceFragment.element.line(Vars.content.item(i), r > 0 ? "[red]-"+r : "[green]+"+-r);
 			balanceFragment.element.color(Color.white);
 		}
-
-		updates++;
+		
 	}
-
+	
 	private static void addItemInfo(IndustryElement element, @Nullable Block block, Item item, float ips, boolean warn) {
 		if(ips < 0) {
 			element.line(item, " [scarlet]" + ModWork.round(ips) + Bungle.core("unit.persecond") + (warn ? " [yellow]" + Iconc.warning : ""));
@@ -683,7 +660,7 @@ public class IndustryCalculator {
 		addDrills(element, block, item, ips);
 		addCrafters(element, block, item, ips);
 	}
-
+	
 	private static void addLiquidInfo(IndustryElement element, @Nullable Block block, Liquid liquid, float lps, boolean warn) {
 		if(lps < 0) {
 			element.line(liquid, " [scarlet]" + ModWork.round(lps) + Bungle.core("unit.persecond") + (warn ? " [yellow]" + Iconc.warning : ""));
@@ -717,10 +694,10 @@ public class IndustryCalculator {
 				}
 			}
 		});
-
+		
 		return crafters;
 	}
-
+	
 	private static Seq<Block>[] createLiquidCrafters() {
 		@SuppressWarnings("unchecked")
 		Seq<Block>[] crafters = new Seq[Vars.content.liquids().size];
@@ -745,10 +722,10 @@ public class IndustryCalculator {
 		});
 		return crafters;
 	}
-
+	
 	/** Подсказка "сколько помп нужно, чтобы дать столько жидкости". */
 	private static void addPumps(IndustryElement element, @Nullable Block block, Liquid liquid, float lps) {
-		for (int d = 0; d < pumps.size; d++) {
+			for (int d = 0; d < pumps.size; d++) {
 			Pump pump = pumps.get(d);
 			if(!pump.environmentBuildable()) continue;
 			if(!pump.isPlaceable()) continue;
@@ -761,7 +738,7 @@ public class IndustryCalculator {
 			}
 			float count = lps/pumpLps;
 			if(block != null) {
-				element.line("[lightgray]> ",
+				element.line("[lightgray]> ", 
 						pump, " [white]x" + ModWork.round(count) + "[lightgray] or ",
 						block, "[white] x" + ModWork.round(1/count));
 			} else {
@@ -769,7 +746,7 @@ public class IndustryCalculator {
 			}
 		}
 	}
-
+	
 	/** Подсказка "сколько буров нужно, чтобы дать столько предметов". */
 	private static void addDrills(IndustryElement element, @Nullable Block block, Item item, float ips) {
 		if(!Vars.indexer.hasOre(item)) return;
@@ -792,7 +769,7 @@ public class IndustryCalculator {
 			}
 		}
 	}
-
+	
 	/** Подсказка "сколько крафтеров нужно, чтобы дать столько предметов". */
 	private static void addCrafters(IndustryElement element, @Nullable Block block, Item item, float ips) {
 		for (int c = 0; c < crafters[item.id].size; c++) {
@@ -815,10 +792,10 @@ public class IndustryCalculator {
 				}
 				cps *= 60f / gCrafter.craftTime;
 			}
-
+			
 			float count = ips/cps;
 			if(block != null)  {
-				element.line("[lightgray]> [white]",
+				element.line("[lightgray]> [white]", 
 						crafter, " [white]" + "x" + ModWork.round(count) + "[lightgray] or [white]",
 						block, "[white] x" + ModWork.round(1/count)
 						);
@@ -848,9 +825,9 @@ public class IndustryCalculator {
 						}
 					}
 				}
-				cps *= 60f;
+				cps *= 60f;// / gCrafter.craftTime;
 			}
-
+			
 			float count = lps/cps;
 			if(block != null) {
 				element.line("[lightgray]> ", crafter, " [white]" + "x" + ModWork.round(count) + "[lightgray] or [white]", block, "[white] x" + ModWork.round(1/count));
@@ -884,18 +861,20 @@ public class IndustryCalculator {
 			}
 		}
 	}
-
+	
+	
 	/** Плашка баланса в правом верхнем углу экрана (рисуется поверх HUD). */
 	static class BalanceFragment extends Table {
 
 		BuildTooltip element = new BuildTooltip();
-
-		private void build() {
+	    
+	    private void build() {
 			Core.scene.add(this);
 		}
-
-		String text = "";
-
+	    
+	    String text = "";
+	    
+	    
 		@Override
 		public void draw() {
 			if(!Prefs.settings.bool("selection-calculations")) return;
@@ -905,24 +884,30 @@ public class IndustryCalculator {
 			if(Vars.ui.content.isShown()) return;
 			if(Vars.ui.database.isShown()) return;
 			if(!Vars.ui.hudfrag.shown) return;
-
+			
 			Draw.color();
 			Font font = Fonts.outline;
+			
 
 			GlyphLayout layout = Pools.obtain(GlyphLayout.class, GlyphLayout::new);
 			font.setUseIntegerPositions(false);
 			font.getData().setScale(1f);
 			font.getData().setLineHeight(MyDraw.textHeight*2f * Scl.scl(1f));
 			layout.setText(font, text);
-
+			
 			float width = Math.max(element.width(), MyDraw.textHeight*20) + Fonts.outline.getLineHeight();
 			float x = Core.scene.getWidth() - width;
 			float y = Core.scene.getHeight();
-
+			
 			element.padX = Fonts.outline.getLineHeight();
 			element.padY = Fonts.outline.getLineHeight();
 
 			element.draw(x, y-element.height()-Fonts.outline.getLineHeight()*2, width);
-		}
+		} 
+		
+		protected void rect(float x, float y, float w, float h){
+	        Draw.rect("whiteui", x + w/2f, y + h/2f, w, h);
+	    }
 	}
+
 }
