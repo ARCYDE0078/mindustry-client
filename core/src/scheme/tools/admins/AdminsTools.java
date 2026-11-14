@@ -29,15 +29,17 @@ public interface AdminsTools{
 
     String keyName();
 
-    void manageRuleBool(boolean value, String name);
+    //true - правило применено или отправлено; локальные rules диалог обновляет только тогда,
+    //иначе при отказе (нет прав, ошибка поля) окно показывало бы значение, которого в игре нет
+    boolean manageRuleBool(boolean value, String name);
 
-    void manageRuleStr(String value, String name);
+    boolean manageRuleStr(String value, String name);
 
-    void manageTeamRuleBool(int teamId, boolean value, String name);
+    boolean manageTeamRuleBool(int teamId, boolean value, String name);
 
-    void manageTeamRuleStr(int teamId, String value, String name);
+    boolean manageTeamRuleStr(int teamId, String value, String name);
 
-    void manageRuleObjectSet(String fieldName, ObjectSet<?> value);
+    boolean manageRuleObjectSet(String fieldName, ObjectSet<?> value);
 
     void manageUnit();
 
@@ -70,6 +72,11 @@ public interface AdminsTools{
         teleport(getTeleportPosition());
     }
 
+    /** Взгляд юнита на курсор: за кадр сервер/движок сглаживает поворот, поэтому несколько вызовов подряд. */
+    default void look(){
+        for(int i = 0; i < 10; i++) player.unit().lookAt(input.mouseWorld());
+    }
+
     default void deletePlayer(){
         Vec2 mouse = new Vec2(player.mouseX(), player.mouseY());
         Groups.player.each(target -> {
@@ -87,9 +94,9 @@ public interface AdminsTools{
 
     boolean unusable();
 
-    default int fixAmount(Item item, Float amount){
+    default int fixAmount(Item item, float amount){
         int items = player.core().items.get(item);
-        return amount == 0f || items + amount < 0 ? -items : amount.intValue();
+        return amount == 0f || items + amount < 0 ? -items : (int)amount;
     }
 
     default boolean canCreate(Team team, UnitType type){

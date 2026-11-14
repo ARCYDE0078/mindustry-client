@@ -6,6 +6,7 @@ import arc.struct.ObjectSet;
 import arc.struct.Seq;
 import arc.util.Strings;
 import mindustry.entities.units.BuildPlan;
+import mindustry.game.Rules;
 import mindustry.game.Team;
 import mindustry.gen.Player;
 import mindustry.type.Item;
@@ -24,31 +25,35 @@ public class SlashJs implements AdminsTools{
 
     public String keyName(){ return "slashjs"; }
 
-    public void manageRuleBool(boolean value, String name){
-        if(unusable()) return;
+    public boolean manageRuleBool(boolean value, String name){
+        if(unusable()) return false;
         send("Vars.state.rules." + name + " = " + value + "; Call.setRules(Vars.state.rules);");
+        return true;
     }
 
-    public void manageRuleStr(String value, String name){
-        if(unusable()) return;
-        send("Vars.state.rules." + name + " = " + value + "; Call.setRules(Vars.state.rules);");
+    public boolean manageRuleStr(String value, String name){
+        if(unusable()) return false;
+        send("Vars.state.rules." + name + " = " + jsValue(Rules.class, name, value) + "; Call.setRules(Vars.state.rules);");
+        return true;
     }
 
-    public void manageTeamRuleBool(int teamId, boolean value, String name){
-        if(unusable()) return;
+    public boolean manageTeamRuleBool(int teamId, boolean value, String name){
+        if(unusable()) return false;
         send("var tr = Vars.state.rules.teams.get(Team.all[" + teamId + "]); tr." + name + " = " + value + "; Call.setRules(Vars.state.rules);");
+        return true;
     }
 
-    public void manageTeamRuleStr(int teamId, String value, String name){
-        if(unusable()) return;
-        send("var tr = Vars.state.rules.teams.get(Team.all[" + teamId + "]); tr." + name + " = " + value + "; Call.setRules(Vars.state.rules);");
+    public boolean manageTeamRuleStr(int teamId, String value, String name){
+        if(unusable()) return false;
+        send("var tr = Vars.state.rules.teams.get(Team.all[" + teamId + "]); tr." + name + " = " + jsValue(Rules.TeamRule.class, name, value) + "; Call.setRules(Vars.state.rules);");
+        return true;
     }
 
-    public void manageRuleObjectSet(String fieldName, ObjectSet<?> value){
-        if(unusable()) return;
+    public boolean manageRuleObjectSet(String fieldName, ObjectSet<?> value){
+        if(unusable()) return false;
         if(value.isEmpty()){
             send("Vars.state.rules." + fieldName + ".clear(); Call.setRules(Vars.state.rules);");
-            return;
+            return true;
         }
 
         var it = value.iterator();
@@ -64,8 +69,10 @@ public class SlashJs implements AdminsTools{
                     }
                 }
                 send("Vars.state.rules." + fieldName + ".clear(); [" + sb + "].forEach(id => Vars.state.rules." + fieldName + ".add(Vars.content.getByID(mindustry.ctype.ContentType.all[" + ordinal + "], id))); Call.setRules(Vars.state.rules);");
+                return true;
             }
         }
+        return false;
     }
 
     public void manageUnit(){
@@ -184,6 +191,30 @@ public class SlashJs implements AdminsTools{
 
     private static void send(String command, Object... args){
         MessageQueue.send("/js " + Strings.format(command, args));
+    }
+
+    /** Строковые поля уходят в JS литералом в кавычках, числа и булевы - как есть. */
+    private static String jsValue(Class<?> owner, String name, String value){
+        try{
+            if(owner.getField(name).getType() == String.class) return quote(value);
+        }catch(NoSuchFieldException ignored){}
+        return value;
+    }
+
+    /** JS-строка в двойных кавычках: экранируем обратную косую, кавычку и переводы строк, иначе значение сломает команду. */
+    private static String quote(String value){
+        StringBuilder out = new StringBuilder(value.length() + 2).append('"');
+        for(int i = 0; i < value.length(); i++){
+            char c = value.charAt(i);
+            switch(c){
+                case '"' -> out.append("\\\"");
+                case '\\' -> out.append("\\\\");
+                case '\n' -> out.append("\\n");
+                case '\r' -> out.append("\\r");
+                default -> out.append(c);
+            }
+        }
+        return out.append('"').toString();
     }
 
     private static void getPlayer(Player target){
