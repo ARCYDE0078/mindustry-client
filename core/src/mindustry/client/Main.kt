@@ -320,6 +320,10 @@ object Main : ApplicationListener {
                 is SchematicTransmission -> {
                     transmission.addToChat()
                 }
+
+                // Код процессоров чужих планов (sonka): слушатели канала зовут нас не с главного потока, а кэш/очередь
+                // ProcessorShare - состояние главного потока, поэтому переносим обработку туда.
+                is ProcessorConfigTransmission -> Core.app.post { sonkaextras.ProcessorShare.handle(transmission, senderId) }
             }
         }
 
