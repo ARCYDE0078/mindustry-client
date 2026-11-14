@@ -58,7 +58,7 @@ public class EffectElems{
     }
 
     /** copy from {@link mindustry.ui.dialogs.EffectsDialog} */
-    public static class EffectCell extends Element{
+    private static class EffectCell extends Element{
         EffectEntry effect;
         Effect renderEffect;
         float size = -1f;
@@ -68,7 +68,7 @@ public class EffectElems{
         float lifetime;
         float rotation = 1f;
         Object data;
-        ClickListener cl;
+        @Nullable ClickListener cl; // nullable
 
         public EffectCell(EffectEntry effect, ClickListener cl){
             this.effect = effect;
@@ -92,7 +92,7 @@ public class EffectElems{
             }
 
             if(clipBegin(x, y, width, height)){
-                Draw.colorl(cl.isOver() ? 0.4f : 0.5f);
+                Draw.colorl(cl != null && cl.isOver() ? 0.4f : 0.5f);
                 Draw.alpha(parentAlpha);
                 Tex.alphaBg.draw(x, y, width, height);
                 Draw.reset();

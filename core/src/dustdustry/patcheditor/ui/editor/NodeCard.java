@@ -20,7 +20,7 @@ import arc.scene.ui.ImageButton.*;
 import arc.scene.ui.layout.*;
 import arc.struct.*;
 import arc.util.*;
-import arc.util.serialization.JsonValue.*;
+import arc.util.serialization.Jval.*;
 import mindustry.*;
 import mindustry.ctype.*;
 import mindustry.gen.*;
@@ -277,7 +277,7 @@ public class NodeCard extends Table{
                 });
             }).pad(8f).fill();
 
-            t.table((mt) -> modifier.build(mt, readOnly)).pad(4).grow();
+            t.table(mt -> modifier.build(mt.left(), readOnly)).pad(4f).grow();
             t.table(buttons -> {
                 buttons.defaults().growX();
                 buttons.table(top -> setupChildNodeButtons(top, node, modifier)).grow();
@@ -377,7 +377,7 @@ public class NodeCard extends Table{
             }else{
                 boolean append = !forceOverride && editorNode.canAppend();
                 editorNode.append(append);
-                editorNode.setValueType(append ? ValueType.object : ValueType.array);
+                editorNode.setValueType(append ? Jtype.object : Jtype.array);
             }
         });
     }
@@ -540,6 +540,26 @@ public class NodeCard extends Table{
                     EUI.infoToast(Core.bundle.format("node-card.appendPatchNode", editorPath));
                 }).padLeft(16f).tooltip(Core.bundle.format("node-card.appendPatchNode", editorPath), true)
                 .disabled(b -> Core.app.getClipboardText() == null);
+
+                if(!readOnly && ClassHelper.isArrayLike(node.getTypeIn())){
+                    buttons.button(b -> {
+                        b.stack(new Image(Icon.download){{
+                            setColor(Pal.lightishGray);
+                        }}, new Table(t -> {
+                            t.right().bottom().margin(10f);
+                            t.image(Icon.add).size(Vars.iconSmall);
+                        })).grow();
+                    }, Styles.cleari, () -> {
+                        try{
+                            node.appendElements(Core.app.getClipboardText());
+                        }catch(RuntimeException e){
+                            Vars.ui.showException("@node-card.appendElementsNode.failed", e);
+                            return;
+                        }
+                        EUI.infoToast(Core.bundle.format("node-card.appendElementsNode", editorPath));
+                    }).padLeft(16f).tooltip(Core.bundle.format("node-card.appendElementsNode", editorPath), true)
+                    .disabled(b -> Core.app.getClipboardText() == null);
+                }
 
                 if(!readOnly) buttons.button(Icon.copy, Styles.cleari, () -> {
                     PatchNode patchNode = node.getPatch();
