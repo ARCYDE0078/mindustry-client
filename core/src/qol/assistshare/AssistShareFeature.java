@@ -10,6 +10,7 @@ import arc.struct.ObjectMap;
 import arc.struct.Seq;
 import arc.util.Time;
 import mindustry.ai.UnitCommand;
+import mindustry.ai.UnitStance;
 import mindustry.ai.types.CommandAI;
 import mindustry.game.EventType.Trigger;
 import mindustry.game.EventType.WorldLoadEvent;
@@ -23,6 +24,7 @@ import qol.core.ManualControl;
 import qol.core.SafeSettings;
 import qol.core.UnitClaims;
 import qol.minedefaults.MineDefaultsFeature;
+import qol.travelboost.TravelBoostFeature;
 
 import static mindustry.Vars.player;
 import static mindustry.Vars.state;
@@ -53,6 +55,14 @@ import static mindustry.Vars.tilesize;
  * instant poly-split takes them back to mining), and poly-split in turn treats a unit this feature
  * parked on move as still-assisting (see {@link #managedExpected}).
  * <p>
+ * Parked helpers fly to their player, not walk: any {@code canBoost} unit sent to park gets the
+ * vanilla boost stance for the trip (own tracking, {@link #boosted} - {@link TravelBoostFeature}
+ * deliberately skips {@link UnitClaims}-claimed units, so it never covers these) and has it taken
+ * back on arrival, matching travel-boost's own take-off/land pattern (sonka's request, 2026-09-12:
+ * "вся ветка новых должна бустится когда летит к игроку"). A unit the player just commanded or
+ * re-stanced by hand is left alone (manual hold, see {@link ManualControl}): we neither boost it nor
+ * clear a stance the player set themselves.
+ * <p>
  * ONLY ONE player on a team should run this feature - two mods managing the same team units would
  * fight each other's commands (each sees the other's RPCs as "manual" overrides).
  */
@@ -70,6 +80,9 @@ public class AssistShareFeature implements Feature{
     /** A parked helper's move target is refreshed when its player has wandered this far from it. */
     static final float REPARK_TILES = 8f;
 
+    /** Close enough to the park target to land - matches {@link TravelBoostFeature}'s own arrival margin. */
+    static final float BOOST_ARRIVAL_TILES = 4f;
+
     static AssistShareFeature instance;
 
     /** unit id -> assigned player id. Presence here = "managed by this feature". UNASSIGNED until rebalance picks a player. */
@@ -79,6 +92,8 @@ public class AssistShareFeature implements Feature{
     final IntSet parked = new IntSet();
     /** Managed units whose UnitClaims claim belongs to poly-split (diverted polys) - never claim or release those ourselves. */
     final IntSet borrowed = new IntSet();
+    /** Parked units whose boost stance WE enabled for the flight to their player - the only ones ever cleared. */
+    final IntSet boosted = new IntSet();
     /** unit id -> Time.millis() of the last command RPC we sent it, for the sync-grace check. */
     final IntMap<Long> lastCommandSent = new IntMap<>();
     /** unit id -> where its park move was aimed, to notice the player wandering off. */
@@ -91,6 +106,8 @@ public class AssistShareFeature implements Feature{
     final Seq<Unit> pool = new Seq<>();
     final IntSeq dropIds = new IntSeq();
     final IntSeq assistIds = new IntSeq();
+    final IntSeq boostEnableIds = new IntSeq();
+    final IntSeq boostDisableIds = new IntSeq();
     final ObjectMap<Player, IntSeq> parkBatch = new ObjectMap<>();
 
     float scanTimer = 0f;
@@ -125,6 +142,7 @@ public class AssistShareFeature implements Feature{
             assignedPlayer.clear();
             parked.clear();
             borrowed.clear();
+            boosted.clear();
             lastCommandSent.clear();
             parkTarget.clear();
             lastBuilt.clear();
@@ -149,6 +167,14 @@ public class AssistShareFeature implements Feature{
         parked.remove(id);
         lastCommandSent.remove(id);
         parkTarget.remove(id);
+        if(boosted.remove(id)){
+            Unit u = Groups.unit.getByID(id);
+            //a dead/invalid unit can't receive an RPC, and doesn't need its stance cleared anyway;
+            //a unit the player just re-stanced by hand keeps what they set (not ours to take back)
+            if(u != null && u.isValid() && u.team == player.team() && !ManualControl.isStanceRecent(id, manualHoldMs())){
+                Call.setUnitStance(player, new int[]{id}, UnitStance.boost, false);
+            }
+        }
         if(!borrowed.remove(id)) UnitClaims.release(id);
     }
 
@@ -167,9 +193,18 @@ public class AssistShareFeature implements Feature{
         if(assistIds.size > 0){
             Call.setUnitCommand(player, assistIds.toArray(), UnitCommand.assistCommand);
         }
+        if(!boosted.isEmpty()){
+            boostDisableIds.clear();
+            for(IntSet.IntSetIterator it = boosted.iterator(); it.hasNext;){
+                int id = it.next();
+                if(!ManualControl.isStanceRecent(id, manualHoldMs())) boostDisableIds.add(id);
+            }
+            if(boostDisableIds.size > 0) Call.setUnitStance(player, boostDisableIds.toArray(), UnitStance.boost, false);
+        }
         assignedPlayer.clear();
         parked.clear();
         borrowed.clear();
+        boosted.clear();
         lastCommandSent.clear();
         parkTarget.clear();
     }
@@ -205,6 +240,7 @@ public class AssistShareFeature implements Feature{
         adoptPass();
         rebalance();
         behaviorPass(now);
+        boostPass();
     }
 
     /** Let go of the dead, the re-commanded, and borrowed polys that poly-split took back. */
@@ -308,10 +344,14 @@ public class AssistShareFeature implements Feature{
         if(total == 0) return;
 
         int base = total / builders.size, extra = total % builders.size;
-        //shed surplus into the pool first...
+        //shed surplus into the pool first - farthest-from-their-player unit first, so a shed
+        //player keeps whichever of their units were already closest to them (was arbitrary
+        //insertion order before, sonka's "distribution" fix request 2026-09-12)
         for(int i = 0; i < builders.size; i++){
+            Player p = builders.get(i);
             int target = base + (i < extra ? 1 : 0);
-            Seq<Unit> units = playerUnits.get(builders.get(i).id(), Seq::new);
+            Seq<Unit> units = playerUnits.get(p.id(), Seq::new);
+            units.sort(u -> u.dst2(p));
             while(units.size > target){
                 Unit u = units.pop();
                 assignedPlayer.put(u.id, UNASSIGNED);
@@ -399,5 +439,54 @@ public class AssistShareFeature implements Feature{
         target.set(p.x, p.y);
         lastCommandSent.put(id, now);
         parkBatch.get(p, IntSeq::new).add(id);
+    }
+
+    /**
+     * Boost canBoost helpers for their flight to a parked position, un-boost on arrival - own
+     * tracking ({@link #boosted}) because {@link TravelBoostFeature} deliberately skips
+     * {@link UnitClaims}-claimed units and so never covers these (sonka's request, 2026-09-12).
+     * Units in the player's manual hold are never boosted by us (and forgotten without a stance
+     * RPC if the player re-stanced them themselves) - the feature has let go of them already.
+     */
+    void boostPass(){
+        long hold = manualHoldMs();
+        //land pass: arrived, redirected or no-longer-parked units give the stance back first
+        boostDisableIds.clear();
+        for(IntSet.IntSetIterator it = boosted.iterator(); it.hasNext;){
+            int id = it.next();
+            Unit u = Groups.unit.getByID(id);
+            Vec2 target = parkTarget.get(id);
+            if(u == null || !u.isValid() || !parked.contains(id) || target == null
+                || !(u.controller() instanceof CommandAI ai) || ai.currentCommand() != UnitCommand.moveCommand
+                || u.within(target.x, target.y, BOOST_ARRIVAL_TILES * tilesize)){
+                boostDisableIds.add(id);
+            }
+        }
+        int disableCount = 0;
+        for(int i = 0; i < boostDisableIds.size; i++){
+            int id = boostDisableIds.get(i);
+            boosted.remove(id);
+            //the player took the stance over by hand: it is theirs now, don't flip it back under them
+            if(ManualControl.isStanceRecent(id, hold)) continue;
+            boostDisableIds.set(disableCount++, id);
+        }
+        boostDisableIds.size = disableCount;
+        if(boostDisableIds.size > 0) Call.setUnitStance(player, boostDisableIds.toArray(), UnitStance.boost, false);
+
+        //take-off pass: freshly parked canBoost units still short of their target take off
+        boostEnableIds.clear();
+        for(IntIntMap.Entry entry : assignedPlayer){
+            int id = entry.key;
+            if(!parked.contains(id) || boosted.contains(id)) continue;
+            if(ManualControl.isRecent(id, hold) || ManualControl.isStanceRecent(id, hold)) continue;
+            Unit u = Groups.unit.getByID(id);
+            Vec2 target = parkTarget.get(id);
+            if(u == null || !u.isValid() || !u.type.canBoost || target == null) continue;
+            if(!(u.controller() instanceof CommandAI ai) || ai.currentCommand() != UnitCommand.moveCommand) continue;
+            if(u.within(target.x, target.y, BOOST_ARRIVAL_TILES * tilesize)) continue; //already there
+            boosted.add(id);
+            boostEnableIds.add(id);
+        }
+        if(boostEnableIds.size > 0) Call.setUnitStance(player, boostEnableIds.toArray(), UnitStance.boost, true);
     }
 }
