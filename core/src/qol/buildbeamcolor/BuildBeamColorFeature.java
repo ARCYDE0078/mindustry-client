@@ -38,6 +38,14 @@ import static mindustry.Vars.ui;
  * {@code laserColor1}/{@code laserColor2} fields (a white-to-{@link Pal#powerLight} gradient by
  * power satisfaction), swapped the same way; the starvation cue is kept by using a darkened copy of
  * the custom color as the second gradient stop.</li>
+ * <li><b>Lancer/lightning laser, arc lightning, suppression fields</b> - {@link Pal#lancerLaser}
+ * (lancer's beam, shock mines, most lightning bolts), {@link Pal#surge} (the default lightning color
+ * for most other bullets and electric walls) and {@link Pal#sapBullet} (suppression-field units and
+ * abilities) are each a single live Color instance referenced directly - not copied - by everything
+ * that uses them, so swapping the Pal field itself (same trick as {@code accent} above) recolors all
+ * of it for free. One fringe case stays vanilla: lancer's own bullet type additionally keeps a frozen
+ * {@code .cpy()} of the original blue for a dim outer-glow layer ({@code LaserBulletType.colors[0]}),
+ * baked in once at content load - that thin outline never updates.</li>
  * <li><b>Mining beam</b> - the beam units draw while mining ore. As a jar mod this one was
  * unreachable: {@code UnitType.drawMiningBeam} tints with the global {@code Color.lightGray}/
  * {@code Color.white} constants, which everything else in the world uses too, so neither a Pal swap
@@ -64,6 +72,9 @@ public class BuildBeamColorFeature implements Feature{
 
     final Color savedAccent = new Color();
     final Color savedHeal = new Color();
+    final Color savedLancer = new Color();
+    final Color savedSurge = new Color();
+    final Color savedSap = new Color();
     /** Our owned instances the swapped block fields point at during the pass - mutating these never touches vanilla objects. */
     final Color healOwned = new Color();
     final Color powerC1 = new Color(), powerC2 = new Color();
@@ -155,6 +166,18 @@ public class BuildBeamColorFeature implements Feature{
         table.checkPref(powerGradientKey(), false);
         table.pref(new ButtonSetting(powerPickKey(), () -> openPicker(powerColorKey(), defaultPowerInt())));
         table.pref(new ButtonSetting(powerPick2Key(), () -> openPicker(powerColor2Key(), defaultColor2Int())));
+        table.checkPref(lancerRainbowKey(), false);
+        table.checkPref(lancerGradientKey(), false);
+        table.pref(new ButtonSetting(lancerPickKey(), () -> openPicker(lancerColorKey(), defaultLancerInt())));
+        table.pref(new ButtonSetting(lancerPick2Key(), () -> openPicker(lancerColor2Key(), defaultColor2Int())));
+        table.checkPref(surgeRainbowKey(), false);
+        table.checkPref(surgeGradientKey(), false);
+        table.pref(new ButtonSetting(surgePickKey(), () -> openPicker(surgeColorKey(), defaultSurgeInt())));
+        table.pref(new ButtonSetting(surgePick2Key(), () -> openPicker(surgeColor2Key(), defaultColor2Int())));
+        table.checkPref(sapRainbowKey(), false);
+        table.checkPref(sapGradientKey(), false);
+        table.pref(new ButtonSetting(sapPickKey(), () -> openPicker(sapColorKey(), defaultSapInt())));
+        table.pref(new ButtonSetting(sapPick2Key(), () -> openPicker(sapColor2Key(), defaultColor2Int())));
         table.checkPref(mineRainbowKey(), false);
         table.checkPref(mineGradientKey(), false);
         table.pref(new ButtonSetting(minePickKey(), () -> openPicker(mineColorKey(), defaultMineInt())));
@@ -206,6 +229,18 @@ public class BuildBeamColorFeature implements Feature{
             }
         }
 
+        //plain Pal-field swaps, same shape as accent above - each of these three is referenced
+        //directly (never .cpy()'d) by everything that draws with it, so mutating the shared instance
+        //recolors all of it with no per-block bookkeeping needed
+        savedLancer.set(Pal.lancerLaser);
+        Pal.lancerLaser.set(resolved(isLancerRainbow(), isLancerGradient(), lancerColorKey(), defaultLancerInt(), lancerColor2Key()));
+
+        savedSurge.set(Pal.surge);
+        Pal.surge.set(resolved(isSurgeRainbow(), isSurgeGradient(), surgeColorKey(), defaultSurgeInt(), surgeColor2Key()));
+
+        savedSap.set(Pal.sapBullet);
+        Pal.sapBullet.set(resolved(isSapRainbow(), isSapGradient(), sapColorKey(), defaultSapInt(), sapColor2Key()));
+
         //mining beam: no engine state to swap - just refresh the buffers UnitType.drawMiningBeam reads.
         //Units draw inside the drawOver..postDraw bracket, so these are always fresh for this frame.
         int mineDef = defaultMineInt();
@@ -224,6 +259,9 @@ public class BuildBeamColorFeature implements Feature{
         if(!overriding) return;
         Pal.accent.set(savedAccent);
         Pal.heal.set(savedHeal);
+        Pal.lancerLaser.set(savedLancer);
+        Pal.surge.set(savedSurge);
+        Pal.sapBullet.set(savedSap);
         if(healFieldsSwapped){
             for(int i = 0; i < mendBlocks.size; i++){
                 mendBlocks.get(i).baseColor = mendOrigBase.get(i);
@@ -291,6 +329,18 @@ public class BuildBeamColorFeature implements Feature{
         return Color.rgba8888(Pal.powerLight.r, Pal.powerLight.g, Pal.powerLight.b, Pal.powerLight.a);
     }
 
+    static int defaultLancerInt(){
+        return Color.rgba8888(Pal.lancerLaser.r, Pal.lancerLaser.g, Pal.lancerLaser.b, Pal.lancerLaser.a);
+    }
+
+    static int defaultSurgeInt(){
+        return Color.rgba8888(Pal.surge.r, Pal.surge.g, Pal.surge.b, Pal.surge.a);
+    }
+
+    static int defaultSapInt(){
+        return Color.rgba8888(Pal.sapBullet.r, Pal.sapBullet.g, Pal.sapBullet.b, Pal.sapBullet.a);
+    }
+
     /** Vanilla {@link Color#lightGray}, packed - the mining beam's "nothing picked" default, keeping the feature a no-op until touched. */
     static int defaultMineInt(){
         return Color.rgba8888(Color.lightGray.r, Color.lightGray.g, Color.lightGray.b, Color.lightGray.a);
@@ -319,6 +369,30 @@ public class BuildBeamColorFeature implements Feature{
 
     boolean isPowerRainbow(){
         return SafeSettings.getBool(powerRainbowKey(), false);
+    }
+
+    boolean isLancerRainbow(){
+        return SafeSettings.getBool(lancerRainbowKey(), false);
+    }
+
+    boolean isLancerGradient(){
+        return SafeSettings.getBool(lancerGradientKey(), false);
+    }
+
+    boolean isSurgeRainbow(){
+        return SafeSettings.getBool(surgeRainbowKey(), false);
+    }
+
+    boolean isSurgeGradient(){
+        return SafeSettings.getBool(surgeGradientKey(), false);
+    }
+
+    boolean isSapRainbow(){
+        return SafeSettings.getBool(sapRainbowKey(), false);
+    }
+
+    boolean isSapGradient(){
+        return SafeSettings.getBool(sapGradientKey(), false);
     }
 
     boolean isMineRainbow(){
@@ -427,5 +501,77 @@ public class BuildBeamColorFeature implements Feature{
 
     String mineColor2Key(){
         return "buildbeam-color-mine-value2";
+    }
+
+    String lancerRainbowKey(){
+        return "buildbeam-color-lancer-rainbow";
+    }
+
+    String lancerPickKey(){
+        return "buildbeam-color-lancer-pick";
+    }
+
+    String lancerColorKey(){
+        return "buildbeam-color-lancer-value";
+    }
+
+    String lancerGradientKey(){
+        return "buildbeam-color-lancer-gradient";
+    }
+
+    String lancerPick2Key(){
+        return "buildbeam-color-lancer-pick2";
+    }
+
+    String lancerColor2Key(){
+        return "buildbeam-color-lancer-value2";
+    }
+
+    String surgeRainbowKey(){
+        return "buildbeam-color-surge-rainbow";
+    }
+
+    String surgePickKey(){
+        return "buildbeam-color-surge-pick";
+    }
+
+    String surgeColorKey(){
+        return "buildbeam-color-surge-value";
+    }
+
+    String surgeGradientKey(){
+        return "buildbeam-color-surge-gradient";
+    }
+
+    String surgePick2Key(){
+        return "buildbeam-color-surge-pick2";
+    }
+
+    String surgeColor2Key(){
+        return "buildbeam-color-surge-value2";
+    }
+
+    String sapRainbowKey(){
+        return "buildbeam-color-sap-rainbow";
+    }
+
+    String sapPickKey(){
+        return "buildbeam-color-sap-pick";
+    }
+
+    String sapColorKey(){
+        return "buildbeam-color-sap-value";
+    }
+
+    String sapGradientKey(){
+        return "buildbeam-color-sap-gradient";
+    }
+
+    String sapPick2Key(){
+        return "buildbeam-color-sap-pick2";
+    }
+
+    String sapColor2Key(){
+        return "buildbeam-color-sap-value2";
     }
 }
