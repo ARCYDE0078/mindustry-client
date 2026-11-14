@@ -30,12 +30,17 @@ import mindustry.world.blocks.distribution.MassDriver;
  * оверлайва; радиусы турелей клиент рисует только у ПОСТРОЕННЫХ. Здесь же видно покрытие всей
  * спланированной, но ещё не построенной обороны (очередь юнита + выделение + линия).
  * <p>
+ * v7.1 -&gt; v7.12: радиусы обесточенных/сломанных/выключенных построенных блоков рисуются серым
+ * ({@link #isBlockIdle}).
+ * <p>
  * Категорийный фильтр оригинала (logic/power/distribution/liquid) заменён явными instanceof - у
  * {@link Block} нет общего поля range, а перечисленные типы и есть всё, что оригинал реально рисовал.
  */
 public final class PlanRangeFeature{
     private static final Color turretColor = Color.valueOf("f25555");
     private static final Color overdriveColor = Color.valueOf("feb380");
+    /** v7.x: радиус простаивающего (обесточенного/сломанного/выключенного) блока рисуется серым. */
+    private static final Color idleColor = Color.valueOf("909090");
     private static final IntSet seen = new IntSet();
 
     private PlanRangeFeature(){
@@ -75,9 +80,24 @@ public final class PlanRangeFeature{
 
         for(Building b : Vars.player.team().data().getBuildings(held)){
             float range = b instanceof OverdriveProjector.OverdriveBuild ob ? ob.range() : ((MassDriver)held).range;
-            Draw.color(held instanceof OverdriveProjector ? overdriveColor : Pal.accent, 0.5f);
+            //серый для тех, кто на деле не работает - сразу видно, какие из них реально дают покрытие
+            Draw.color(isBlockIdle(b) ? idleColor : held instanceof OverdriveProjector ? overdriveColor : Pal.accent, 0.5f);
             Lines.circle(b.x, b.y, range);
         }
+    }
+
+    /**
+     * Блок реально ничего не делает? Те же признаки, что у оригинала (v7.9+): выключен логикой,
+     * купол в состоянии broken, у овердрайва - сглаженная эффективность почти нулевая, иначе
+     * обычная эффективность. У овердрайва берём именно {@code smoothEfficiency}, а не мгновенную:
+     * она плавно угасает/нарастает, поэтому кольцо не мигает на каждой просадке питания.
+     * Rhino-оговорки оригинала про "метод вместо поля" в Java не нужны - типы статические.
+     */
+    private static boolean isBlockIdle(Building b){
+        if(!b.enabled) return true;
+        if(b instanceof ForceProjector.ForceBuild fb && fb.broken) return true;
+        if(b instanceof OverdriveProjector.OverdriveBuild ob) return ob.smoothEfficiency <= 0.02f;
+        return b.efficiency <= 0.001f;
     }
 
     private static void drawPlan(BuildPlan plan){
