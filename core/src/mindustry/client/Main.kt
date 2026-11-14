@@ -166,7 +166,7 @@ object Main : ApplicationListener {
         // console (shared JS scope) - see NewConsoleMod's javadoc for the adaptation notes.
         guarded("newconsole") { newconsole.NewConsoleMod() }
 
-        // Port of the third-party "PatchEditor" mod (minRi2/Dustdustry, v1.13.1) - in-game GUI
+        // Port of the third-party "PatchEditor" mod (minRi2/Dustdustry, v1.18) - in-game GUI
         // for the NATIVE v8 content-patch system (mindustry.mod.DataPatcher): visual patch
         // editing with a field tree, notes, selectors, undo/redo and HJSON/JSON export. Mounts
         // into the pause menu and the map assets dialog - see Main's javadoc (dustdustry
