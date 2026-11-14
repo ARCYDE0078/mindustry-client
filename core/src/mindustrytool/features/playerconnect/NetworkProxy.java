@@ -1,6 +1,7 @@
 package mindustrytool.features.playerconnect;
 
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.Selector;
@@ -56,6 +57,9 @@ public class NetworkProxy extends Client implements NetListener {
 
     private RoomCloseReason closeReason;
     private String remoteHost = "";
+    /* IP релея, разрешённый один раз в connect(): unban после IpBan-события не должен заново делать DNS-запрос
+     * в потоке события (мог подвесить кадр) */
+    private volatile String providerIp = "";
 
     private Cons<String> onRoomCreated;
     private Cons<RoomCloseReason> onRoomClosed;
@@ -93,12 +97,17 @@ public class NetworkProxy extends Client implements NetListener {
         this.remoteHost = host;
         this.onRoomCreated = onRoomCreated;
         this.onRoomClosed = onRoomClosed;
+        this.providerIp = InetAddress.getByName(host).getHostAddress();
 
         connect(defaultTimeout, host, udpTcpPort, udpTcpPort);
     }
 
     public String getRemoteHost() {
         return remoteHost;
+    }
+
+    public String getProviderIp() {
+        return providerIp;
     }
 
     /**
@@ -327,20 +336,23 @@ public class NetworkProxy extends Client implements NetListener {
     public Packets.RoomStats getStats() {
         Packets.RoomStats stats = new Packets.RoomStats();
 
+        //getStats зовётся и из таймера, и из событий мира: в момент выхода в меню state.map/player/mods уже могут быть null
         stats.id = roomId;
         stats.modVersion = Config.PORT_VERSION; // порт: LoadedMod-а больше нет
-        stats.gamemode = Vars.state.rules.mode().name();
-        stats.mapName = Vars.state.map.name();
+        stats.gamemode = Vars.state != null && Vars.state.rules != null ? Vars.state.rules.mode().name() : "custom";
+        stats.mapName = Vars.state != null && Vars.state.map != null ? Vars.state.map.name() : "unknown";
         stats.name = PlayerConnectConfig.getRoomName();
-        stats.mods = Vars.mods.getModStrings().list();
+        stats.mods = Vars.mods != null ? Vars.mods.getModStrings().list() : new Seq<String>().list();
 
         Seq<RoomPlayer> players = new Seq<>();
 
-        for (Player player : Groups.player) {
-            players.add(new RoomPlayer(player.name, player.locale));
+        if (Groups.player != null) {
+            for (Player player : Groups.player) {
+                players.add(new RoomPlayer(player.name, player.locale));
+            }
         }
 
-        stats.locale = Vars.player.locale;
+        stats.locale = Vars.player != null ? Vars.player.locale : "en";
         stats.version = Version.combined();
         stats.players = players.list();
         stats.createdAt = new Date().getTime();
