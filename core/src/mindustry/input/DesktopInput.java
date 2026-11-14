@@ -1202,6 +1202,11 @@ public class DesktopInput extends InputHandler{
                 lastLineY = cursorY;
                 mode = placing;
                 updateLine(selectX, selectY);
+            }else if(plan == null && mode == none && !commandMode && !input.shift() && !input.keyDown(Binding.control)
+                && !input.keyDown(Binding.tileActionsMenuModifier) && sonkaextras.OtherPlans.buildHovered()){
+                //sonka: ЛКМ по ЧУЖОМУ плану = построить этот блок. Свой план под курсором важнее (его двигают),
+                //а Shift/Ctrl/Alt+ЛКМ уже заняты (слежка, захват юнита, меню тайла). Если построить нечего,
+                //buildHovered вернул false и клик идёт по обычной цепочке ниже.
             }else if(plan != null && !plan.breaking && mode == none && !plan.initialized && plan.progress <= 0f){
                 splan = plan;
                 movedPlan = false;

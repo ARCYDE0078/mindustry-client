@@ -1501,6 +1501,15 @@ public abstract class InputHandler implements InputProcessor, GestureListener{
     private static BuildPlan sameQuadPlan;
     private static final Boolf<BuildPlan> sameQuadPlanFinder = b -> b.block == sameQuadPlan.block && b.x == sameQuadPlan.x && b.y == sameQuadPlan.y;
 
+    /**
+     * sonka: чужой план под курсором - ровно тот, что {@link #drawOtherBuildPlans} подсветил стрелкой/рамкой/ником.
+     * Если чужие планы скрыты (настройка или клавиша), отрисовка не вызывается и {@code overlappingPlan}
+     * остался от прошлого кадра - отдавать его нельзя, поэтому null.
+     */
+    public @Nullable BuildPlan hoveredOtherPlan(){
+        return renderer.showOtherBuildPlans && !ClientVars.hidingPlans ? overlappingPlan : null;
+    }
+
     /** Draws build plans of other players. */
     public void drawOtherBuildPlans(){
         Tmp.v3.set(input.mouseWorld());
@@ -2905,6 +2914,9 @@ public abstract class InputHandler implements InputProcessor, GestureListener{
                 player.unit().addBuild(new BuildPlan(plan.x, plan.y, plan.rotation, plan.block, plan.config));
             }
         }
+
+        //sonka: рамка B берёт и ЧУЖИЕ планы игроков команды (кроме процессоров, у них нет конфига)
+        sonkaextras.OtherPlans.buildArea(result.x, result.y, result.x2, result.y2);
 
         intSet.clear();
         for(int x = result.x; x <= result.x2; x++){
