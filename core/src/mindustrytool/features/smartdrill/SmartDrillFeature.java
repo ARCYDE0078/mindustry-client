@@ -199,10 +199,12 @@ public class SmartDrillFeature implements Feature {
 
                 Core.app.post(() -> {
                     Vars.control.input.isBuilding = false;
-                    if (isBeam) {
-                        placeBeamDrill(tile, direction, (BeamDrill) block, drop);
-                    } else {
-                        placeDrill(tile, direction, (Drill) block, drop);
+                    int placed = isBeam
+                            ? placeBeamDrill(tile, direction, (BeamDrill) block, drop)
+                            : placeDrill(tile, direction, (Drill) block, drop);
+
+                    if (placed > 0) {
+                        toast(Core.bundle.format("feature.smart-drill.placed", placed, block.localizedName));
                     }
                 });
             }).size(48f).pad(4);
@@ -213,7 +215,10 @@ public class SmartDrillFeature implements Feature {
         }
 
         if (i == 0) {
-            currentMenu.add("@none").pad(8);
+            // молчаливое пустое меню сбивало с толку: пользователь не понимал, почему буры не предлагаются
+            toast(Core.bundle.get("feature.smart-drill.no-drills"));
+            closeMenu();
+            return;
         }
 
         currentMenu.pack();
@@ -241,33 +246,35 @@ public class SmartDrillFeature implements Feature {
                 block.supportsEnv(Vars.state.rules.env);
     }
 
-    private void placeDrill(Tile tile, Direction direction, Drill drill, Item drop) {
-        switch (drill.size) {
-            case 1:
-            default:
-                Vars.ui.showInfoFade("Not supported");
-                break;
+    /** @return сколько планов поставлено в очередь юнита. */
+    private int placeDrill(Tile tile, Direction direction, Drill drill, Item drop) {
+        if (drill.size == 2) {
+            return place2x2Drill(tile, direction, drill, drop);
+        }
 
-            case 2:
-                place2x2Drill(tile, direction, drill, drop);
-                break;
+        toast(Core.bundle.get("feature.smart-drill.unsupported-size"));
+        return 0;
+    }
 
-            case 3:
-                Vars.ui.showInfoFade("Not supported");
-                break;
-
-            case 4:
-                Vars.ui.showInfoFade("Not supported");
-                break;
+    private void toast(String text) {
+        if (Vars.ui != null && Vars.ui.hudfrag != null) {
+            Vars.ui.hudfrag.showToast(text);
         }
     }
 
-    private void placeBeamDrill(Tile tile, Direction direction, BeamDrill drill, Item drop) {
+    private int placeBeamDrill(Tile tile, Direction direction, BeamDrill drill, Item drop) {
+        // юнит может умереть/пропасть между кликом и постом в Core.app.post - тогда unit() null
+        if (Vars.player == null || Vars.player.unit() == null) {
+            return 0;
+        }
+
         Seq<Tile> ores = findAllConnectedWallOreTiles(tile, drop, getMaxTiles(drill), direction, drill);
 
         if (ores.isEmpty()) {
-            return;
+            return 0;
         }
+
+        int placed = 0;
 
         var opposite = direction.opposite();
 
@@ -322,6 +329,7 @@ public class SmartDrillFeature implements Feature {
                     Vars.player.unit().addBuild(powerNodePlan);
                     Vars.player.unit().addBuild(drillDuctPlan);
                     drillPlans.add(drillPlan);
+                    placed += 3;
                     break;
                 }
             }
@@ -383,6 +391,7 @@ public class SmartDrillFeature implements Feature {
                             ductDirection.rotation, Blocks.armoredDuct);
 
                     Vars.player.unit().addBuild(ductPlan);
+                    placed++;
 
                     BuildPlan extraDuctPlan = new BuildPlan(plan.x + opposite.x + drill.size, plan.y +
                             opposite.y + drill.size,
@@ -392,19 +401,21 @@ public class SmartDrillFeature implements Feature {
                 }
             }
         }
+
+        return placed;
     }
 
-    private void place2x2Drill(Tile tile, Direction direction, Block drill, Item drop) {
-        var unit = Vars.player.unit();
+    private int place2x2Drill(Tile tile, Direction direction, Block drill, Item drop) {
+        var unit = Vars.player != null ? Vars.player.unit() : null;
 
         if (unit == null) {
-            return;
+            return 0;
         }
 
         Seq<Tile> tiles = findAllConnectedOreTiles(tile, drop, getMaxTiles(drill));
 
         if (tiles.isEmpty()) {
-            return;
+            return 0;
         }
 
         tiles.retainAll(t -> t.drop() == drop);
@@ -414,10 +425,13 @@ public class SmartDrillFeature implements Feature {
         var drillTiles = tiles.select(this::isDrillTile);
         var bridgeTiles = tiles.select(this::isBridgeTile);
 
+        int placed = 0;
+
         for (Tile drillTile : drillTiles) {
             BuildPlan plan = new BuildPlan(drillTile.x, drillTile.y, direction.rotation, drill);
             if (plan.placeable(Vars.player.team())) {
                 unit.addBuild(plan);
+                placed++;
             }
         }
 
@@ -435,6 +449,12 @@ public class SmartDrillFeature implements Feature {
                     return 0;
             }
         });
+
+        // на узкой жиле нет ни одной клетки сетки мостов: bridgeTiles.first() падал с IndexOutOfBounds
+        // уже после того, как буры поставлены. Буры оставляем, мосты просто не строим.
+        if (bridgeTiles.isEmpty() || outMostTile == null) {
+            return placed;
+        }
 
         bridgeTiles.sort(t -> t.dst2(outMostTile));
         var output = bridgeTiles.first().nearby(direction.mul(3));
@@ -454,8 +474,11 @@ public class SmartDrillFeature implements Feature {
             BuildPlan plan = new BuildPlan(bridgeTile.x, bridgeTile.y, 0, Blocks.itemBridge, config);
             if (plan.placeable(Vars.player.team())) {
                 unit.addBuild(plan);
+                placed++;
             }
         }
+
+        return placed;
     }
 
     private Seq<Tile> findAllConnectedWallOreTiles(Tile start, Item drop, int maxTiles, Direction direction,

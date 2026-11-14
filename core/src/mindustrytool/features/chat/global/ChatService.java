@@ -1,5 +1,6 @@
 package mindustrytool.features.chat.global;
 
+import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.function.Supplier;
@@ -7,12 +8,15 @@ import java.util.function.Supplier;
 import arc.Core;
 import arc.Events;
 import arc.func.Cons;
+import arc.struct.ObjectSet;
 import arc.struct.Seq;
 import arc.util.Log;
 import arc.util.Timer;
 import mindustrytool.features.chat.global.dto.ChannelDto;
+import mindustrytool.features.chat.global.dto.ChatDeleteEvent;
 import mindustrytool.features.chat.global.dto.ChatMessage;
 import mindustrytool.features.chat.global.dto.ChatUser;
+import mindustrytool.features.chat.global.events.ChatMessageDelete;
 import mindustrytool.features.chat.global.events.ChatMessageReceive;
 import mindustrytool.features.chat.global.events.ChatStateChange;
 
@@ -27,7 +31,8 @@ public class ChatService {
     private ChatService() {
         store = ChatStore.getInstance();
         apiClient = new ChatApiClient();
-        streamClient = new ChatStreamClient(this::handleIncomingMessages, this::broadcastConnectionStatus);
+        streamClient = new ChatStreamClient(this::handleIncomingMessages, this::handleDelete,
+                this::broadcastConnectionStatus);
         stateManager = new ChatStateManager(apiClient, streamClient);
     }
 
@@ -146,8 +151,123 @@ public class ChatService {
         Events.fire(new ChatMessageReceive(messages));
     }
 
+    /** Сервер удалил сообщение: убираем из ленты, сдвигаем lastMessageId канала и даём UI сбросить цель ответа. */
+    private void handleDelete(ChatDeleteEvent event) {
+        if (event == null || event.id == null || event.channelId == null) {
+            return;
+        }
+
+        ObjectSet<String> ids = new ObjectSet<>();
+        ids.add(event.id);
+        store.removeMessages(event.channelId, ids);
+
+        if (event.lastMessageId != null) {
+            ChannelDto channel = store.getChannels().find(c -> c.id.equals(event.channelId));
+            if (channel != null) {
+                channel.lastMessageId = event.lastMessageId;
+            }
+        }
+
+        Events.fire(new ChatMessageDelete(event.channelId, event.id));
+    }
+
+    /** Было ли уже подключение за эту сессию: первое покрывает init() своей загрузкой, остальные - это разрыв. */
+    private boolean connectedOnce = false;
+
     private void broadcastConnectionStatus(Boolean connected) {
         Events.fire(new ChatStateChange(connected));
+
+        if (connected) {
+            if (connectedOnce) {
+                catchUp();
+            }
+            connectedOnce = true;
+        }
+    }
+
+    /**
+     * Догон после переподключения потока. Пока связи не было, сообщения не приходили (а удаления тем более),
+     * и лента расходилась с сервером. Берём последнюю страницу активного канала: новые досыпаем через обычное
+     * событие приёма (с непрочитанными), а то, что в окне страницы у нас есть, но на сервере уже нет, убираем.
+     */
+    private void catchUp() {
+        String channelId = store.getCurrentChannelId();
+        if (channelId == null) {
+            return;
+        }
+
+        fetchChatUsers(channelId);
+
+        if (store.getMessages(channelId).isEmpty()) {
+            //ленты ещё нет (первая загрузка не удалась из-за обрыва) - это обычная загрузка, а не догон
+            fetchMessages(channelId, null);
+            return;
+        }
+
+        fetchMessages(channelId, null, page -> mergeLatestPage(channelId, page),
+                e -> Log.err("Failed to catch up chat messages for channel " + channelId, e));
+    }
+
+    private void mergeLatestPage(String channelId, ChatMessage[] page) {
+        if (page.length == 0) {
+            return;
+        }
+
+        Seq<ChatMessage> known = store.getMessages(channelId);
+        ObjectSet<String> pageIds = new ObjectSet<>();
+        Seq<ChatMessage> fresh = new Seq<>();
+        Instant oldest = null;
+        Instant newest = null;
+
+        //сервер отдаёт от новых к старым, а лента хранится от старых к новым
+        for (int i = page.length - 1; i >= 0; i--) {
+            ChatMessage message = page[i];
+            if (message == null || message.id == null) {
+                continue;
+            }
+
+            pageIds.add(message.id);
+            if (message.channelId == null) {
+                message.channelId = channelId;
+            }
+
+            Instant createdAt = parseInstant(message.createdAt);
+            if (createdAt != null) {
+                if (oldest == null || createdAt.isBefore(oldest)) oldest = createdAt;
+                if (newest == null || createdAt.isAfter(newest)) newest = createdAt;
+            }
+
+            if (!known.contains(m -> m.id.equals(message.id))) {
+                fresh.add(message);
+            }
+        }
+
+        //удалённое за время разрыва: у нас есть, в окне страницы должно быть, но сервер его не вернул.
+        //Окно строго между самым старым и самым новым сообщением страницы: пришедшее потоком после снимка страницы
+        //и граничные (могли не влезть в страницу) не трогаем
+        if (oldest != null) {
+            ObjectSet<String> gone = new ObjectSet<>();
+            for (ChatMessage message : known) {
+                Instant createdAt = parseInstant(message.createdAt);
+                if (createdAt != null && !pageIds.contains(message.id)
+                        && createdAt.isAfter(oldest) && createdAt.isBefore(newest)) {
+                    gone.add(message.id);
+                }
+            }
+            store.removeMessages(channelId, gone);
+        }
+
+        if (!fresh.isEmpty()) {
+            Events.fire(new ChatMessageReceive(fresh));
+        }
+    }
+
+    private static Instant parseInstant(String value) {
+        try {
+            return value == null ? null : Instant.parse(value);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     public void refreshCurrentChannelUsers() {

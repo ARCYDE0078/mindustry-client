@@ -1,6 +1,5 @@
 package mindustrytool.features.playerconnect;
 
-import java.net.InetAddress;
 import java.util.concurrent.ExecutorService;
 
 import arc.Core;
@@ -358,14 +357,10 @@ public class PlayerConnect {
             return;
         }
 
-        String remoteHost = PlayerConnect.getRemoteHost();
-        if (remoteHost != null) {
-            try {
-                InetAddress address = InetAddress.getByName(remoteHost);
-                Core.app.post(() -> unban(address.getHostAddress()));
-            } catch (Exception e) {
-                Log.err("Failed to check ban IP against remote host", e);
-            }
+        //IP релея уже разрешён в NetworkProxy.connect(); раньше тут на каждое событие бана шёл DNS-запрос
+        String ip = room.getProviderIp();
+        if (ip != null && !ip.isEmpty()) {
+            Core.app.post(() -> unban(ip));
         }
     }
 

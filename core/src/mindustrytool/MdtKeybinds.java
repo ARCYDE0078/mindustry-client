@@ -11,6 +11,7 @@ public class MdtKeybinds {
 
     public static KeyBind mapBrowserKb = KeyBind.add("mapBrowser", KeyCode.unset, "MindustryTool"),
             schematicBrowserKb = KeyBind.add("schematicBrowser", KeyCode.unset, "MindustryTool"),
+            patchBrowserKb = KeyBind.add("patchBrowser", KeyCode.unset, "MindustryTool"),
             chatKb = KeyBind.add("chatOverlay", KeyCode.unset, "MindustryTool");
 
     /**
@@ -21,6 +22,7 @@ public class MdtKeybinds {
     public static void load() {
         mapBrowserKb.load();
         schematicBrowserKb.load();
+        patchBrowserKb.load();
         chatKb.load();
     }
 

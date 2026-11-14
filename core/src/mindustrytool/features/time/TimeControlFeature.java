@@ -32,6 +32,15 @@ public class TimeControlFeature extends Table implements Feature {
 
     private static final float[] SPEEDS = { 0.125f, 0.5f, 1f, 4f, 16f };
 
+    /** Верхняя граница шага симуляции за кадр: x16 при 60 fps = 16, запас до 32 на просадках кадра. */
+    private static final float MAX_STEP = 32f;
+
+    /**
+     * Подменяли ли мы провайдер delta. Без флага onDisable затирал бы чужой провайдер (mi2u FpsController
+     * тоже зовёт Time.setDeltaProvider), даже если ускорение мы вообще не включали.
+     */
+    private boolean providerApplied = false;
+
     /* перф: metadata неизменяема, а isEnabled()/UI зовут getMetadata() каждый кадр -
      * ленивая мемоизация вместо новой цепочки builder+Drawable на каждый вызов */
     private FeatureMetadata cachedMetadata;
@@ -57,6 +66,14 @@ public class TimeControlFeature extends Table implements Feature {
         visible(() -> Vars.ui.hudfrag.shown && isEnabled() && !Vars.net.client());
 
         Events.on(EventType.ResizeEvent.class, e -> rebuild());
+
+        // На сервере чужое время менять нельзя: ускорение рассинхронизирует клиент (а в HUD панель уже скрыта),
+        // и старый провайдер продолжал бы крутить мир с множителем после захода в сеть - сбрасываем при загрузке мира.
+        Events.on(EventType.WorldLoadEvent.class, e -> {
+            if (Vars.net.client()) {
+                resetSpeed();
+            }
+        });
 
         Core.app.post(this::rebuild);
     }
@@ -148,9 +165,37 @@ public class TimeControlFeature extends Table implements Feature {
     }
 
     private void applySpeed(float multipler) {
-        Time.setDeltaProvider(() -> Core.graphics.getDeltaTime() * 60 * multipler);
+        if (Vars.net.client()) {
+            return;
+        }
+
+        providerApplied = true;
+        // NaN/Inf бывают при первом кадре после сворачивания окна; без зажима мир уходил в NaN и не возвращался
+        Time.setDeltaProvider(() -> {
+            float result = Core.graphics.getDeltaTime() * 60f * multipler;
+            return (Float.isNaN(result) || Float.isInfinite(result)) ? 1f : Mathf.clamp(result, 0.0001f, MAX_STEP);
+        });
 
         Log.info("Time speed set to: " + multipler);
+    }
+
+    /** Вернуть скорость 1x и ванильный провайдер delta (с тем же зажимом, что в ClientLauncher). */
+    private void resetSpeed() {
+        selected = 1f;
+        doubleSpeed = false;
+
+        if (providerApplied) {
+            providerApplied = false;
+            Time.setDeltaProvider(() -> {
+                float result = Core.graphics.getDeltaTime() * 60f;
+                return (Float.isNaN(result) || Float.isInfinite(result)) ? 1f
+                        : Mathf.clamp(result, 0.0001f, Vars.maxDeltaClient);
+            });
+        }
+
+        if (parent != null) {
+            rebuild();
+        }
     }
 
     @Override
@@ -166,6 +211,8 @@ public class TimeControlFeature extends Table implements Feature {
 
     @Override
     public void onDisable() {
+        // выключенная фича не должна оставлять мир ускоренным: панели нет, а вернуть 1x нечем
+        resetSpeed();
         remove();
     }
 

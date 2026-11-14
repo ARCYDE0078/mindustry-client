@@ -16,7 +16,8 @@ public class PlayerConnectLink {
             throw new IllegalArgumentException("Missing host");
         }
 
-        if (port <= 0) {
+        //порт > 65535 раньше проходил проверку и падал уже глубоко в сокете с невнятной ошибкой
+        if (port <= 0 || port > 65535) {
             throw new IllegalArgumentException("Invalid port number: " + port);
         }
 
@@ -35,7 +36,7 @@ public class PlayerConnectLink {
         try {
             uri = new URI(UriScheme, null, host, port, '/' + roomId, null, null);
         } catch (URISyntaxException e) {
-            throw new IllegalArgumentException("Invalid host");
+            throw new IllegalArgumentException("Invalid host", e);
         }
     }
 
@@ -45,6 +46,10 @@ public class PlayerConnectLink {
     }
 
     public static PlayerConnectLink fromString(String link) {
+        if (link == null) {
+            throw new IllegalArgumentException("Link cannot be null");
+        }
+
         if (link.startsWith(UriScheme) &&
                 (!link.startsWith(UriScheme + "://") || link.length() == (UriScheme + "://").length()))
             throw new IllegalArgumentException("Missing host");
@@ -54,14 +59,14 @@ public class PlayerConnectLink {
             uri = URI.create(link);
         } catch (IllegalArgumentException e) {
             String cause = e.getLocalizedMessage();
-            int semicolon = cause.indexOf(':');
+            int semicolon = cause != null ? cause.indexOf(':') : -1;
             if (semicolon == -1)
                 throw e;
             else
                 throw new IllegalArgumentException(cause.substring(0, semicolon), e);
         }
 
-        if (uri.isAbsolute() && !uri.getScheme().equals(UriScheme)) {
+        if (uri.isAbsolute() && !UriScheme.equalsIgnoreCase(uri.getScheme())) {
             throw new IllegalArgumentException("Not a player-connect link: " + link);
         }
 
@@ -69,10 +74,15 @@ public class PlayerConnectLink {
     }
 
     public static boolean isValid(String link) {
+        //пустая строка из буфера обмена - частый случай; null/пробелы не должны кидать, это просто "не ссылка"
+        if (link == null || link.trim().isEmpty()) {
+            return false;
+        }
+
         try {
             fromString(link);
             return true;
-        } catch (IllegalArgumentException e) {
+        } catch (Exception e) {
             return false;
         }
     }

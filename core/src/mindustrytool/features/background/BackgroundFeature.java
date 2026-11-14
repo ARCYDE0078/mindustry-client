@@ -21,6 +21,7 @@ import arc.graphics.g2d.TextureRegion;
 public class BackgroundFeature implements Feature {
     static final String SETTING_KEY = "mindustrytool.background.path";
     static final String SETTING_OPACITY_KEY = "mindustrytool.background.opacity";
+    static final String SETTING_SCALING_KEY = "mindustrytool.background.scaling";
     private MenuRenderer originalRenderer;
     private MenuRenderer customRenderer;
 
@@ -58,6 +59,10 @@ public class BackgroundFeature implements Feature {
 
     @Override
     public void onDisable() {
+        restoreOriginalRenderer();
+    }
+
+    private void restoreOriginalRenderer() {
         if (originalRenderer != null) {
             try {
                 Reflect.set(Vars.ui.menufrag, "renderer", originalRenderer);
@@ -71,10 +76,20 @@ public class BackgroundFeature implements Feature {
         }
     }
 
+    /** Вернуть стандартный фон меню и сбросить все настройки фона (файл, прозрачность, масштабирование). */
+    void resetBackground() {
+        restoreOriginalRenderer();
+
+        Core.settings.remove(SETTING_KEY);
+        Core.settings.remove(SETTING_OPACITY_KEY);
+        Core.settings.remove(SETTING_SCALING_KEY);
+        Core.settings.forceSave();
+    }
+
     void applyBackground(Fi file) {
         if (!file.exists() || file.isDirectory()) {
             Core.app.post(() -> {
-                Vars.ui.showInfo("Background file invalid: " + file.absolutePath());
+                Vars.ui.showInfo(Core.bundle.format("feature.background.error.invalid-file", file.absolutePath()));
             });
             return;
         }
@@ -103,7 +118,7 @@ public class BackgroundFeature implements Feature {
             Reflect.set(Vars.ui.menufrag, "renderer", customRenderer);
         } catch (Exception e) {
             Core.app.post(() -> {
-                Vars.ui.showException("Failed to apply background", e);
+                Vars.ui.showException(Core.bundle.get("feature.background.error.apply"), e);
             });
         }
     }
@@ -111,6 +126,17 @@ public class BackgroundFeature implements Feature {
     @Override
     public Optional<Dialog> setting() {
         return Optional.of(new BackgroundSettingsDialog(this));
+    }
+
+    /** Рисует регион фона по центру экрана в режиме масштабирования из настроек (обрезка по умолчанию). */
+    static void drawScaled(TextureRegion region) {
+        float screenWidth = Core.graphics.getWidth();
+        float screenHeight = Core.graphics.getHeight();
+        boolean crop = BackgroundScaling.isCrop();
+
+        Draw.rect(region, screenWidth / 2f, screenHeight / 2f,
+                BackgroundScaling.drawWidth(region.width, region.height, screenWidth, screenHeight, crop),
+                BackgroundScaling.drawHeight(region.width, region.height, screenWidth, screenHeight, crop));
     }
 
     // sonkaextras.MenuUnitDialog применяет выбор юнита фона меню к ОРИГИНАЛЬНОМУ рендеру внутри
@@ -132,6 +158,19 @@ public class BackgroundFeature implements Feature {
             this.originalRenderer = originalRenderer;
         }
 
+        /**
+         * Конструктор MenuRenderer вызывает refresh(), который строит весь 3D-фон меню (кэш плиток + фреймбуфер теней),
+         * а наш render() им не пользуется: каждое применение фона зря утекало бы видеопамятью. В конструкторе
+         * (originalRenderer ещё null) не строим ничего; позже (смена cursednesslevel в настройках) обновляем
+         * настоящий фон под картинкой, а не этот пустой.
+         */
+        @Override
+        public void refresh() {
+            if (originalRenderer != null) {
+                originalRenderer.refresh();
+            }
+        }
+
         @Override
         public MenuRenderer originalRenderer(){
             return originalRenderer;
@@ -151,8 +190,7 @@ public class BackgroundFeature implements Feature {
                     Draw.alpha(opacity / 100f);
                 }
 
-                Draw.rect(region, Core.graphics.getWidth() / 2f, Core.graphics.getHeight() / 2f,
-                        Core.graphics.getWidth(), Core.graphics.getHeight());
+                drawScaled(region);
             } catch (Exception e) {
                 Log.err(e);
             } finally {
@@ -187,6 +225,19 @@ public class BackgroundFeature implements Feature {
             this.originalRenderer = originalRenderer;
         }
 
+        /**
+         * Конструктор MenuRenderer вызывает refresh(), который строит весь 3D-фон меню (кэш плиток + фреймбуфер теней),
+         * а наш render() им не пользуется: каждое применение фона зря утекало бы видеопамятью. В конструкторе
+         * (originalRenderer ещё null) не строим ничего; позже (смена cursednesslevel в настройках) обновляем
+         * настоящий фон под картинкой, а не этот пустой.
+         */
+        @Override
+        public void refresh() {
+            if (originalRenderer != null) {
+                originalRenderer.refresh();
+            }
+        }
+
         @Override
         public MenuRenderer originalRenderer(){
             return originalRenderer;
@@ -216,8 +267,7 @@ public class BackgroundFeature implements Feature {
                     Draw.alpha(opacity / 100f);
                 }
 
-                Draw.rect(currentFrame(), Core.graphics.getWidth() / 2f, Core.graphics.getHeight() / 2f,
-                        Core.graphics.getWidth(), Core.graphics.getHeight());
+                drawScaled(currentFrame());
             } catch (Exception e) {
                 Log.err(e);
             } finally {

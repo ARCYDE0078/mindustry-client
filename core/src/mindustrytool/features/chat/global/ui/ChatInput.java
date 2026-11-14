@@ -25,6 +25,7 @@ import mindustrytool.features.chat.global.ChatService;
 import mindustrytool.features.chat.global.ChatStore;
 import mindustrytool.features.chat.global.ContentType;
 import mindustrytool.features.chat.global.dto.ChatMessage;
+import mindustrytool.features.chat.global.events.ChatMessageDelete;
 import mindustrytool.services.UserService;
 import mindustrytool.utils.State;
 
@@ -48,6 +49,13 @@ public class ChatInput extends Table {
         Events.on(SessionLoadEvent.class, e -> {
             if (!e.isLoading) {
                 rebuild();
+            }
+        });
+
+        //ответ на сообщение, которое сервер удалил, слать уже нельзя - сбрасываем цель
+        Events.on(ChatMessageDelete.class, e -> {
+            if (e.messageId != null && e.messageId.equals(replyingToMessageId)) {
+                clearReply();
             }
         });
 

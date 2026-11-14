@@ -2,6 +2,7 @@ package mindustrytool.features.auth;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.CompletionException;
 
 import arc.func.Cons;
 import arc.func.ConsT;
@@ -101,14 +102,17 @@ public class AuthHttp {
 
                     })
                     .exceptionally(e -> {
-                        if (e instanceof HttpStatusException httpStatusException) {
-                            if (httpStatusException.status.code == 401) {
-                                AuthService.getInstance().logout();
-                            }
+                        //исключение из refreshTokenIfNeeded() приходит обёрнутым в CompletionException (стадия после
+                        //thenRun), поэтому прежняя проверка instanceof HttpStatusException не срабатывала никогда
+                        Throwable cause = e instanceof CompletionException && e.getCause() != null ? e.getCause() : e;
+
+                        if (cause instanceof HttpStatusException httpStatusException && httpStatusException.status != null
+                                && httpStatusException.status.code == 401) {
+                            AuthService.getInstance().logout();
                         }
 
                         if (errorListener != null) {
-                            errorListener.get(e);
+                            errorListener.get(cause);
                         }
                         return null;
                     });

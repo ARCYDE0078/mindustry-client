@@ -19,6 +19,7 @@ import mindustrytool.features.FeatureManager;
 import mindustrytool.features.auth.AuthService;
 import mindustrytool.features.background.BackgroundFeature;
 import mindustrytool.features.browser.map.MapBrowserFeature;
+import mindustrytool.features.browser.patch.PatchBrowserFeature;
 import mindustrytool.features.browser.schematic.SchematicBrowserFeature;
 import mindustrytool.features.chat.global.ChatFeature;
 import mindustrytool.features.chat.translation.ChatTranslationFeature;
@@ -33,7 +34,7 @@ import mindustrytool.features.time.TimeControlFeature;
 import mindustrytool.services.TapListener;
 
 /**
- * Порт мода Mindustry Tool (Sharlotte/MindustryVN, v4.59.1-v8) как вшитый пакет.
+ * Порт мода Mindustry Tool (Sharlotte/MindustryVN, v5.5.27-v8; вшит с v4.59.1-v8) как вшитый пакет.
  * Оркестратор вместо mindustrytool.Main (extends Mod): создаётся из
  * mindustry.client.Main.kt ПОСЛЕ SchemeSizeMod, в конструкторе только вешает
  * ClientLoadEvent — весь UI существует лишь после него.
@@ -111,6 +112,7 @@ public class MindustryToolMod {
         FeatureManager.getInstance().register(//
                 new MapBrowserFeature(), //
                 new SchematicBrowserFeature(), //
+                new PatchBrowserFeature(), //
                 new PlayerConnectFeature(), //
                 new QuickAccessFeature(), //
                 new ChatFeature(), //
