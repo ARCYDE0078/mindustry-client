@@ -19,6 +19,7 @@ import mindustrytool.features.FeatureManager;
 import mindustrytool.features.auth.AuthService;
 import mindustrytool.features.background.BackgroundFeature;
 import mindustrytool.features.browser.map.MapBrowserFeature;
+import mindustrytool.features.browser.patch.PatchBrowserFeature;
 import mindustrytool.features.browser.schematic.SchematicBrowserFeature;
 import mindustrytool.features.chat.global.ChatFeature;
 import mindustrytool.features.chat.translation.ChatTranslationFeature;
@@ -111,6 +112,7 @@ public class MindustryToolMod {
         FeatureManager.getInstance().register(//
                 new MapBrowserFeature(), //
                 new SchematicBrowserFeature(), //
+                new PatchBrowserFeature(), //
                 new PlayerConnectFeature(), //
                 new QuickAccessFeature(), //
                 new ChatFeature(), //
