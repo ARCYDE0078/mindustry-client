@@ -33,6 +33,10 @@ open class Recipe @JvmOverloads constructor(
   lateinit var flattenID: String
     private set
 
+  /** ID рецепта в формате 3.2 (с количествами) - только для чтения старых .shd, см. [RecipesManager.getByID]. */
+  lateinit var legacyFlattenID: String
+    private set
+
   private var completed = false
 
   //мод-источники всех айтемов рецепта (владелец + материалы + продукция) - для проверки при
@@ -83,12 +87,9 @@ open class Recipe @JvmOverloads constructor(
     productionMap.orderedKeys().sort()
     materialMap.orderedKeys().sort()
 
-    val matValues = materialMap.orderedKeys().map { materialMap[it]!! }
-    val prodValues = productionMap.orderedKeys().map { productionMap[it]!! }
-
-    _requiredMods.add(ownerBlock.ownMod)
-    productionMap.orderedKeys().forEach { i -> _requiredMods.add(i.ownMod) }
-    materialMap.orderedKeys().forEach { i -> _requiredMods.add(i.ownMod) }
+    _requiredMods.add(ownerBlock.mod)
+    productionMap.orderedKeys().forEach { i -> _requiredMods.add(i.mod) }
+    materialMap.orderedKeys().forEach { i -> _requiredMods.add(i.mod) }
 
     val idBuilder = StringBuilder()
     idBuilder.append("R-")
@@ -96,12 +97,27 @@ open class Recipe @JvmOverloads constructor(
     idBuilder.append("@")
     idBuilder.append(ownerBlock.name)
     idBuilder.append("[")
-    matValues.forEach { idBuilder.append(it.item.name).append(":").append(it.amount).append(";") }
+    productionMap.orderedKeys().forEach { idBuilder.append(it.name).append(";") }
     idBuilder.append("->")
-    prodValues.forEach { idBuilder.append(it.item.name).append(":").append(it.amount).append(";") }
+    materialMap.orderedKeys().forEach { idBuilder.append(it.name).append(";") }
     idBuilder.append("]")
 
     flattenID = idBuilder.toString()
+
+    //ID формата 3.2 (с количествами и в другом порядке частей): им подписаны .shd, сохранённые
+    //до перехода на 3.3. Без него такие файлы перестали бы находить свои рецепты
+    val legacyBuilder = StringBuilder()
+    legacyBuilder.append("R-")
+    legacyBuilder.append(recipeType.name)
+    legacyBuilder.append("@")
+    legacyBuilder.append(ownerBlock.name)
+    legacyBuilder.append("[")
+    materialMap.orderedKeys().forEach { legacyBuilder.append(it.name).append(":").append(materialMap[it]!!.amount).append(";") }
+    legacyBuilder.append("->")
+    productionMap.orderedKeys().forEach { legacyBuilder.append(it.name).append(":").append(productionMap[it]!!.amount).append(";") }
+    legacyBuilder.append("]")
+
+    legacyFlattenID = legacyBuilder.toString()
 
     completed = true
   }

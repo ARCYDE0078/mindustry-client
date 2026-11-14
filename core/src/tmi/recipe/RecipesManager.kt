@@ -29,6 +29,12 @@ open class RecipesManager {
   private val productions = ObjectSet<RecipeItem<*>>()
   private val blocks = ObjectSet<RecipeItem<*>>()
   private val idMap = ObjectMap<String, Recipe>()
+  /**
+   * Те же рецепты по ID формата 3.2 (с количествами): .shd, сохранённые до перехода на 3.3,
+   * подписаны ими. При коллизии (два рецепта одного блока с одинаковыми названиями предметов, но
+   * разными количествами) побеждает первый - так же, как раньше, пока ID не терял количества.
+   */
+  private val legacyIdMap = ObjectMap<String, Recipe>()
 
   /**向管理器注册一个[RecipeParser]用于分析方块可用的配方 */
   fun registerParser(parser: RecipeParser<*>) {
@@ -54,6 +60,7 @@ open class RecipesManager {
     if (completeRecipe) recipe.complete()
 
     idMap.put(recipe.flattenID, recipe)
+    if (!legacyIdMap.containsKey(recipe.legacyFlattenID)) legacyIdMap.put(recipe.legacyFlattenID, recipe)
 
     recipes.add(recipe)
     for (stack in recipe.materials) {
@@ -86,15 +93,16 @@ open class RecipesManager {
   }
 
   fun getByID(id: String): Recipe {
-    return idMap[id]?: throw NoSuchElementException("No recipe found with id $id.")
+    return getByIDorNull(id)?: throw NoSuchElementException("No recipe found with id $id.")
   }
 
   fun getByIDorError(id: String): Recipe {
-    return idMap[id]?: errorRecipe
+    return getByIDorNull(id)?: errorRecipe
   }
 
+  /** Сначала ID 3.3, затем запасной ID 3.2 - чтобы открывались проекты калькулятора старого сохранения. */
   fun getByIDorNull(id: String): Recipe? {
-    return idMap[id]
+    return idMap[id]?: legacyIdMap[id]
   }
 
   fun filterRecipe(filter: Boolf<Recipe>): Seq<Recipe>{

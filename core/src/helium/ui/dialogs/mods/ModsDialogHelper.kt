@@ -1,6 +1,7 @@
 package helium.ui.dialogs.mods
 
 import arc.Core
+import arc.files.Fi
 import arc.func.Cons
 import arc.func.Func
 import arc.graphics.Color
@@ -13,11 +14,9 @@ import arc.scene.ui.layout.Cell
 import arc.scene.ui.layout.Table
 import arc.struct.OrderedMap
 import arc.struct.Seq
-import arc.util.Http
 import arc.util.Log
 import arc.util.Scaling
 import arc.util.Strings
-import arc.util.Threads
 import arc.util.Time
 import arc.util.serialization.Json
 import arc.util.serialization.Jval
@@ -28,10 +27,12 @@ import helium.ui.UIUtils
 import helium.util.CLIENT_ONLY
 import helium.util.DEPRECATED
 import helium.util.Downloader
+import helium.util.ImageCache
 import helium.util.JAR_MOD
 import helium.util.JS_MOD
 import helium.util.ModStat
 import helium.util.UNSUPPORTED
+import helium.util.VersionCompareHelper
 import helium.util.toStoreSize
 import mindustry.Vars
 import mindustry.core.Version
@@ -43,8 +44,9 @@ import mindustry.ui.Bar
 import mindustry.ui.Styles
 import java.text.SimpleDateFormat
 import java.util.Date
-import java.util.concurrent.ExecutorService
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Future
+import java.util.concurrent.Semaphore
 
 /**
  * Порт helium.ui.dialogs.mods.ModsDialogHelper (Helium, EB-wilson): общие кирпичики
@@ -62,8 +64,10 @@ import java.util.concurrent.Future
  * </ul>
  */
 object ModsDialogHelper{
-    private val exec: ExecutorService = Threads.unboundedExecutor("HTTP", 1)
+    /** Кэш иконок листинга: одна текстура на URL, пока открыт браузер (перестройка карточек не качает заново). */
+    val icons = ImageCache()
 
+    @Volatile
     var modList: OrderedMap<Name, ModListing>? = null
         private set
 
@@ -313,7 +317,8 @@ object ModsDialogHelper{
         modList = null
     }
 
-    private object Lock
+    private val listLock = Any()
+    private var listFetch: CompletableFuture<OrderedMap<Name, ModListing>>? = null
 
     fun getModList(
         index: Int = 0,
@@ -322,54 +327,67 @@ object ModsDialogHelper{
         listener: Cons<OrderedMap<Name, ModListing>>,
     ){
         if(index >= Vars.modJsonURLs.size) return
-        if(refresh) modList = null
+        if(refresh) resetModListCache()
 
         modList?.also{
             listener.get(it)
             return
         }
 
-        exec.submit{
-            synchronized(Lock){
-                modList?.also{ list ->
-                    Core.app.post{ listener.get(list) }
-                    return@synchronized
-                }
-
-                val req = Http.get(Vars.modJsonURLs[index])
-                req.error{ err ->
-                    if(index < Vars.modJsonURLs.size - 1){
-                        getModList(index + 1, false, errHandler, listener)
-                    }else{
-                        Core.app.post{ errHandler?.get(err) }
-                    }
-                }
-                req.block{ response ->
-                    val strResult = response.resultAsString
-                    try{
-                        val result = OrderedMap<Name, ModListing>()
-                        @Suppress("UNCHECKED_CAST")
-                        val list = Json().fromJson(Seq::class.java, ModListing::class.java, strResult) as Seq<ModListing>
-                        val d = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'")
-                        val parser = Func<String, Date>{ text ->
-                            try{
-                                d.parse(text)
-                            }catch(_: Exception){
-                                Date()
-                            }
-                        }
-
-                        list.sortComparing{ m -> parser.get(m!!.lastUpdated) }.reverse()
-                        list.forEach{ result[Name(it)] = it }
-
-                        modList = result
-                        Core.app.post{ listener.get(result) }
-                    }catch(e: Exception){
-                        Core.app.post{ errHandler?.get(e) }
-                    }
-                }
+        fetchModList(index).whenComplete{ list, err ->
+            Core.app.post{
+                if(err != null) errHandler?.get(err.cause ?: err)
+                else listener.get(list)
             }
         }
+    }
+
+    /**
+     * Один сетевой запрос на всех: пока список качается, повторные getModList (браузер + кнопка
+     * GitHub в менеджере + обновление чекера) подцепляются к тому же запросу, а не выстраиваются в
+     * очередь под замком, как в beta-1.6.
+     */
+    private fun fetchModList(index: Int): CompletableFuture<OrderedMap<Name, ModListing>> = synchronized(listLock){
+        listFetch ?: CompletableFuture.supplyAsync({ loadModList(index).also{ modList = it } }, Downloader.exec).also{ pending ->
+            listFetch = pending
+            pending.whenComplete{ _, _ -> synchronized(listLock){ if(listFetch === pending) listFetch = null } }
+        }
+    }
+
+    /** Перебор зеркал mods.json из [Vars.modJsonURLs] - первое ответившее выигрывает. */
+    private fun loadModList(index: Int): OrderedMap<Name, ModListing>{
+        var last: Throwable? = null
+
+        for(i in index until Vars.modJsonURLs.size){
+            try{
+                return parseModList(Downloader.getString(Vars.modJsonURLs[i], maxRetry = 0))
+            }catch(e: InterruptedException){
+                throw e
+            }catch(e: Throwable){
+                last = e
+            }
+        }
+
+        throw last ?: IllegalStateException("no available mod list url")
+    }
+
+    private fun parseModList(json: String): OrderedMap<Name, ModListing>{
+        val result = OrderedMap<Name, ModListing>()
+        @Suppress("UNCHECKED_CAST")
+        val list = Json().fromJson(Seq::class.java, ModListing::class.java, json) as Seq<ModListing>
+        val d = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'")
+        val parser = Func<String, Date>{ text ->
+            try{
+                d.parse(text)
+            }catch(_: Exception){
+                Date()
+            }
+        }
+
+        list.sortComparing{ m -> parser.get(m!!.lastUpdated) }.reverse()
+        list.forEach{ result[Name(it)] = it }
+
+        return result
     }
 
     fun setupContentsList(
@@ -394,285 +412,355 @@ object ModsDialogHelper{
         }
     }
 
-    private val paragraphMatcher = "pre-alpha|alpha|beta|rc|ga|pre-release|release|stable|hotfix|build|\\d+|\\w".toRegex()
-    private val testLevel = mapOf(
-        "pre-alpha" to 0,
-        "alpha" to 1,
-        "beta" to 2,
-        "rc" to 3,
-        "ga" to 4,
-        "pre-release" to 5,
-        "blank" to 6,
-        "release" to 7,
-        "stable" to 8,
-        "hotfix" to 9
-    )
+    /**
+     * Сравнение версий установленного мода и листинга (beta-1.7: [VersionCompareHelper] вместо
+     * регулярки beta-1.6, путавшей теги и числа). Неизвестная версия считается «новее» - как раньше,
+     * чтобы мод без версии не превращался в вечное «есть обновление».
+     */
+    fun tryCompareVersion(aVer: String?, bVer: String?): Int =
+        if(aVer == null || bVer == null) 1 else VersionCompareHelper.tryCompareVersion(aVer, bVer)
 
-    /** Нестрогое сравнение версий (порт tryCompareVersion мода): понимает alpha/beta/rc/etc. */
-    fun tryCompareVersion(aVer: String?, bVer: String?): Int{
-        if(aVer == null || bVer == null) return 1
-        val aParagraph = paragraphMatcher.findAll(aVer.lowercase().trimStart('v')).map{
-            it.value
-        }.toList().also{ if(it.isEmpty()) return 1 }.filter{ it != "build" }
-        val bParagraph = paragraphMatcher.findAll(bVer.lowercase().trimStart('v')).map{
-            it.value
-        }.toList().also{ if(it.isEmpty()) return 1 }.filter{ it != "build" }
-
-        val maxSize = maxOf(aParagraph.size, bParagraph.size)
-
-        (0 until maxSize).forEach{ i ->
-            val pa = if(i >= aParagraph.size) "blank" else aParagraph[i]
-            val pb = if(i >= bParagraph.size) "blank" else bParagraph[i]
-
-            if(testLevel.containsKey(pa)){
-                if(testLevel.containsKey(pb)){
-                    val res = testLevel.getValue(pa) - testLevel.getValue(pb)
-                    if(res > 0) return 1
-                    else if(res < 0) return -1
-                }else return 1
-            }else{
-                val na = Strings.parseInt(pa, Int.MIN_VALUE)
-                val nb = Strings.parseInt(pb, Int.MIN_VALUE)
-                if(na != Int.MIN_VALUE && nb != Int.MIN_VALUE){
-                    val res = na - nb
-                    if(res > 0) return 1
-                    else if(res < 0) return -1
-                }else{
-                    val res = pa.compareTo(pb)
-                    if(res > 0) return 1
-                    else if(res < 0) return -1
-                }
-            }
-        }
-
-        return 0
-    }
-
+    /** Диалог скачивания одного мода: содержимое - одна [ModDownloadBar], запускаемая кнопкой «Скачать». */
     fun showDownloadModDialog(modInfo: ModListing, callback: Runnable){
-        var progress = 0f
-        var complete = false
-        var downloading = false
-        var task: Future<*>? = null
+        val bar = ModDownloadBar(modInfo)
+        val title = Core.bundle[if(bar.isUpdate) "dialog.mods.updateMod" else "dialog.mods.downloadMod"]
 
-        val loaded = Vars.mods.getMod(modInfo.internalName)
-        val isUpdate =
-            loaded != null
-            && loaded.meta.version != modInfo.version
-            && tryCompareVersion(loaded.meta.version, modInfo.version) < 0
-
-        fun buildContent(content: Table){
-            val image = Downloader.downloadLazyDrawable(iconUrl(modInfo.repo), Core.atlas.find("nomap"))
-
-            content.table(HeAssets.darkGrayUIAlpha){ cont ->
-                cont.table(mindustry.gen.Tex.buttonSelect){ icon ->
-                    icon.image(image).scaling(Scaling.fit).size(80f)
-                }.pad(10f).margin(4f).size(88f)
-                cont.stack(
-                    Table{ info ->
-                        info.left().top().defaults().left().pad(3f)
-                        info.add(modInfo.name).color(mindustry.graphics.Pal.accent)
-                        info.row()
-
-                        if(loaded != null){
-                            if(isUpdate){
-                                info.add("[lightgray]${loaded.meta.version}  >>>  [accent]${modInfo.version}")
-                            }else{
-                                info.add("[lightgray]${loaded.meta.version}  >>>  ${modInfo.version}" + Core.bundle["dialog.mods.reinstall"])
-                            }
-                        }else info.add(modInfo.version)
-
-                        info.row()
-                        info.table{ b ->
-                            b.add(
-                                Bar(
-                                    {
-                                        if(complete) Core.bundle["dialog.mods.downloadComplete"]
-                                        else Core.bundle.format(
-                                            "dialog.mods.downloading",
-                                            if(progress < 0) (-progress).toStoreSize()
-                                            else "${Mathf.round(progress*100)}%"
-                                        )
-                                    },
-                                    { mindustry.graphics.Pal.accent },
-                                    { if(progress < 0) 1f else progress }
-                                )).growX().pad(6f).height(22f).visible{ downloading }
-                        }.grow()
-                    },
-                    Table{ info ->
-                        info.top().right().defaults().right().top()
-                        info.table{ status ->
-                            status.top().right().defaults().size(26f).pad(4f)
-                            buildModAttrIcons(status, modInfo.checkStatus())
-                        }.fill()
-                        info.row()
-                        info.table{ stars ->
-                            stars.bottom().right()
-                            buildStars(stars, modInfo)
-                        }
-                    }
-                ).pad(12f).padLeft(4f).growX().fillY().minWidth(420f)
-            }.margin(6f).growX().fillY()
-        }
-
-        UIUtils.showPane(
-            Core.bundle[if(isUpdate) "dialog.mods.updateMod" else "dialog.mods.downloadMod"],
+        val dialog = UIUtils.showPane(
+            title,
             ButtonEntry(
                 Core.bundle["cancel"],
                 Icon.cancel
             ){
-                task?.cancel(true)
+                bar.cancel()
                 it.hide()
             },
             ButtonEntry(
                 Core.bundle["misc.download"],
                 Icon.download,
-                disabled = { downloading }
+                disabled = { bar.downloading || bar.complete }
             ){
-                downloading = true
+                bar.start()
+            }
+        ){ t -> bar.buildContent(t, withButton = false) }
 
-                //sonka: скачивание в файл + импорт - вынесено в общую лямбду, т.к. теперь два пути
-                //к ней ведут (Java-релиз и script-архив ветки, см. ниже)
-                fun finishDownload(url: String, suffix: String){
-                    val fi = Vars.modDirectory.child("tmp").child(modInfo.internalName + suffix)
-                    Downloader.downloadToFile(
-                        url, fi, true,
-                        { p -> progress = p },
-                        { e ->
-                            if(e is InterruptedException) return@downloadToFile
-                            Log.err(e)
-                            Core.app.post{
-                                UIUtils.showException(e, Core.bundle["dialog.mods.downloadFailed"])
-                            }
-                        }
-                    ){
-                        Core.app.post{
-                            try{
-                                if(isUpdate && loaded != null){
-                                    Vars.mods.removeMod(loaded)
-                                }
-                                Vars.mods.importMod(fi)
-                                fi.delete()
-                                complete = true
-                                callback.run()
+        //закрыли окно (в т.ч. Esc) посреди скачивания - не оставляем фоновую загрузку
+        dialog.hidden{ if(!bar.complete) bar.cancel() }
 
-                                it.hide()
-                                UIUtils.showPane(
-                                    Core.bundle[if(isUpdate) "dialog.mods.updateMod" else "dialog.mods.downloadMod"],
-                                    ButtonEntry(Core.bundle["confirm"], Icon.ok){ d ->
-                                        callback.run()
-                                        d.hide()
-                                    }
-                                ){ t -> buildContent(t) }
-                            }catch(e: Exception){
-                                Log.err(e)
-                                UIUtils.showException(e, Core.bundle["dialog.mods.downloadFailed"])
-                            }
-                        }
-                    }
+        bar.onInstalled = {
+            callback.run()
+
+            dialog.hide()
+            UIUtils.showPane(
+                title,
+                ButtonEntry(Core.bundle["confirm"], Icon.ok){ d ->
+                    callback.run()
+                    d.hide()
                 }
+            ){ t -> bar.buildContent(t, withButton = false) }
+        }
+    }
 
-                task = exec.submit{
-                    //sonka: узнаём язык репозитория ПЕРЕД выбором стратегии скачивания - ровно как
-                    //ваниль-браузер (ModsDialog.githubImport/githubImportJavaMod/githubImportBranch).
-                    //Порт Helium раньше ВСЕГДА бил в /releases/latest - для script-модов (JS, не
-                    //JVM-язык) это 404, если автор не публиковал GitHub Release (частый случай, см.
-                    //aazamitsu/anime-units-display - ни одного релиза и ни одного тега), и установка
-                    //ЛЮБОГО такого мода падала с "Failed to check for updates"-подобной ошибкой.
-                    Http.get(Vars.ghApi + "/repos/" + modInfo.repo)
-                        .error{ e ->
-                            downloading = false
-                            if(e is InterruptedException) return@error
-                            Log.err(e)
-                            Core.app.post{
-                                UIUtils.showException(e, Core.bundle["dialog.mods.checkFailed"])
-                            }
-                        }
-                        .block{ repoRes ->
-                            val repoJson = Jval.read(repoRes.resultAsString)
-                            val language = repoJson.getString("language", "<none>")
-                            val defaultBranch = repoJson.getString("default_branch")
-                            val isJvm = language == "Java" || language == "Kotlin" || language == "Groovy" || language == "Scala"
+    /**
+     * Диалог «Установить все» для избранного: по строке [ModDownloadBar] на каждый мод, который
+     * вообще можно поставить (устаревшие/неподдерживаемые версии игры отфильтрованы).
+     */
+    fun showDownloadAllDialog(mods: List<ModListing>, callback: Runnable){
+        val installable = mods.filter{ ModStat.run{ it.checkStatus().isValid() } }
 
-                            if(!isJvm){
-                                //ваниль-фоллбек: архив ветки по умолчанию, без releases/latest
-                                Http.get(Vars.ghApi + "/repos/" + modInfo.repo + "/zipball/" + defaultBranch)
-                                    .error{ e ->
-                                        downloading = false
-                                        if(e is InterruptedException) return@error
-                                        Log.err(e)
-                                        Core.app.post{
-                                            UIUtils.showException(e, Core.bundle["dialog.mods.checkFailed"])
-                                        }
-                                    }
-                                    .block{ loc ->
-                                        val redirect = loc.getHeader("Location")
-                                        if(redirect != null){
-                                            //Downloader сам качает по готовому URL - переиспользуем его (ретраи+прогресс)
-                                            finishDownload(redirect, ".zip")
-                                        }else{
-                                            //редиректа не было - тело уже финальное, сохраняем как есть
-                                            val fi = Vars.modDirectory.child("tmp").child(modInfo.internalName + ".zip")
-                                            fi.write(false).use{ out -> loc.resultAsStream.copyTo(out) }
-                                            Core.app.post{
-                                                try{
-                                                    if(isUpdate && loaded != null) Vars.mods.removeMod(loaded)
-                                                    Vars.mods.importMod(fi)
-                                                    fi.delete()
-                                                    complete = true
-                                                    callback.run()
-                                                    it.hide()
-                                                    UIUtils.showPane(
-                                                        Core.bundle[if(isUpdate) "dialog.mods.updateMod" else "dialog.mods.downloadMod"],
-                                                        ButtonEntry(Core.bundle["confirm"], Icon.ok){ d -> callback.run(); d.hide() }
-                                                    ){ t -> buildContent(t) }
-                                                }catch(e: Exception){
-                                                    Log.err(e)
-                                                    UIUtils.showException(e, Core.bundle["dialog.mods.downloadFailed"])
-                                                }
-                                            }
-                                        }
-                                    }
-                                return@block
-                            }
+        if(installable.isEmpty()){
+            UIUtils.showTip(null, Core.bundle["dialog.mods.installAllEmpty"])
+            return
+        }
 
-                            Http.get(Vars.ghApi + "/repos/" + modInfo.repo + "/releases/latest")
-                                .error{ e ->
-                                    downloading = false
-                                    if(e is InterruptedException) return@error
-                                    Log.err(e)
-                                    Core.app.post{
-                                        UIUtils.showException(e, Core.bundle["dialog.mods.checkFailed"])
-                                    }
-                                }
-                                .block{ result ->
-                                    val json = Jval.read(result.resultAsString)
-                                    val assets = json.get("assets").asArray()
+        //callback перестраивает весь браузер (сотни карточек), поэтому зовём его ОДИН раз при закрытии окна,
+        //а не после каждого из N модов, как делает оригинал; окно модальное - раньше список всё равно не видно
+        var anyInstalled = false
+        val bars = installable.map{ mod ->
+            ModDownloadBar(mod).also{ it.onInstalled = { anyInstalled = true } }
+        }
 
-                                    val dexedAsset = assets.find{ j ->
-                                        j.getString("name").startsWith("dexed")
-                                        && j.getString("name").endsWith(".jar")
-                                    }
-                                    val jarAssets = dexedAsset ?: assets.find{ j ->
-                                        j.getString("name").endsWith(".jar")
-                                    }
-                                    val asset = jarAssets ?: assets.find{ j ->
-                                        j.getString("name").endsWith(".zip")
-                                    }
-
-                                    val suffix = if(dexedAsset == null && jarAssets == null) ".zip" else ".jar"
-
-                                    val url = if(asset != null){
-                                        asset.getString("browser_download_url")
-                                    }else{
-                                        json.getString("zipball_url")
-                                    }
-
-                                    finishDownload(url, suffix)
-                                }
-                        }
+        val dialog = UIUtils.showPane(
+            Core.bundle["dialog.mods.installAll"],
+            ButtonEntry(
+                Core.bundle["cancel"],
+                Icon.cancel
+            ){
+                bars.forEach{ it.cancel() }
+                it.hide()
+            },
+            ButtonEntry(
+                Core.bundle["dialog.mods.downloadAll"],
+                Icon.download
+            ){
+                bars.forEach{ bar ->
+                    if(!bar.isCurrent && !bar.downloading && !bar.complete) bar.start()
                 }
             }
-        ){ t -> buildContent(t) }
+        ){ t ->
+            bars.forEach{ bar ->
+                bar.buildContent(t)
+                t.row()
+            }
+        }
+
+        dialog.hidden{
+            bars.forEach{ if(!it.complete) it.cancel() }
+            if(anyInstalled) callback.run()
+        }
+    }
+}
+
+/** Куда и во что качать мод: [url] архива и расширение итогового файла [suffix] (".jar" / ".zip"). */
+class DownloadTarget(val url: String, val suffix: String)
+
+/** Выбор артефакта релиза: dexed-jar > любой jar > zip > zipball исходников. */
+internal fun resolveAssetTarget(json: Jval): DownloadTarget{
+    val assets = json.get("assets").asArray()
+
+    val dexed = assets.find{ it.getString("name").startsWith("dexed") && it.getString("name").endsWith(".jar") }
+    val jar = dexed ?: assets.find{ it.getString("name").endsWith(".jar") }
+    val archive = jar ?: assets.find{ it.getString("name").endsWith(".zip") }
+    val suffix = if(dexed == null && jar == null) ".zip" else ".jar"
+
+    return DownloadTarget(archive?.getString("browser_download_url") ?: json.getString("zipball_url"), suffix)
+}
+
+/**
+ * Строка скачивания одного мода (порт ModDownloadBar, Helium beta-1.7): карточка с иконкой,
+ * версиями, прогресс-баром и кнопкой. Одну и ту же карточку используют диалог одного мода и
+ * диалог «Установить все» (там их столбик).
+ *
+ * Отличия от оригинала: потоки вместо корутин (отмена - [Future.cancel] с interrupt) и стратегия
+ * выбора архива sonka - по языку репозитория (см. [resolveDownloadTarget]).
+ */
+class ModDownloadBar(
+    val modInfo: ModListing,
+){
+    companion object{
+        /**
+         * «Установить все» не должна выстрелить десятком одновременных запросов к api.github.com:
+         * без токена лимит 60 запросов в час, а на мод уходит два (репозиторий + релиз).
+         */
+        private val apiGate = Semaphore(3)
+    }
+
+    var onInstalled: () -> Unit = {}
+
+    @Volatile
+    var progress = 0f
+        private set
+
+    @Volatile
+    var complete = false
+        private set
+
+    @Volatile
+    var failed = false
+        private set
+
+    @Volatile
+    var downloading = false
+        private set
+
+    @Volatile
+    private var cancelled = false
+
+    private var task: Future<*>? = null
+
+    private val loaded: Mods.LoadedMod? get() = Vars.mods.getMod(modInfo.internalName)
+
+    val isCurrent: Boolean get() = loaded?.meta?.version == modInfo.version
+    val isUpdate: Boolean get() = loaded?.let{
+        it.meta.version != modInfo.version && ModsDialogHelper.tryCompareVersion(it.meta.version, modInfo.version) < 0
+    } == true
+
+    fun start(){
+        if(downloading || complete) return
+
+        downloading = true
+        failed = false
+        cancelled = false
+        progress = 0f
+
+        task = Downloader.exec.submit{ run() }
+    }
+
+    fun cancel(){
+        cancelled = true
+        task?.cancel(true)
+        task = null
+        downloading = false
+    }
+
+    private fun run(){
+        try{
+            val target = try{
+                apiGate.acquire()
+                try{
+                    resolveDownloadTarget()
+                }finally{
+                    apiGate.release()
+                }
+            }catch(e: InterruptedException){
+                return
+            }catch(e: Throwable){
+                fail(e, "dialog.mods.checkFailed")
+                return
+            }
+
+            val file = Vars.modDirectory.child("tmp").child(modInfo.internalName + target.suffix)
+
+            try{
+                Downloader.downloadToFile(target.url, file, { p -> progress = p })
+            }catch(e: InterruptedException){
+                file.delete()
+                return
+            }catch(e: Throwable){
+                file.delete()
+                fail(e, "dialog.mods.downloadFailed")
+                return
+            }
+
+            //импорт трогает загрузчик модов и UI - только в основном потоке; отмена в последний момент не ставит мод
+            Core.app.post{
+                if(cancelled) file.delete() else install(file)
+            }
+        }catch(e: Throwable){
+            //страховка: что бы ни случилось в фоне, кнопка не должна остаться «вечно качает»
+            downloading = false
+            Log.err(e)
+        }
+    }
+
+    /**
+     * sonka: узнаём язык репозитория ПЕРЕД выбором стратегии скачивания - ровно как ваниль-браузер
+     * (ModsDialog.githubImport/githubImportJavaMod/githubImportBranch). Порт Helium раньше ВСЕГДА
+     * бил в /releases/latest - для script-модов (JS, не JVM-язык) это 404, если автор не публиковал
+     * GitHub Release (частый случай, см. aazamitsu/anime-units-display - ни одного релиза и ни одного
+     * тега), и установка ЛЮБОГО такого мода падала с "Failed to check for updates"-подобной ошибкой.
+     * Для не-JVM берём архив ветки по умолчанию; редирект api.github.com -> codeload Arc проходит сам
+     * (followRedirects включён по умолчанию), поэтому ретраи и прогресс общие с обычной загрузкой.
+     */
+    private fun resolveDownloadTarget(): DownloadTarget{
+        val repoJson = Jval.read(Downloader.getString(Vars.ghApi + "/repos/" + modInfo.repo))
+        val language = repoJson.getString("language", "<none>")
+        val isJvm = language == "Java" || language == "Kotlin" || language == "Groovy" || language == "Scala"
+
+        if(!isJvm){
+            val defaultBranch = repoJson.getString("default_branch")
+            return DownloadTarget(Vars.ghApi + "/repos/" + modInfo.repo + "/zipball/" + defaultBranch, ".zip")
+        }
+
+        return resolveAssetTarget(Jval.read(Downloader.getString(Vars.ghApi + "/repos/" + modInfo.repo + "/releases/latest")))
+    }
+
+    fun buildContent(content: Table, withButton: Boolean = true){
+        val icon = ModsDialogHelper.icons.resolve(ModsDialogHelper.iconUrl(modInfo.repo))
+
+        content.table(HeAssets.darkGrayUIAlpha){ cont ->
+            cont.table(mindustry.gen.Tex.buttonSelect){ t ->
+                t.image(icon).scaling(Scaling.fit).size(80f)
+            }.pad(10f).margin(4f).size(88f)
+
+            cont.stack(
+                Table{ info -> buildInfo(info) },
+                Table{ info -> buildStatus(info) },
+            ).pad(12f).padLeft(4f).growX().fillY().minWidth(420f)
+
+            if(withButton){
+                cont.table{ buttons ->
+                    buttons.defaults().size(48f).pad(4f)
+
+                    buttons.button(Icon.downloadSmall, Styles.clearNonei, 48f){ start() }
+                        .disabled{ downloading || complete }
+                        .update{ b ->
+                            b.image.setScale(0.9f)
+                            b.style.imageUpColor = when{
+                                complete -> mindustry.graphics.Pal.heal
+                                failed -> Color.crimson
+                                else -> Color.white
+                            }
+                        }
+                }.pad(8f)
+            }
+        }.margin(6f).growX().fillY()
+    }
+
+    private fun buildInfo(info: Table){
+        info.left().top().defaults().left().pad(3f)
+        info.add(modInfo.name).color(mindustry.graphics.Pal.accent)
+        info.row()
+
+        val installed = loaded
+        when{
+            installed == null -> info.add(modInfo.version)
+            installed.meta.version == modInfo.version ->
+                info.add("[lightgray]${installed.meta.version}  " + Core.bundle["dialog.mods.installed"])
+            isUpdate ->
+                info.add("[lightgray]${installed.meta.version}  >>>  [accent]${modInfo.version}")
+            else ->
+                info.add("[lightgray]${installed.meta.version}  >>>  ${modInfo.version}" + Core.bundle["dialog.mods.reinstall"])
+        }
+
+        info.row()
+        info.table{ bar ->
+            bar.add(
+                Bar(
+                    {
+                        when{
+                            failed -> Core.bundle["dialog.mods.downloadFailed"]
+                            complete -> Core.bundle["dialog.mods.downloadComplete"]
+                            else -> Core.bundle.format(
+                                "dialog.mods.downloading",
+                                if(progress < 0) (-progress).toStoreSize()
+                                else "${Mathf.round(progress*100)}%"
+                            )
+                        }
+                    },
+                    { if(failed) Color.crimson else mindustry.graphics.Pal.accent },
+                    { if(progress < 0) 1f else progress }
+                )
+            ).growX().pad(6f).height(22f).visible{ downloading || complete || failed }
+        }.grow()
+    }
+
+    private fun buildStatus(info: Table){
+        info.top().right().defaults().right().top()
+        info.table{ status ->
+            status.top().right().defaults().size(26f).pad(4f)
+            ModsDialogHelper.buildModAttrIcons(status, ModsDialogHelper.run{ modInfo.checkStatus() })
+        }.fill()
+        info.row()
+        info.table{ stars ->
+            stars.bottom().right()
+            ModsDialogHelper.buildStars(stars, modInfo)
+        }
+    }
+
+    private fun fail(error: Throwable, messageKey: String){
+        downloading = false
+        failed = true
+
+        Log.err(error)
+        Core.app.post{ UIUtils.showException(error, Core.bundle[messageKey]) }
+    }
+
+    private fun install(file: Fi){
+        try{
+            if(isUpdate) loaded?.also{ Vars.mods.removeMod(it) }
+
+            Vars.mods.importMod(file)
+            file.delete()
+
+            complete = true
+            downloading = false
+            onInstalled()
+        }catch(e: Exception){
+            Log.err(e)
+            downloading = false
+            failed = true
+            UIUtils.showException(e, Core.bundle["dialog.mods.downloadFailed"])
+        }
     }
 }
 

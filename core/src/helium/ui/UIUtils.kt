@@ -118,11 +118,17 @@ object UIUtils{
                 info.line(Pal.accent, true, 3f).padTop(4f).padLeft(-6f).padRight(-6f)
                 info.row()
             }
-            info.pane(build).grow().minSize(380f, 120f).pad(12f)
+            //без горизонтальной прокрутки: широкое содержимое (длинная строка, список модов) не должно
+            //давать вторую полосу - панель сама растёт вширь
+            info.pane(build).grow().minSize(380f, 120f).pad(12f).scrollX(false)
             info.row()
             info.table{ but ->
                 but.defaults().growX().height(46f).minWidth(82f).pad(4f)
                 buttons.forEach{ entry ->
+                    //перенос строки перед кнопкой (ButtonEntry.row()): когда кнопок много (избранное:
+                    //переименовать/экспорт/установить все/удалить), ряд не лезет за край панели
+                    if(entry.row) but.row()
+
                     but.button("", Styles.none, Styles.flatt, 32f){
                         entry.clicked(dialog)
                     }.margin(6f).also{
@@ -155,6 +161,11 @@ class ButtonEntry(
     val checked: Boolp? = null,
     val clicked: Cons<Dialog>,
 ){
+    /** Начинать ли с этой кнопки новый ряд в нижней панели диалога. */
+    var row = false
+
+    fun row(): ButtonEntry = apply{ row = true }
+
     constructor(
         title: String,
         icon: Drawable? = null,

@@ -99,6 +99,7 @@ public class HotkeyCatalog{
             String tmiCat = modsec("tmi");
             manual(out, tmiCat, "tmi_calc_save", () -> "Ctrl + S  /  Alt + S  /  Ctrl + Shift + S", null, null);
             manual(out, tmiCat, "tmi_calc_refresh", () -> "F5", "F5", null);
+            manual(out, tmiCat, "tmi_calc_undo", () -> "Ctrl + Z  /  Ctrl + Y", null, null);
         }
 
         if(ComponentBoot.enabled("qol")){
