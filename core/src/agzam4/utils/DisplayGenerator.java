@@ -1,6 +1,9 @@
 package agzam4.utils;
 
 import agzam4.io.GifIO;
+import agzam4.utils.DisplayGeneratorShapes.Poly;
+import agzam4.utils.DisplayGeneratorShapes.Rect;
+import agzam4.utils.DisplayGeneratorShapes.Tri;
 import agzam4.utils.animationgen.GifGenerator;
 import agzam4.utils.code.Code;
 import arc.files.Fi;
@@ -54,6 +57,20 @@ public class DisplayGenerator {
 					dialog.hide();
 				}).growX().pad(10).padBottom(4).wrapLabel(false).row();
 
+				// "LITE" - приближение картинки фигурами (rect/triangle/poly) вместо построчной заливки: схема
+				// в разы короче, но это лишь аппроксимация. Для gif не предлагается - анимация только построчная.
+				if(!file.extension().equals("gif")) {
+					t.button(Blocks.logicDisplay.emoji() + " [LITE] " + Blocks.logicDisplay.localizedName, Styles.defaultt, () -> {
+						createBeta(file, 80);
+						dialog.hide();
+					}).growX().pad(10).padBottom(4).wrapLabel(false).row();
+
+					t.button(Blocks.largeLogicDisplay.emoji() + " [LITE] " + Blocks.largeLogicDisplay.localizedName, Styles.defaultt, () -> {
+						createBeta(file, 176);
+						dialog.hide();
+					}).growX().pad(10).padBottom(4).wrapLabel(false).row();
+				}
+
 				t.button("@back", Styles.defaultt, () -> {
 					dialog.hide();
 					PlayerUtils.hide();
@@ -78,9 +95,69 @@ public class DisplayGenerator {
 		}
 
 		Pixmap pixmap = new Pixmap(file);
-		create(pixmap, 80);
+		create(pixmap, size);
 		pixmap.dispose();
 		PlayerUtils.hide();
+	}
+
+	private static void createBeta(Fi file, int size) {
+		Pixmap pixmap = new Pixmap(file);
+		createBeta(pixmap, size);
+		pixmap.dispose();
+		PlayerUtils.hide();
+	}
+
+	/** Рисует картинку набором фигур (см. {@link DisplayGeneratorShapes}), а не построчно. */
+	public static void createBeta(Pixmap pixmap, int size) {
+		var shapes = DisplayGeneratorShapes.decompose(pixmap, size, 900/2 - 900/255);
+		Seq<Code> codes = new Seq<Code>();
+
+		final int maxCount = 999-2;
+
+		Code code = new Code();
+		code.getLink("#Display", 0);
+		code.jump("equal #Display null", -1);
+
+		// ждём, пока дисплей дорисует буфер предыдущей команды (не переполнять его)
+		code.sensor("#Lock", "@operations", "#Display");
+		code.jump("notEqual #Lock 0", -3);
+
+		int count = maxCount;
+
+		int buffer = 0;
+		for (int i = 0; i < shapes.size; i++) {
+			if(count <= 3) {
+				code.drawflush("#Display");
+				codes.add(code);
+				code = new Code();
+				code.getLink("#Display", 0);
+				code.jump("equal #Display null", -1);
+				count = maxCount;
+			}
+			var shape = shapes.get(i);
+
+			code.color(shape.r, shape.g, shape.b, 255);
+			count--;
+
+			if(shape instanceof Rect rect) code.drawRect(rect.x, rect.y, rect.w, rect.h);
+			if(shape instanceof Tri tri) code.drawTriangle(tri.xs, tri.ys);
+			if(shape instanceof Poly poly) code.drawPoly((int)poly.x, (int)poly.y, (int)poly.sides, (int)poly.radius, (int)poly.rotation);
+			count--;
+
+			buffer += 2;
+			if(buffer >= 255) {
+				code.drawflush("#Display");
+				count--;
+				buffer = 0;
+			}
+		}
+		code.drawflush("#Display");
+		codes.add(code);
+
+		Code nCode = null;
+		codes.add(nCode);
+
+		buildScheme(codes, size);
 	}
 
 	public static void create(Pixmap pixmap, int size) {
