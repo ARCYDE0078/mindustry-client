@@ -51,6 +51,8 @@ public class MusicSettingsDialog extends BaseDialog {
             case AMBIENT -> Core.bundle.get("music.type.ambient", "Ambient");
             case DARK -> Core.bundle.get("music.type.dark", "Dark");
             case BOSS -> Core.bundle.get("music.type.boss", "Boss");
+            case MENU -> Core.bundle.get("music.type.menu", "Main menu");
+            case EDITOR -> Core.bundle.get("music.type.editor", "Map editor");
         };
 
         Seq<Music> list = feature.getMusicList(type);
@@ -82,10 +84,14 @@ public class MusicSettingsDialog extends BaseDialog {
                 });
             }).size(btnSize).padRight(5).tooltip(Core.bundle.get("music.tooltip.add", "Add custom music"));
 
-            t.button(Icon.trash, () -> {
-                feature.disableAllOriginals(type);
-                rebuild();
-            }).size(btnSize).tooltip(Core.bundle.get("music.tooltip.remove-original", "Disable all original sounds"));
+            //у слота меню/редактора нет списка оригиналов (родной трек - просто запасной, когда своих нет)
+            if (!type.isSlot()) {
+                t.button(Icon.trash, () -> {
+                    feature.disableAllOriginals(type);
+                    rebuild();
+                }).size(btnSize)
+                        .tooltip(Core.bundle.get("music.tooltip.remove-original", "Disable all original sounds"));
+            }
         }).growX().row();
 
         table.table(t -> {
