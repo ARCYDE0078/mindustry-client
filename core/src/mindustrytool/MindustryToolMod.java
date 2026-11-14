@@ -34,7 +34,7 @@ import mindustrytool.features.time.TimeControlFeature;
 import mindustrytool.services.TapListener;
 
 /**
- * Порт мода Mindustry Tool (Sharlotte/MindustryVN, v4.59.1-v8) как вшитый пакет.
+ * Порт мода Mindustry Tool (Sharlotte/MindustryVN, v5.5.27-v8; вшит с v4.59.1-v8) как вшитый пакет.
  * Оркестратор вместо mindustrytool.Main (extends Mod): создаётся из
  * mindustry.client.Main.kt ПОСЛЕ SchemeSizeMod, в конструкторе только вешает
  * ClientLoadEvent — весь UI существует лишь после него.
