@@ -187,8 +187,18 @@ public class PlacementFragment{
                     if(!req.breaking && req.block.bounds(req.x, req.y, Tmp.r1).contains(Core.input.mouseWorld())){
                         tryBlock = req.block;
                         tryConfig = req.config;
+                        found = true;
                         break;
                     }
+                }
+            }
+
+            //sonka: СКМ по чужому плану = скопировать его блок; свои планы приоритетнее (found выше)
+            if(!found){
+                BuildPlan other = sonkaextras.OtherPlans.hovered();
+                if(other != null){
+                    tryBlock = other.block;
+                    tryConfig = other.config;
                 }
             }
 

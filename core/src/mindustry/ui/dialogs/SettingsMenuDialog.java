@@ -705,6 +705,7 @@ public class SettingsMenuDialog extends BaseDialog{
         }
 
         game.checkPref("doubletapmine", false);
+        game.checkPref("otherplansclick", true); //sonka: СКМ/ЛКМ/B по планам других игроков
         game.checkPref("mineanything", false);
         game.checkPref("rtsallcommands", true);
         game.checkPref("rtsallmineitems", true);
