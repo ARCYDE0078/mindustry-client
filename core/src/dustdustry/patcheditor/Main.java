@@ -10,7 +10,7 @@ import mindustry.mod.*;
 import rhino.*;
 
 /**
- * Порт мода "PatchEditor" (minRi2/Dustdustry, v1.14.0 + фиксы до da610e2c, 2026-09-04) как нативный пакет клиента: in-game GUI
+ * Порт мода "PatchEditor" (minRi2/Dustdustry, v1.18, 6f3f8678, 2026-10-28) как нативный пакет клиента: in-game GUI
  * для НАТИВНОЙ системы контент-патчей движка v8 (mindustry.mod.DataPatcher + DataManager,
  * PatchAsset/ContentAsset в правилах карты/сейва) - никакой внешней мод-зависимости у него нет,
  * build.gradle оригинала зависит только от ваниль-jar v159.7, т.е. ровно от версии этого движка.
@@ -23,7 +23,8 @@ import rhino.*;
  * ContentParser.internalRead/parseProgressOp, MapContentView.contentIcons) сверены с этим
  * движком. Настройки - собственный диалог мода (EditorSettings, шестерёнка в редакторе
  * патчей, ключи patch-editor.* оригинальные) - контекстные на месте, как у mi2u, поэтому
- * секции в общей вкладке «Моды» нет; строка в справочнике фич ведёт в этот диалог.
+ * секции в общей вкладке «Моды» нет (оригинал с v1.15 заводит там категорию «Patch Editor»,
+ * здесь этого нет); строка в справочнике фич ведёт в этот диалог.
  *
  * Адаптация по образцу HeliumMod/MI2UMod: без extends Mod, конструктор зовётся из
  * mindustry.client.Main.init() до ClientLoadEvent; self-disable guard по id мода

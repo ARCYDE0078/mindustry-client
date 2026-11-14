@@ -130,7 +130,7 @@ public class NodeDisplay{
         }else if(object instanceof Effect effect){
             displayNameType(object);
             table.add().expandX();
-            displayEffect(effect);
+            displayEffect(table, effect);
         }else if(object instanceof PartProgress progress){
             displayNameType(object);
             table.add().expandX();
@@ -145,9 +145,9 @@ public class NodeDisplay{
             nodeInfoTable.defaults().minWidth(labelWidth).growX();
 
             Class<?> type = ClassHelper.actualClass(object == null ? node.getTypeOut() : object.getClass());
-            nodeInfoTable.add(node.getDisplayName()).wrap().tooltip(node.getDisplayName());
+            nodeInfoTable.add(node.getDisplayName()).wrap(true).tooltip(node.getDisplayName());
             nodeInfoTable.row();
-            nodeInfoTable.add(ClassHelper.getDisplayName(type)).fontScale(0.85f).color(EPalettes.type).ellipsis(true).wrap().padTop(4f).tooltip(ClassHelper.getDisplayName(type));
+            nodeInfoTable.add(ClassHelper.getDisplayName(type)).fontScale(0.85f).color(EPalettes.type).ellipsis(true).wrap(true).padTop(4f).tooltip(ClassHelper.getDisplayName(type));
         });
     }
 
@@ -157,7 +157,7 @@ public class NodeDisplay{
 
             valueTable.image(getDisplayIcon(object)).scaling(Scaling.fit).size(imageSize);
             valueTable.row();
-            valueTable.add(getDisplayName(object)).labelAlign(Align.right).ellipsis(true).wrap().padTop(8f).minWidth(labelWidth).growX();
+            valueTable.add(getDisplayName(object)).labelAlign(Align.right).ellipsis(true).wrap(true).padTop(8f).minWidth(labelWidth).growX();
         });
     }
 
@@ -178,24 +178,23 @@ public class NodeDisplay{
         });
     }
 
-    private static void displayEffect(Effect effect){
-        table.table(valueTable -> {
-            valueTable.defaults().right();
+    public static void displayEffect(Table table, Effect effect){
+        ClickListener listener = new ClickListener();
+        EffectEntry entry = new EffectEntry(effect).name(PatchJsonIO.getKeyName(effect));
+        Element element = EffectElems.getEffectElem(entry, listener);
+        table.add(element).size(imageSize).right();
 
-            ClickListener listener = new ClickListener();
-            EffectEntry entry = new EffectEntry(effect).name(PatchJsonIO.getKeyName(effect));
-            Element element = EffectElems.getEffectElem(entry, listener);
-            valueTable.add(element).size(imageSize);
-
-            Tooltip tooltip = new Tooltip(t -> {
-                t.background(Styles.black3).margin(8f);
-                t.add(EffectElems.getEffectElem(entry, listener)).minSize(imageSize * 5f);
-            });
-            tooltip.allowMobile = true;
-
-            element.addListener(listener);
-            element.addListener(tooltip);
+        Tooltip tooltip = new Tooltip(t -> {
+            t.background(Styles.black3).margin(8f);
+            t.stack(EffectElems.getEffectElem(entry, null), new Table(stacked -> {
+                stacked.right().bottom();
+                stacked.add(entry.name).ellipsis(true).labelAlign(Align.right).color(EPalettes.value).pad(8f);
+            })).minSize(imageSize * 5f);
         });
+        tooltip.allowMobile = true;
+
+        element.addListener(listener);
+        element.addListener(tooltip);
     }
 
     private static void displayProgress(PartProgress progress){
