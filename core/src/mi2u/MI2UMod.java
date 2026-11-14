@@ -13,7 +13,7 @@ import static mi2u.MI2UVars.*;
 import static mindustry.Vars.*;
 
 /**
- * Порт мода "MI2-Utilities Java" (BlackDeluxeCat, v1.16.1) как нативный пакет клиента.
+ * Порт мода "MI2-Utilities Java" (BlackDeluxeCat, v1.16.2) как нативный пакет клиента.
  * Оригинальный главный класс {@code mi2u.MI2Utilities extends Mod} превращён в оркестратор
  * по образцу QolSuiteMod/EUIMod: конструктор вызывается из mindustry.client.Main.init()
  * ДО Events.fire(ClientLoadEvent), поэтому здесь можно (и нужно) только вешать слушатели.
@@ -33,16 +33,13 @@ import static mindustry.Vars.*;
  * <li>ModUpdateChecker выброшен - вшитой копии нечего обновлять с GitHub мода.</li>
  * </ul>
  * <p>
- * Апстрим 1.16.0 требует minGameVersion 160 и на этой сборке переработал
- * {@code mindustry.game.MapMarkers} (добавил предвычисленные {@code mapMarkers}/{@code worldMarkers}
- * вместо плоского перебора с проверкой {@code marker.world}/{@code marker.minimap}) как часть фикса
- * "objective marker render crash". Этот клиент собран на движке build=159.7, где MapMarkers - всё ещё
- * плоский {@code Iterable<ObjectiveMarker>} без этих полей, поэтому правка НЕ портирована:
- * RendererExt.drawMarkers()/MinimapMindow (циклы по FullAI.LogicMode.markers/state.markers с
- * проверкой marker.world/marker.minimap) намеренно оставлены в дореформенном виде апстрима 1.15.2 -
- * они и так корректны для здешнего MapMarkers. Остальные фиксы 1.16.0/1.16.1 (снятие logicMemory
- * из списка добавляемых мониторов, пересборка кэша иконок PowerGraphTable на WorldLoadEvent вместо
- * ContentInitEvent) не завязаны на движок и портированы как есть.
+ * Версия 1.16.2. Апстрим 1.16.x требует движок 160 и использует предвычисленные
+ * {@code MapMarkers.worldMarkers/mapMarkers} вместо перебора с проверкой {@code marker.world/minimap} -
+ * клиент собран на 160.7, где эти поля есть, так что цикл в RendererExt/MinimapMindow как в апстриме.
+ * Остальные фиксы (снятие logicMemory из списка мониторов, пересборка кэша иконок PowerGraphTable
+ * на WorldLoadEvent вместо ContentInitEvent) портированы как есть. Единственное осознанное отличие:
+ * флаг анимированных зон берётся из {@code renderer.animateShields} (апстрим читает animateWater,
+ * но в этом форке именно animateShields включает буфер шейдера щитов, куда рисуются зоны).
  * </p>
  */
 public class MI2UMod{
