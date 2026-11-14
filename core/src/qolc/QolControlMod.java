@@ -9,15 +9,18 @@ import mindustry.game.EventType.ClientLoadEvent;
 import qol.core.ButtonSetting;
 import qol.core.LabelSetting;
 import qolc.autograb.AutoGrabFeature;
+import qolc.damagenums.DamageNumbersFeature;
 import qolc.keybinds.ChatKeyBindsFeature;
 import qolc.mlog.MlogLibrary;
 import qolc.multitask.MultitaskFeature;
+import qolc.orderalerts.OrderAlertsFeature;
 import qolc.palcolors.PalColorsFeature;
 import qolc.planrange.PlanRangeFeature;
+import qolc.select.SelectCommand;
 import qolc.wave.WaveSkipCommand;
 
 /**
- * Оркестратор порта стороннего JS-мода "QoL Control" (TyT-xexebe, v7.1), вшитого в клиент нативным
+ * Оркестратор порта стороннего JS-мода "QoL Control" (TyT-xexebe, v7.12), вшитого в клиент нативным
  * кодом - тот же подход, что {@link qol.QolSuiteMod}/{@link eui.EUIMod}/{@link sectorstats.CampaignUtilsMod},
  * см. {@code mindustry.client.Main.init()} (место инстанцирования и почему именно там).
  * <p>
@@ -39,6 +42,16 @@ import qolc.wave.WaveSkipCommand;
  * <li>читы, которые sonka явно не хочет: aimbot.js, unlocker.js (анлок контента + rotateSpeed 9999),
  *     глобальные твики main.js (omniMovement/rotateSpeed всем юнитам).</li>
  * </ul>
+ * <p>
+ * v7.1 -&gt; v7.12: в остаток добавились {@code !select} ({@link SelectCommand}), числа урона
+ * {@code !hp} ({@link DamageNumbersFeature}) и оповещения о приказах/точках сбора других игроков
+ * {@code !track} ({@link OrderAlertsFeature}); пропущено как дубли: таблица схем с вкладками и
+ * подсветка "пропущенных" схем (=Schem Table 2.0 из eui), force-place и замена водяного экстрактора
+ * на насос при переносе планов (нативная силовая установка и {@code flushPlans}), копирование
+ * прошлых планов (нативный {@code lastPlans}), навигация {@code !go}/{@code !goto}
+ * ({@code Navigation.navigateTo}), поиск руды {@code !mine} (=MinePath {@code !miner}), таблица юнитов
+ * (=eui UnitsTableUi), быстрый вход на сервер (server.js), слежка за курсором (=drawcursors).
+ * <p>
  * Ключи настроек портированных фич сохраняют префиксы оригинала ({@code qol-grab-effects},
  * {@code qol-binds}, {@code qol-pal-*}, папка {@code qol/mlog/}), чтобы настройки и файлы игрока,
  * накопленные под JS-модом, продолжили работать.
@@ -62,6 +75,9 @@ public class QolControlMod{
                 PalColorsFeature.init();
                 MlogLibrary.init();
                 WaveSkipCommand.init();
+                SelectCommand.init();
+                DamageNumbersFeature.init();
+                OrderAlertsFeature.init();
 
                 buildSettings();
             }catch(Throwable t){
@@ -91,6 +107,23 @@ public class QolControlMod{
 
             table.pref(new LabelSetting("qolc-palcolors-header", Core.bundle.get("qolc.palcolors.title")));
             table.pref(new ButtonSetting("qolc-palcolors-configure", PalColorsFeature::showDialog));
+
+            //числа урона: выключены по умолчанию (у оригинала включены) - см. javadoc DamageNumbersFeature
+            table.pref(new LabelSetting("qolc-hp-header", Core.bundle.get("qolc.hp.title")));
+            table.checkPref("qol-hp-enabled", false);
+            table.sliderPref("qol-hp-max", 100, 10, 300, 10, v -> String.valueOf(v));
+            table.sliderPref("qol-hp-lifetime", 1200, 200, 4000, 100, v -> Core.bundle.format("qolc.hp.ms", v));
+            table.sliderPref("qol-hp-merge", 350, 0, 1500, 50, v -> v == 0 ? Core.bundle.get("qolc.hp.merge-off") : Core.bundle.format("qolc.hp.ms", v));
+            table.sliderPref("qol-hp-min-damage", 1, 0, 50, 1, v -> String.valueOf(v));
+
+            //оповещения о приказах: выключены по умолчанию, как у оригинала
+            table.pref(new LabelSetting("qolc-track-header", Core.bundle.get("qolc.track.title")));
+            table.checkPref("qol-track-enabled", false);
+            table.checkPref("qol-track-rts", true);
+            table.checkPref("qol-track-rec", true);
+            table.checkPref("qol-track-rts-notify", true);
+            table.checkPref("qol-track-rts-circle", true);
+            table.checkPref("qol-track-rts-own", true);
         });
     }
 }
