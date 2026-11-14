@@ -90,6 +90,8 @@ public class FieldFavorites{
 
     private static void load(){
         map.clear();
+        //на свежей установке файла ещё нет - это не ошибка, не засоряем лог стеком (его создаст первый save())
+        if(!configFi.exists()) return;
 
         try{
             map.putAll((ObjectMap<? extends String, ? extends FavoriteField>)parseJson(configFi.readString()));
