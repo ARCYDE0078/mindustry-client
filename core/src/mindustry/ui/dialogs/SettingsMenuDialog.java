@@ -706,6 +706,7 @@ public class SettingsMenuDialog extends BaseDialog{
 
         game.checkPref("doubletapmine", false);
         game.checkPref("otherplansclick", true); //sonka: СКМ/ЛКМ/B по планам других игроков
+        game.checkPref("procshareserve", true); //sonka: отдавать код процессоров из своей очереди тиммейтам с Monolith по их запросу
         game.checkPref("mineanything", false);
         game.checkPref("rtsallcommands", true);
         game.checkPref("rtsallmineitems", true);

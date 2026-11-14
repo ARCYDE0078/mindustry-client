@@ -9,6 +9,7 @@ import mindustry.entities.units.BuildPlan;
 import mindustry.gen.Groups;
 import mindustry.gen.Player;
 import mindustry.input.Binding;
+import mindustry.world.Block;
 import mindustry.world.blocks.logic.LogicBlock;
 import mindustry.world.blocks.storage.CoreBlock;
 
@@ -23,9 +24,10 @@ import static mindustry.Vars.*;
  *   <li>выделение через B (rebuildSelect) - построить ВСЕ чужие планы внутри рамки, заодно с обычным
  *       восстановлением разрушенных блоков (хук в InputHandler.rebuildArea, он же работает и на телефоне).</li>
  * </ul>
- * ПРОЦЕССОРЫ пропускаем всегда: клиент-отправитель при {@code processorconfigs} не шлёт конфиг
- * логических блоков серверу ({@code configLocal} -> в пакете null), так что у чужого плана кода нет, а
- * пустой процессор на месте чужого "готового" - только мусор в очереди.
+ * ПРОЦЕССОРЫ: у чужого плана кода нет (превью планов {@code byte[]}-конфигов не несёт), поэтому код берётся через
+ * {@link ProcessorShare}: из очереди владельца/кэша, а если там нет - запросом по клиентскому каналу у владельца с
+ * Monolith. Ответ приходит с задержкой, потому процессор встаёт в очередь, когда код получен; нет ответа за
+ * таймаут (у владельца нет Monolith, он вышел или запретил раздачу) - процессор пропускается с тостом.
  * <p>
  * "Что под курсором" берём у самого рендера ({@code hoveredOtherPlan}): то, что подсвечено стрелкой,
  * рамкой и ником игрока, то и строится/копируется - никакой второй, расходящейся проверки попадания.
@@ -38,6 +40,8 @@ public final class OtherPlans{
     private static final Rect area = new Rect();
     private static final Rect planBounds = new Rect();
     private static final Seq<BuildPlan> found = new Seq<>(BuildPlan.class);
+    private static final Seq<BuildPlan> processors = new Seq<>(BuildPlan.class);
+    private static final Seq<Player> processorOwners = new Seq<>(Player.class);
 
     private OtherPlans(){
     }
@@ -60,17 +64,23 @@ public final class OtherPlans{
      */
     public static boolean buildHovered(){
         BuildPlan plan = hovered();
-        if(plan == null || player.dead()) return false;
+        if(plan == null || player.dead() || !buildable(plan)) return false;
+
+        boolean force = Core.input.keyDown(Binding.forcePlaceModifier);
 
         if(plan.block instanceof LogicBlock){
-            toastSkipped(1);
-            return false;
+            Player owner = control.input.hoveredOtherPlanOwner();
+            if(owner == null) return false;
+
+            Batch batch = new Batch(1);
+            takeProcessor(owner, plan, force, batch);
+            batch.announce();
+            return true; //клик потрачен: либо процессор уже в очереди, либо ждём код (повторный клик не нужен)
         }
-        if(!buildable(plan)) return false;
 
         found.clear();
         found.add(plan);
-        return queue(found, Core.input.keyDown(Binding.forcePlaceModifier)) > 0;
+        return queue(found, force) > 0;
     }
 
     /**
@@ -83,7 +93,8 @@ public final class OtherPlans{
         area.set(x1 * tilesize, y1 * tilesize, (x2 - x1) * tilesize, (y2 - y1) * tilesize);
 
         found.clear();
-        int skipped = 0;
+        processors.clear();
+        processorOwners.clear();
         for(Player other : Groups.player){
             //чужие планы рисуются и приходят только для игроков своей команды, остальным previewPlans чистятся
             if(other == null || other == player || other.team() != player.team()) continue;
@@ -91,17 +102,93 @@ public final class OtherPlans{
             for(BuildPlan plan : other.getPreviewPlans()){
                 if(plan == null || plan.block == null || plan.breaking) continue;
                 if(!plan.block.bounds(plan.x, plan.y, planBounds).overlaps(area)) continue;
+                if(!buildable(plan)) continue;
 
                 if(plan.block instanceof LogicBlock){
-                    if(!plan.isDone()) skipped++;
-                    continue;
+                    processors.add(plan);
+                    processorOwners.add(other);
+                }else{
+                    found.add(plan);
                 }
-                if(buildable(plan)) found.add(plan);
             }
         }
 
         if(found.any()) queue(found, false);
-        if(skipped > 0) toastSkipped(skipped);
+
+        if(processors.any()){
+            //takeProcessor может позвать колбэки сразу, а они не должны трогать общие списки - берём копии
+            Seq<BuildPlan> plans = processors.copy();
+            Seq<Player> owners = processorOwners.copy();
+            Batch batch = new Batch(plans.size);
+            for(int i = 0; i < plans.size; i++){
+                takeProcessor(owners.get(i), plans.get(i), false, batch);
+            }
+            batch.announce();
+        }
+    }
+
+    /**
+     * Берёт чужой процессор в работу: код либо уже есть ({@link ProcessorShare#known}), либо запрашивается у
+     * владельца. Копии полей снимаем сразу: объект плана из превью пересоздаётся каждым снимком, а ответ придёт позже.
+     */
+    private static void takeProcessor(Player owner, BuildPlan plan, boolean force, Batch batch){
+        int x = plan.x, y = plan.y, rotation = plan.rotation;
+        Block block = plan.block;
+
+        byte[] known = ProcessorShare.known(owner, plan);
+        if(known != null){
+            placeProcessor(owner, x, y, rotation, block, known, force);
+            batch.finish(true, false);
+            return;
+        }
+
+        batch.waiting++;
+        ProcessorShare.request(owner, plan, config -> {
+            placeProcessor(owner, x, y, rotation, block, config, force);
+            batch.finish(true, true);
+        }, () -> batch.finish(false, true));
+    }
+
+    private static void placeProcessor(Player owner, int x, int y, int rotation, Block block, byte[] config, boolean force){
+        if(!enabled() || player == null || player.dead()) return;
+        //пока ждали код, владелец мог достроить/отменить план или выйти - призрак, которого уже нет, не строим
+        if(!stillPlanned(owner, x, y, block)) return;
+
+        Seq<BuildPlan> one = new Seq<>(BuildPlan.class);
+        one.add(new BuildPlan(x, y, rotation, block, config));
+        queue(one, force);
+    }
+
+    private static boolean stillPlanned(Player owner, int x, int y, Block block){
+        if(owner == null || !owner.isAdded()) return false;
+        for(BuildPlan plan : owner.getPreviewPlans()){
+            if(plan != null && !plan.breaking && plan.x == x && plan.y == y && plan.block == block && !plan.isDone()) return true;
+        }
+        return false;
+    }
+
+    /** Счётчик одной пачки процессоров (клик или B-рамка): чтобы тостить один раз за пачку, а не на каждый. */
+    private static final class Batch{
+        final int total;
+        /** Сколько запросов по сети ещё не вернулось. */
+        int waiting;
+        int finished, failed;
+
+        Batch(int total){
+            this.total = total;
+        }
+
+        void finish(boolean ok, boolean fromNetwork){
+            if(fromNetwork) waiting--;
+            finished++;
+            if(!ok) failed++;
+            if(finished == total && failed > 0) toast("client.otherplans.procfail", failed);
+        }
+
+        /** Вызывается после запуска всей пачки: если что-то ушло в сеть и ещё не вернулось - сообщаем игроку. */
+        void announce(){
+            if(waiting > 0) toast("client.otherplans.procrequest", waiting);
+        }
     }
 
     /** Блок, который игрок в принципе может поставить, и план ещё не выполнен. */
@@ -128,7 +215,7 @@ public final class OtherPlans{
         return Math.max(0, player.unit().plans.size + mindustry.client.ClientVars.frozenPlans.size - before);
     }
 
-    private static void toastSkipped(int count){
-        new Toast(2.5f).add(Core.bundle.format("client.otherplans.processors", count));
+    private static void toast(String key, int count){
+        new Toast(2.5f).add(Core.bundle.format(key, count));
     }
 }

@@ -1510,6 +1510,11 @@ public abstract class InputHandler implements InputProcessor, GestureListener{
         return renderer.showOtherBuildPlans && !ClientVars.hidingPlans ? overlappingPlan : null;
     }
 
+    /** sonka: владелец плана из {@link #hoveredOtherPlan} (тот, чей ник и стрелка нарисованы); нужен, чтобы спросить у него код процессора. */
+    public @Nullable Player hoveredOtherPlanOwner(){
+        return hoveredOtherPlan() != null ? overlappingPlayer : null;
+    }
+
     /** Draws build plans of other players. */
     public void drawOtherBuildPlans(){
         Tmp.v3.set(input.mouseWorld());
