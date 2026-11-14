@@ -129,10 +129,9 @@ public class RendererExt{
             players.each((u, v) -> {if(u == null) return; if(!u.isPlayer()||!u.isValid()) players.remove(u);});
             drawBase();
 
-            for(var marker : FullAI.LogicMode.markers){
-                if(marker.world != -1){
-                    marker.draw(marker.autoscale ? 4f / renderer.getDisplayScale() : 1);
-                }
+            //160: MapMarkers держит готовый список мировых маркеров - проверка marker.world не нужна
+            for(var marker : FullAI.LogicMode.markers.worldMarkers){
+                marker.draw(marker.autoscale ? 4f / renderer.getDisplayScale() : 1);
             }
         });
 
@@ -784,7 +783,7 @@ public class RendererExt{
     public static void drawRangeZone(float x, float y, float range, Color border, Color fill){
         Draw.color(border);
         Lines.stroke(3f);
-        Draw.alpha(animatedshields ? 1f : (0.4f * rangeZoneTransparency));
+        Draw.alpha(animatedshields ? 1f : (0.8f * rangeZoneTransparency));
         Lines.circle(x, y, range + 1);
 
         Draw.color(fill);

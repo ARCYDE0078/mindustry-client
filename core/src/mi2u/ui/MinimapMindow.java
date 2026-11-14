@@ -384,16 +384,13 @@ public class MinimapMindow extends Mindow2{
                     }
                 });
 
-                for(var marker : state.markers){
-                    if(marker.minimap != -1){
-                        marker.draw(1f);
-                    }
+                //160: готовые списки маркеров миникарты (MapMarkers.mapMarkers), проверять minimap не нужно
+                for(var marker : state.markers.mapMarkers){
+                    marker.draw(1);
                 }
 
-                for(var marker : FullAI.LogicMode.markers){
-                    if(marker.minimap != -1){
-                        marker.draw(1);
-                    }
+                for(var marker : FullAI.LogicMode.markers.mapMarkers){
+                    marker.draw(1);
                 }
             }
 
