@@ -655,8 +655,7 @@ public class UI implements ApplicationListener, Loadable{
             dialog.hide();
             confirmed.run();
         });
-        dialog.keyDown(KeyCode.escape, dialog::hide);
-        dialog.keyDown(KeyCode.back, dialog::hide);
+        dialog.closeOnBack();
         dialog.show();
     }
 
