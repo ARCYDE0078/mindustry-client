@@ -1,5 +1,7 @@
 package mindustrytool.features.playerconnect;
 
+import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.util.concurrent.ExecutorService;
 
 import arc.Core;
@@ -10,7 +12,6 @@ import arc.net.Connection;
 import arc.net.DcReason;
 import arc.net.NetListener;
 import arc.struct.Seq;
-import arc.net.NetSerializer;
 import arc.util.Log;
 import arc.util.Reflect;
 import arc.util.Threads;
@@ -32,9 +33,13 @@ import mindustrytool.features.playerconnect.Packets.RoomCloseReason;
 public class PlayerConnect {
 
     private static NetworkProxy room;
-    private static Client pinger;
     private static ExecutorService worker = Threads.unboundedExecutor("Worker", 1);
-    private static Thread roomThread, pingerThread;
+    private static Thread roomThread;
+
+    /** Таймаут TCP-пинга сервера в списке провайдеров, мс (апстрим v5.5.32: 8000 вместо 2000 — медленные серверы не отваливались «красным»). */
+    public static final int PING_TIMEOUT = 8000;
+    /** Отдельный пул пинга: раньше пинги шли в общий worker на 1 поток и ждали друг друга (и создание комнаты) по очереди. */
+    private static ExecutorService pingWorker;
 
     private static final Seq<Request> requestQueue = new Seq<>();
     private static boolean isShowingDialog = false;
@@ -310,45 +315,33 @@ public class PlayerConnect {
     }
 
     /**
-     * @apiNote async operation but blocking new tasks if a ping is already in
-     *          progress
+     * Порт апстрима v5.5.32: пинг = обычное TCP-соединение (Socket) вместо arc-net Client. Пинги идут параллельно
+     * в отдельном пуле из 4 потоков, один зависший сервер не задерживает остальные; колбэки — в главном потоке.
      */
     public static void pingHost(String ip, int port, Cons<Long> success, Cons<Exception> onFailed) {
-        NetSerializer tmpSerializer = new NetworkProxy.Serializer();
-
-        if (pinger == null || pingerThread == null || !pingerThread.isAlive()) {
-            pinger = new Client(8192, 8192, tmpSerializer);
-            pingerThread = Threads.daemon("Pinger", pinger);
-        }
-
-        worker.submit(() -> {
-            synchronized (pingerThread) {
-                long time = Time.millis();
-                try {
-                    pinger.connect(2000, ip, port);
-                    time = Time.timeSinceMillis(time);
-                    pinger.close();
-                    success.get(time);
-                } catch (Exception e) {
-                    onFailed.get(e);
-                }
+        getPingWorker().submit(() -> {
+            try (Socket socket = new Socket()) {
+                long start = Time.millis();
+                socket.connect(new InetSocketAddress(ip, port), PING_TIMEOUT);
+                long elapsed = Time.timeSinceMillis(start);
+                Core.app.post(() -> success.get(elapsed));
+            } catch (Exception e) {
+                Core.app.post(() -> onFailed.get(e));
             }
         });
     }
 
-    public static void disposePinger() {
-        if (pinger != null) {
-            pinger.stop();
-            try {
-                pingerThread.join(1000);
-            } catch (Exception ignored) {
-            }
-            try {
-                pinger.dispose();
-            } catch (Exception ignored) {
-            }
-            pingerThread = null;
-            pinger = null;
+    private static synchronized ExecutorService getPingWorker() {
+        if (pingWorker == null || pingWorker.isShutdown()) {
+            pingWorker = Threads.unboundedExecutor("PlayerConnect-Pinger", 4);
+        }
+        return pingWorker;
+    }
+
+    public static synchronized void disposePinger() {
+        if (pingWorker != null) {
+            pingWorker.shutdownNow();
+            pingWorker = null;
         }
     }
 

@@ -6,7 +6,7 @@ import java.util.List;
 import mindustrytool.dto.Sort;
 
 /**
- * Порт Mindustry Tool (Sharlotte/MindustryVN, обновлён с v4.59.1-v8 до v5.5.27-v8) в клиент.
+ * Порт Mindustry Tool (Sharlotte/MindustryVN, обновлён с v4.59.1-v8 до v5.5.32-v8) в клиент.
  * Конфиг обрезан: выкинуты DEV-режим, GitHub-репо мода и vercel-трекер задач —
  * это инфраструктура самого мода, встроенной версии они не нужны.
  */
@@ -22,7 +22,7 @@ public class Config {
     public static final String UPLOAD_PATCH_URL = WEB_URL + "/content-patches?upload=true";
 
     /** Версия мода, от которой сделан порт; уходит в статистику комнат Player Connect. */
-    public static final String PORT_VERSION = "v5.5.27-v8";
+    public static final String PORT_VERSION = "v5.5.32-v8";
 
     public static final List<Sort> sorts = Arrays.asList(//
             new Sort("newest", "time_desc"), //
