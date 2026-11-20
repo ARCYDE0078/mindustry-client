@@ -232,6 +232,7 @@ public class RendererExt{
         });
 
         tileViewBuildingCollection.clear();
+        zoneRings.clear(); //на случай, если прошлый кадр не дошёл до flushTurretRings
         Seq<Tile> tileview = MI2Utils.getValue(blocksTileview, renderer.blocks);
         Seq<Building> tileExtraCachedView = MI2Utils.getValue(blocksTileExtraCachedView, renderer.blocks);
         BuildingInventory.ids.clear();
@@ -312,6 +313,7 @@ public class RendererExt{
                 Draw.reset();
             }
         }
+        flushTurretRings();
         if(enSpawnZone) drawSpawnPoint();
 
         Draw.reset();
@@ -787,19 +789,44 @@ public class RendererExt{
         Draw.color(sonkaextras.TurretRanges.fillColor(fill), sonkaextras.TurretRanges.worldFillAlpha(rangeZoneTransparency));
         Fill.poly(btb.x, btb.y, Math.max((int)range / 3, 12), range);
 
-        //контур - через буфер шейдера (бегущая штриховка), без заливки внутри
-        Draw.z(TurretZoneDrawer.getLayer(btb.team.id));
-        drawRangeRing(btb.x, btb.y, range, MI2UTmp.c2.set(btb.team.color));
+        //контур не рисуем сразу: перекрывающиеся радиусы одной команды сливаются в общий контур, для этого нужны
+        //все турели кадра - см. flushTurretRings() после цикла по зданиям
+        zoneRings.add(btb);
         Draw.z(z);
         Draw.color();
     }
 
-    /** Только контур зоны (для турелей: заливку рисует {@link #drawTurretZone} отдельно). */
-    public static void drawRangeRing(float x, float y, float range, Color border){
-        Draw.color(border);
-        Lines.stroke(3f);
-        Draw.alpha(animatedshields ? 1f : (0.8f * rangeZoneTransparency));
-        Lines.circle(x, y, range + 1);
+    private static final Seq<BaseTurret.BaseTurretBuild> zoneRings = new Seq<>();
+    private static float[] zrX = new float[0], zrY = new float[0], zrR = new float[0];
+    private static int[] zrG = new int[0];
+
+    /** Рисует контуры накопленных за кадр радиусов турелей как ОБЪЕДИНЕНИЕ (через буфер шейдера - бегущая штриховка). */
+    private static void flushTurretRings(){
+        int n = zoneRings.size;
+        if(n == 0) return;
+        if(zrX.length < n){
+            int c = Math.max(n, 64);
+            zrX = new float[c]; zrY = new float[c]; zrR = new float[c]; zrG = new int[c];
+        }
+        for(int i = 0; i < n; i++){
+            BaseTurret.BaseTurretBuild t = zoneRings.get(i);
+            zrX[i] = t.x;
+            zrY[i] = t.y;
+            zrR[i] = t.range() + 1f; //как у старой Lines.circle(range + 1)
+            zrG[i] = t.team.id;
+        }
+        float z = Draw.z();
+        sonkaextras.TurretRanges.mergedArcs(zrX, zrY, zrR, zrG, n, (i, a0, a1) -> {
+            BaseTurret.BaseTurretBuild t = zoneRings.get(i);
+            Draw.z(TurretZoneDrawer.getLayer(t.team.id));
+            Draw.color(t.team.color);
+            Lines.stroke(3f);
+            Draw.alpha(animatedshields ? 1f : (0.8f * rangeZoneTransparency));
+            sonkaextras.TurretRanges.arcLine(zrX[i], zrY[i], zrR[i], a0, a1, Math.max(Lines.circleVertices(zrR[i]), 16));
+        });
+        zoneRings.clear();
+        Draw.z(z);
+        Draw.color();
     }
 
     public static void drawRangeZone(float x, float y, float range, Color border, Color fill){

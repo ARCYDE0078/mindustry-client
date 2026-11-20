@@ -89,28 +89,166 @@ public final class TurretRanges{
         Draw.reset();
     }
 
+    /** Контекст рисования для {@link #sink} (рендер однопоточный, поэтому статикой, без лямбд-захватов на каждый кадр). */
+    private static float curScale, curAlpha;
+    private static boolean curOwn;
+    private static final Seq<BaseTurretBuild> cand = new Seq<>();
+
     private static void draw(Seq<Building> list, float scaleFactor, float alpha, boolean own){
-        //проход 1 - заливки (все под контурами), проход 2 - контуры
-        for(int pass = 0; pass < 2; pass++){
-            if(pass == 1) Lines.stroke(scaleFactor);
-            for(int i = 0; i < list.size; i++){
-                Building b = list.get(i);
-                if(!(b instanceof BaseTurretBuild t) || !t.isValid()) continue;
-                if(!own && t.inFogTo(player.team())) continue;
+        //валидные турели в компактный список: нужен и для заливки, и для слияния контуров
+        cand.clear();
+        for(int i = 0; i < list.size; i++){
+            Building b = list.get(i);
+            if(!(b instanceof BaseTurretBuild t) || !t.isValid()) continue;
+            if(!own && t.inFogTo(player.team())) continue;
+            if(t.range() < 3f * scaleFactor) continue; //меньше ~3 пикселей - просто шум
+            cand.add(t);
+        }
+        int n = cand.size;
+        if(n == 0) return;
 
-                float range = t.range();
-                if(range < 3f * scaleFactor) continue; //меньше ~3 пикселей - просто шум
+        //проход 1 - заливки (все под контурами)
+        for(int i = 0; i < n; i++){
+            BaseTurretBuild t = cand.get(i);
+            Color c = own ? statusColor(t) : t.team.color;
+            Draw.color(fillColor(tmpFill.set(c)), (own ? 0.16f : 0.12f) * alpha);
+            Fill.poly(t.x, t.y, sidesFor(t.range(), scaleFactor), t.range());
+        }
 
-                Color c = own ? statusColor(t) : t.team.color;
-                int sides = Mathf.clamp(Math.round(range / scaleFactor * 1.2f), 12, 48);
-                if(pass == 0){
-                    Draw.color(fillColor(tmpFill.set(c)), (own ? 0.16f : 0.12f) * alpha);
-                    Fill.poly(t.x, t.y, sides, range);
+        //проход 2 - контуры: перекрывающиеся радиусы одной команды сливаются в общий контур (внутренние дуги не рисуем)
+        Lines.stroke(scaleFactor);
+        curScale = scaleFactor;
+        curAlpha = alpha;
+        curOwn = own;
+        float[] xs = scratch(0, n), ys = scratch(1, n), rs = scratch(2, n);
+        int[] gs = scratchInt(n);
+        for(int i = 0; i < n; i++){
+            BaseTurretBuild t = cand.get(i);
+            xs[i] = t.x;
+            ys[i] = t.y;
+            rs[i] = t.range();
+            gs[i] = t.team.id;
+        }
+        mergedArcs(xs, ys, rs, gs, n, minimapSink);
+    }
+
+    private static int sidesFor(float range, float scaleFactor){
+        return Mathf.clamp(Math.round(range / scaleFactor * 1.2f), 12, 48);
+    }
+
+    private static final ArcSink minimapSink = (i, a0, a1) -> {
+        BaseTurretBuild t = cand.get(i);
+        Color c = curOwn ? statusColor(t) : t.team.color;
+        Draw.color(c, (curOwn ? 0.6f : 0.45f) * curAlpha);
+        arcLine(t.x, t.y, t.range(), a0, a1, sidesFor(t.range(), curScale));
+    };
+
+    // ---------------------------------------------------------------- слияние контуров
+
+    /** Приёмник кусков контура: дуга круга {@code i} от {@code a0} до {@code a1} (радианы, 0 <= a0 < a1 <= 2π). */
+    public interface ArcSink{
+        void arc(int i, float a0, float a1);
+    }
+
+    /** Больше кругов - слияние не делаем (O(n²)), рисуются целые окружности. */
+    public static final int MERGE_LIMIT = 800;
+
+    private static final float TAU = Mathf.PI2;
+    private static float[][] fScratch = new float[3][0];
+    private static int[] iScratch = new int[0];
+    private static float[] ivA = new float[0], ivB = new float[0];
+
+    private static float[] scratch(int slot, int n){
+        if(fScratch[slot].length < n) fScratch[slot] = new float[Math.max(n, 64)];
+        return fScratch[slot];
+    }
+
+    private static int[] scratchInt(int n){
+        if(iScratch.length < n) iScratch = new int[Math.max(n, 64)];
+        return iScratch;
+    }
+
+    /**
+     * Контур ОБЪЕДИНЕНИЯ кругов: для каждого круга отдаёт в {@code sink} только те дуги, что не лежат внутри другого
+     * круга ТОЙ ЖЕ группы {@code gs} (команды). Круг, целиком вложенный в другой, пропадает; одинаковые совпадающие
+     * круги рисуются один раз. Больше {@link #MERGE_LIMIT} кругов - каждый отдаётся целиком.
+     */
+    public static void mergedArcs(float[] xs, float[] ys, float[] rs, int[] gs, int n, ArcSink sink){
+        if(n > MERGE_LIMIT){
+            for(int i = 0; i < n; i++) sink.arc(i, 0f, TAU);
+            return;
+        }
+        int cap = 2 * n + 2;
+        if(ivA.length < cap){
+            ivA = new float[cap];
+            ivB = new float[cap];
+        }
+        for(int i = 0; i < n; i++){
+            float ri = rs[i];
+            int k = 0;
+            boolean hidden = false;
+            for(int j = 0; j < n; j++){
+                if(j == i || gs[j] != gs[i]) continue;
+                float dx = xs[j] - xs[i], dy = ys[j] - ys[i], rj = rs[j];
+                float d2 = dx * dx + dy * dy, sum = ri + rj;
+                if(d2 >= sum * sum) continue; //не пересекаются
+                float d = Mathf.sqrt(d2);
+                if(d + ri <= rj + 0.01f){
+                    //i целиком внутри j; у совпадающих кругов прячем только тот, у кого индекс больше
+                    if(rj > ri + 0.01f || d > 0.01f || j < i){
+                        hidden = true;
+                        break;
+                    }
+                    continue;
+                }
+                if(d + rj <= ri) continue; //j целиком внутри i - i не закрывает
+                float th = (float)Math.atan2(dy, dx); //не Mathf.atan2: у него порядок аргументов (x, y)
+                float ph = (float)Math.acos(Mathf.clamp((ri * ri + d2 - rj * rj) / (2f * ri * d), -1f, 1f));
+                float a = th - ph;
+                while(a < 0f) a += TAU;
+                while(a >= TAU) a -= TAU;
+                float b = a + 2f * ph;
+                if(b > TAU){
+                    ivA[k] = a; ivB[k++] = TAU;
+                    ivA[k] = 0f; ivB[k++] = b - TAU;
                 }else{
-                    Draw.color(c, (own ? 0.6f : 0.45f) * alpha);
-                    Lines.poly(t.x, t.y, sides, range);
+                    ivA[k] = a; ivB[k++] = b;
                 }
             }
+            if(hidden) continue;
+            if(k == 0){
+                sink.arc(i, 0f, TAU);
+                continue;
+            }
+            //сортировка закрытых интервалов по началу (их единицы - вставками)
+            for(int a = 1; a < k; a++){
+                float sa = ivA[a], sb = ivB[a];
+                int b = a - 1;
+                while(b >= 0 && ivA[b] > sa){
+                    ivA[b + 1] = ivA[b];
+                    ivB[b + 1] = ivB[b];
+                    b--;
+                }
+                ivA[b + 1] = sa;
+                ivB[b + 1] = sb;
+            }
+            float cur = 0f;
+            for(int a = 0; a < k; a++){
+                if(ivA[a] - cur > 0.002f) sink.arc(i, cur, ivA[a]);
+                cur = Math.max(cur, ivB[a]);
+            }
+            if(TAU - cur > 0.002f) sink.arc(i, cur, TAU);
         }
+    }
+
+    /** Дуга линией с нормальными стыками (Lines.arc теряет до сегмента на конце и оставил бы щели между кусками). */
+    public static void arcLine(float x, float y, float r, float a0, float a1, int sidesFull){
+        int seg = Math.max(2, (int)Math.ceil((a1 - a0) / TAU * sidesFull));
+        Lines.beginLine();
+        for(int k = 0; k <= seg; k++){
+            float a = a0 + (a1 - a0) * k / seg;
+            Lines.linePoint(x + Mathf.cos(a) * r, y + Mathf.sin(a) * r);
+        }
+        Lines.endLine();
     }
 }
