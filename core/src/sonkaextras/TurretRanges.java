@@ -70,6 +70,41 @@ public final class TurretRanges{
         return c.set(c.r * FILL_DARKEN, c.g * FILL_DARKEN, c.b * FILL_DARKEN, 1f);
     }
 
+    public static final String dpsFillKey = "sonka-zone-dps-fill";
+
+    /** DPS, при котором заливка радиуса имеет «опорную» альфу (та, что без режима DPS была у любой турели). */
+    private static final float DPS_REF = 60f;
+    private static long dpsFillFrame = -1;
+    private static boolean dpsFillOn;
+
+    /** Режим «заливка по DPS» - настройка читается раз в кадр, а не на каждую турель. */
+    private static boolean dpsFill(){
+        long f = Core.graphics.getFrameId();
+        if(f != dpsFillFrame){
+            dpsFillFrame = f;
+            dpsFillOn = Core.settings.getBool(dpsFillKey, true);
+        }
+        return dpsFillOn;
+    }
+
+    /**
+     * Альфа заливки одной турели. Режим «по DPS» (пункт 3.1): альфа = 1-exp(-k*dps), поэтому слои разных турелей
+     * при наложении (1-(1-a1)(1-a2)... = 1-exp(-k*сумма DPS)) дают затемнение, пропорциональное СУММАРНОМУ DPS в
+     * точке - самое светлое место обороны и есть самое слабое. DPS берётся из движка ({@code estimateDps()}: патрон
+     * в стволе x скорострельность x КПД питания); сплэш считается его формулой (75%), смена патрона учитывается
+     * только когда она случилась. Нет питания/патронов (DPS 0) - слабый намёк цветом состояния, а не пустота.
+     * Без режима - одинаковая альфа у всех (чем больше турелей, тем темнее).
+     *
+     * @param refAlpha альфа турели с DPS_REF (60 урона/с) - она же альфа любой турели без режима DPS
+     */
+    public static float fillAlpha(BaseTurretBuild t, float refAlpha){
+        if(!dpsFill()) return refAlpha;
+        float dps = t.estimateDps();
+        if(dps <= 0.01f) return refAlpha * 0.25f;
+        float k = -(float)Math.log(1f - Math.min(refAlpha, 0.95f)) / DPS_REF;
+        return Math.min(1f - (float)Math.exp(-k * dps), 0.7f);
+    }
+
     /** Альфа заливки ОДНОГО радиуса в мире от ползунка прозрачности зон MI2U (0..1): 0,3 -> ~0,1; n перекрытий дают 1-(1-a)^n. */
     public static float worldFillAlpha(float zoneTransparency){
         return Mathf.clamp(zoneTransparency * 0.35f, 0f, 0.5f);
@@ -111,7 +146,7 @@ public final class TurretRanges{
         for(int i = 0; i < n; i++){
             BaseTurretBuild t = cand.get(i);
             Color c = own ? statusColor(t) : t.team.color;
-            Draw.color(fillColor(tmpFill.set(c)), (own ? 0.16f : 0.12f) * alpha);
+            Draw.color(fillColor(tmpFill.set(c)), fillAlpha(t, (own ? 0.16f : 0.12f) * alpha));
             Fill.poly(t.x, t.y, sidesFor(t.range(), scaleFactor), t.range());
         }
 

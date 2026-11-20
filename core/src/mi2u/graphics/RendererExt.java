@@ -786,7 +786,7 @@ public class RendererExt{
         //тёмный полупрозрачный слой, и 1-(1-a)^n на перекрытии растёт: чем больше радиусов на блок, тем темнее.
         //Слой чуть ниже контура (plans+1), поверх зданий и под юнитами.
         Draw.z(Layer.plans + 0.9f);
-        Draw.color(sonkaextras.TurretRanges.fillColor(fill), sonkaextras.TurretRanges.worldFillAlpha(rangeZoneTransparency));
+        Draw.color(sonkaextras.TurretRanges.fillColor(fill), sonkaextras.TurretRanges.fillAlpha(btb, sonkaextras.TurretRanges.worldFillAlpha(rangeZoneTransparency)));
         Fill.poly(btb.x, btb.y, Math.max((int)range / 3, 12), range);
 
         //контур не рисуем сразу: перекрывающиеся радиусы одной команды сливаются в общий контур, для этого нужны
