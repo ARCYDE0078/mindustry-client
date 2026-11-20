@@ -1,9 +1,13 @@
 package sonkaextras;
 
 import arc.Core;
+import arc.Events;
+import arc.input.KeyBind;
+import arc.input.KeyCode;
 import arc.math.geom.Vec2;
 import arc.struct.Seq;
 import arc.util.Time;
+import mindustry.game.EventType.Trigger;
 import mindustry.gen.Call;
 import mindustry.gen.Groups;
 import mindustry.gen.Teamc;
@@ -34,7 +38,18 @@ public final class AntiSplash{
     /** Сколько приказов отправлять за один тик. */
     private static final int PER_TICK = 25;
 
+    /** Хоткей-переключатель (по умолчанию не назначен - назначается в настройках управления, категория «sonka»). */
+    public static final KeyBind toggleKey = KeyBind.add("sonka_antisplash_toggle", KeyCode.unknown, "sonka");
+
     private AntiSplash(){
+    }
+
+    /** Из Main.kt: тянет статическую регистрацию хоткея ДО загрузки раскладки клавиш + слушает нажатие. */
+    public static void init(){
+        if(headless) return;
+        Events.run(Trigger.update, () -> {
+            if(state.isGame() && !Core.scene.hasKeyboard() && Core.input.keyTap(toggleKey)) toggle();
+        });
     }
 
     public static boolean enabled(){
