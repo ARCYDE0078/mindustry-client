@@ -1166,6 +1166,7 @@ public class HudFragment{
             t.margin(0);
             t.clicked(() -> {
                 if(!player.dead() && mobile){
+                    mindustry.client.utils.AutoTransfer.returnHeldItemToCore();
                     Call.unitClear(player);
                     control.input.recentRespawnTimer = 1f;
                     control.input.controlledType = null;

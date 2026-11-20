@@ -122,6 +122,10 @@ public final class ChainWarn{
             t.checkPref(LastController.settingKey, true);
             t.checkPref(LastController.selfKey, true);
             t.sliderPref(LastController.timeoutKey, 0, 0, 600, 30, v -> v == 0 ? Core.bundle.get("client.sonka.lastcontroller.forever") : v + " s");
+            //анти-груша: прозрачные ники игроков делаются яркими (sonkaextras.AntiGrusha)
+            t.checkPref(AntiGrusha.key, true);
+            //СКМ по руде = лучший доступный бур (sonkaextras.BestDrillPick) - тумблер, чтобы можно было вернуть ваниль
+            t.checkPref(BestDrillPick.settingKey, true);
             //пер-панельный масштаб нативных HUD-панелей (PanelScale/ChatFragment.draw). Секция
             //Sonka Extras, а не вкладка Graphics: все sonka-фичи движка живут одной секцией, а поиск
             //настроек всё равно находит их с любой вкладки. Всё применяется вживую, без рестарта

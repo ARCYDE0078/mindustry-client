@@ -137,6 +137,9 @@ object Main : ApplicationListener {
         // sonka: метка над юнитом с ником последнего управлявшего им игрока (sonkaextras.LastController)
         sonkaextras.LastController.init()
 
+        // sonka+Amie: «анти-груша» - прозрачные ники игроков делаются видимыми (sonkaextras.AntiGrusha)
+        sonkaextras.AntiGrusha.init()
+
         // sonka: «что нового» после обновления - заметки релизов custom-b(M..N] с GitHub
         // (sonkaextras.WhatsNew, правила показа в его javadoc); тоже только вешает слушатель
         sonkaextras.WhatsNew.init()

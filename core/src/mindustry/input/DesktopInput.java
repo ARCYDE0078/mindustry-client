@@ -806,9 +806,12 @@ public class DesktopInput extends InputHandler{
                 Unit on = selectedUnit(true);
                 var build = selectedControlBuild();
                 boolean hidingAirUnits = ClientVars.hidingAirUnits;
+                //Ctrl с блоком/схемой в руках - это принудительное строительство, а не вселение (иначе промахнувшись по клику улетаешь в турель)
+                boolean holdingBuild = block != null || selectPlans.any();
                 if(on != null){
                     // FINISHME: This belongs in its own method, its also very messy
-                    if (input.keyDown(Binding.control) && on.isAI() && state.rules.possessionAllowed) { // Ctrl + click: control unit
+                    if (input.keyDown(Binding.control) && !holdingBuild && on.isAI() && state.rules.possessionAllowed) { // Ctrl + click: control unit
+                        AutoTransfer.returnHeldItemToCore(); // автофилл: вернуть несомое в ядро до смены юнита
                         Call.unitControl(player, on);
                         shouldShoot = false;
                         recentRespawnTimer = 1f;
@@ -830,7 +833,8 @@ public class DesktopInput extends InputHandler{
                             shouldShoot = false;
                         }
                     }
-                }else if(build != null && input.keyDown(Binding.control)){
+                }else if(build != null && input.keyDown(Binding.control) && !holdingBuild){
+                    AutoTransfer.returnHeldItemToCore();
                     Call.buildingControlSelect(player, build);
                     recentRespawnTimer = 1f;
                 }
@@ -869,6 +873,7 @@ public class DesktopInput extends InputHandler{
                 droppingItem = false;
                 var u = player.unit();
                 var best = player.bestCore();
+                AutoTransfer.returnHeldItemToCore(); // автофилл: вернуть несомое в ядро перед возрождением
                 if(CoreBlock.preferredCoreType == null || // No preferred type
                     (!u.spawnedByCore && // Player is a non core unit
                         ((u.dockedType != null && u.dockedType.coreUnitDock) || // Player has a core unit docked currently

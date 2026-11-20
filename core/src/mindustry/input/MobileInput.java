@@ -716,9 +716,11 @@ public class MobileInput extends InputHandler implements GestureListener{
 
                 //control a unit/block detected on first tap of double-tap
                 if(unitTapped != null && state.rules.possessionAllowed && unitTapped.isAI() && unitTapped.team == player.team() && !unitTapped.dead && unitTapped.playerControllable()){
+                    mindustry.client.utils.AutoTransfer.returnHeldItemToCore();
                     Call.unitControl(player, unitTapped);
                     recentRespawnTimer = 1f;
                 }else if(buildingTapped != null && state.rules.possessionAllowed){
+                    mindustry.client.utils.AutoTransfer.returnHeldItemToCore();
                     Call.buildingControlSelect(player, buildingTapped);
                     recentRespawnTimer = 1f;
                 }else if(!checkConfigTap() && !tryBeginMine(cursor)){

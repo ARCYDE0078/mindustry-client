@@ -500,6 +500,10 @@ public class SettingsMenuDialog extends BaseDialog{
         //exposed as sliders 2026-09-12 (sonka's request) - previously only settable by editing the raw
         //settings keys AutoTransfer.init() already reads; wiring the changed-callback keeps the running
         //instance in sync immediately instead of waiting for the next init() (e.g. a server rejoin)
+        //the two halves of autofill as separate switches (sonka's request, 2026-11-20): "take from the core"
+        //(its key existed since the eui merge but had no UI) and "put the carried items into buildings"
+        client.checkPref("autotransfer-fromcores", true, b -> mindustry.client.utils.AutoTransfer.fromCores = b);
+        client.checkPref("autotransfer-deposit", true, b -> mindustry.client.utils.AutoTransfer.deposit = b);
         client.sliderPref("autotransfer-mincoreitems", 100, 0, 2000, 10, s -> String.valueOf(s), i -> mindustry.client.utils.AutoTransfer.minCoreItems = i);
         client.sliderPref("autotransfer-mintransfer", 2, 0, 50, 1, s -> String.valueOf(s), i -> mindustry.client.utils.AutoTransfer.minTransfer = i);
         client.sliderPref("autotransfer-mintransfertotal", 10, 0, 200, 5, s -> String.valueOf(s), i -> mindustry.client.utils.AutoTransfer.minTransferTotal = i);

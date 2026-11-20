@@ -260,21 +260,20 @@ public class UnitNotifyFeature implements Feature{
         }
     }
 
+    /**
+     * Лучший патрон для выбранной турели из того, что есть в ядре - по ТЕМ ЖЕ правилам, что и автофилл
+     * ({@code AutoTransfer.bestTurretAmmo}): приоритеты/исключения патронов, порог «мин. предметов в ядре»
+     * (общий слайдер и пер-патронные переопределения), DPS как тай-брейк. Раньше тут был свой отбор с
+     * зашитым порогом 20 и без учёта настроек автофилла.
+     */
     Item getBestAmmo(ItemTurret turret, CoreBuild core){
-        Item[] best = {null};
-        float[] bestDamage = {0f};
-        turret.ammoTypes.each((item, ammo) -> {
-            float totalDamage = ammo.damage + ammo.splashDamage;
-            if(totalDamage > bestDamage[0] && core.items.get(item) >= 20){
-                best[0] = item;
-                bestDamage[0] = totalDamage;
-            }
-        });
-        return best[0];
+        return mindustry.client.utils.AutoTransfer.bestTurretAmmo(turret, core, mindustry.client.utils.AutoTransfer.minCoreItems, null);
     }
 
     void takeItemForSelectedTurret(){
         if(!SafeSettings.getBool("unotify-TakeItemForSelectedTurret", false) || !ammoTimer.canInteract()) return;
+        //подчиняется автофиллу: выключили автофилл (или запретили ему брать из ядра) - тут тоже ничего не берётся
+        if(!mindustry.client.utils.AutoTransfer.enabled || !mindustry.client.utils.AutoTransfer.fromCores) return;
 
         Block block = control.input.block;
         if(!(block instanceof ItemTurret turret)) return;

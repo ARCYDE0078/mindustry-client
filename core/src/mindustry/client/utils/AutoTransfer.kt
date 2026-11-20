@@ -30,7 +30,10 @@ class AutoTransfer {
     companion object Settings {
         // All of these settings (aside from debug) are overwritten on init()
         @JvmField var enabled = false
-        var fromCores = false
+        /** Take items out of the core (key `autotransfer-fromcores`; had no UI until 2026-11-20). */
+        @JvmField var fromCores = true
+        /** Put the carried items into buildings (key `autotransfer-deposit`) - the "give" half, separate from [fromCores]. */
+        @JvmField var deposit = true
         @JvmField var fromContainers = false
         @JvmField var minCoreItems = -1
         var debug = false
@@ -154,10 +157,65 @@ class AutoTransfer {
             }
         }
 
+        /**
+         * Best ammo item for a turret of type [turret] among what [core] holds, by the SAME rules the
+         * autofill fetch uses (per-ammo priority/exclusion, per-ammo and global min-core thresholds, DPS
+         * as the tiebreak - see [loadAmmoPriorities]/[loadAmmoMinCores]). [forBuild] != null: the fetch
+         * case, the built turret must also accept at least [minTransfer] of it. null: the "turret not
+         * built yet" case (selected in the build menu) - then the core must simply hold >= 1 of it.
+         */
+        @JvmStatic
+        fun bestTurretAmmo(turret: Block, core: Building, minItems: Int, forBuild: Building?): Item? {
+            val itemTurret = turret as? ItemTurret ?: return null
+            val ammoPriorities = loadAmmoPriorities()
+            val ammoMinCores = loadAmmoMinCores()
+            var best: Item? = null
+            var bestScore = Float.NEGATIVE_INFINITY
+            content.items().each { i ->
+                if (i == Items.blastCompound || !turret.consumesItem(i)) return@each
+                if (forBuild != null && forBuild.acceptStack(i, Int.MAX_VALUE, player.unit()) < minTransfer) return@each
+                val ammoPriority = ammoPriority(ammoPriorities, turret, i)
+                if (ammoPriority <= EXCLUDE_PRIORITY) return@each // this ammo is excluded for this turret
+                val minCoreOverride = ammoMinCore(ammoMinCores, turret, i)
+                val effectiveMin = if (minCoreOverride >= 0) minCoreOverride else minItems
+                // Deliberately independent of hasMinItems()'s "global minItems==0 bypasses everything"
+                // quirk - a per-ammo override must still apply its own floor even when the global Min
+                // Core Items slider is 0. Without a building to fill we never ask for an item the core lacks.
+                val needed = if (forBuild == null) max(1, effectiveMin) else effectiveMin
+                if (!(needed == 0 || core.items.has(i, needed))) return@each
+                val score = ammoPriority * 1e6f + getAmmoScore(itemTurret.ammoTypes[i])
+                if (score > bestScore) { best = i; bestScore = score }
+            }
+            return best
+        }
+
+        private fun getAmmoScore(ammo: BulletType?): Float = ammo?.estimateDPS() ?: 0f
+
+        /**
+         * Hands the carried stack back to the nearest core (sonka's request, 2026-11-20): called right
+         * BEFORE the player respawns at a core or takes over another unit/turret - whatever autofill
+         * fetched would otherwise be lost with the old unit. No-op unless autofill is on; needs the core
+         * within [itemTransferRange] and willing to accept the stack. Both RPCs are reliable and ordered,
+         * so the server sees transferInventory first. Returns whether a transfer was sent.
+         */
+        @JvmStatic
+        fun returnHeldItemToCore(): Boolean {
+            if (!enabled || player == null || player.dead()) return false
+            val unit = player.unit() ?: return false
+            val stack = unit.stack
+            if (stack == null || stack.amount <= 0 || stack.item == null) return false
+            val core = player.closestCore() ?: return false
+            if (!player.within(core, itemTransferRange)) return false
+            if (core.acceptStack(stack.item, stack.amount, unit) <= 0) return false
+            Call.transferInventory(player, core)
+            return true
+        }
+
         fun init() {
             // Main settings
             enabled = Core.settings.getBool("autotransfer", false)
             fromCores = Core.settings.getBool("autotransfer-fromcores", true)
+            deposit = Core.settings.getBool("autotransfer-deposit", true)
             fromContainers = Core.settings.getBool("autotransfer-fromcontainers", true)
             minCoreItems = Core.settings.getInt("autotransfer-mincoreitems", 100)
             minTransferTotal = Core.settings.getInt("autotransfer-mintransfertotal", 10)
@@ -257,7 +315,7 @@ class AutoTransfer {
             if (blockPriority < bestPriority) return@forEach
             if (blockPriority == bestPriority && bestBuild != null) return@forEach // a deposit target at this priority already wins ties
 
-            if (stack.amount > 0 && canDeposit(it) && it.acceptStack(stack.item, stack.amount, player.unit()) >= minTransfer) {
+            if (deposit && stack.amount > 0 && canDeposit(it) && it.acceptStack(stack.item, stack.amount, player.unit()) >= minTransfer) {
                 bestBuild = it
                 bestFetchItem = null
                 bestPriority = blockPriority
@@ -312,28 +370,10 @@ class AutoTransfer {
             is ConsumeItemFilter -> {
                 if (build.block is ItemTurret) {
                     // Per-turret ammo priority + min-core override (sonka's request, 2026-09-12) - see
-                    // loadAmmoPriorities()/loadAmmoMinCores()'s doc comment. Priority dominates the
-                    // comparison (scaled well above any realistic DPS value) and DPS only breaks ties,
-                    // so a turret with no configured ammo priorities (the common case) picks exactly
-                    // the same highest-DPS ammo as before.
-                    val ammoPriorities = loadAmmoPriorities()
-                    val ammoMinCores = loadAmmoMinCores()
-                    var best: Item? = null
-                    var bestScore = Float.NEGATIVE_INFINITY
-                    content.items().each { i ->
-                        if (i == Items.blastCompound || !build.block.consumesItem(i) || build.acceptStack(i, Int.MAX_VALUE, player.unit()) < minTransfer) return@each
-                        val ammoPriority = ammoPriority(ammoPriorities, build.block, i)
-                        if (ammoPriority <= EXCLUDE_PRIORITY) return@each // this ammo is excluded for this turret
-                        val minCoreOverride = ammoMinCore(ammoMinCores, build.block, i)
-                        val effectiveMin = if (minCoreOverride >= 0) minCoreOverride else minItems
-                        // Deliberately independent of hasMinItems()'s "global minItems==0 bypasses
-                        // everything" quirk (used by the other branches below) - a per-ammo override must
-                        // still apply its own floor even when the global Min Core Items slider is 0.
-                        if (!(effectiveMin == 0 || core.items.has(i, effectiveMin))) return@each
-                        val score = ammoPriority * 1e6f + getAmmoScore((build.block as ItemTurret).ammoTypes[i])
-                        if (score > bestScore) { best = i; bestScore = score }
-                    }
-                    best
+                    // loadAmmoPriorities()/loadAmmoMinCores()'s doc comment. The scan itself lives in
+                    // bestTurretAmmo() since 2026-11-20: the "fetch ammo for the selected turret" feature
+                    // (UnitNotifyFeature) now runs the very same rules instead of its own copy.
+                    bestTurretAmmo(build.block, core, minItems, build)
                 } else {
                     var best: Item? = null
                     content.items().each { i ->
@@ -540,15 +580,5 @@ class AutoTransfer {
             }
             else -> throw IllegalStateException("This should never happen. Report this.")
         }
-    }
-
-    private fun getAmmoScore(ammo: BulletType?): Float {
-        return ammo?.estimateDPS() ?: 0f
-        /* Commented out for future reference in case I do need my own dps estimation function
-//        return (((ammo.damage * if (ammo.pierceBuilding || ammo.pierce) ammo.pierceCap else 1) +
-//                    ammo.splashDamage +
-//                    ammo.fragBullets * getAmmoScore(ammo.fragBullet)
-//                ) * ammo.ammoMultiplier * ammo.reloadMultiplier).toInt()
-         */
     }
 }

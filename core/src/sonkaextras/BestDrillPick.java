@@ -24,12 +24,15 @@ import static mindustry.Vars.*;
  */
 public final class BestDrillPick{
 
+    /** Тумблер (по умолчанию ВКЛ): выключено - СКМ по руде ведёт себя как в ванили (ничего не выбирает). */
+    public static final String settingKey = "sonka-bestdrillpick";
+
     private BestDrillPick(){
     }
 
     /** Лучший доступный бур для руды под курсором; null = тут не руда или бура нет. */
     public static Block bestFor(Tile tile, Team team){
-        if(tile == null) return null;
+        if(tile == null || !arc.Core.settings.getBool(settingKey, true)) return null;
 
         //напольная руда: только на пустом тайле (block=air), иначе пипетка и так взяла бы здание
         if(tile.block() == Blocks.air){
