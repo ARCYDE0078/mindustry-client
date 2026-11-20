@@ -229,6 +229,20 @@ public class ItemBridge extends Block{
         public float time = -8f, timeSpeed;
         public boolean wasMoved, moved, hadValidLink;
         public float transportCounter;
+        /** Связь замещённого моста (см. sonkaextras.BridgeLinkFix): ставится в overwrote, используется в playerPlaced. Не сохраняется и не синхронизируется. */
+        public int prevLink = -1;
+
+        @Override
+        public void overwrote(Seq<Building> previous){
+            super.overwrote(previous);
+            prevLink = -1;
+            for(Building b : previous){
+                if(b instanceof ItemBridgeBuild ib && ib != this && ib.link != -1){
+                    prevLink = ib.link;
+                    break;
+                }
+            }
+        }
 
         @Override
         public void pickedUp(){
@@ -241,6 +255,12 @@ public class ItemBridge extends Block{
 
             // мосты, поставленные PlastaniumCrossings, держат только связь из своего плана и не становятся lastBuild
             if(mindustry.client.utils.PlastaniumCrossings.skipAutoLink(tile)) return;
+
+            //поверх моста с исходящей связью: новый мост её не получил - возвращаем (sonkaextras.BridgeLinkFix, пункт 2a)
+            if(prevLink != -1){
+                sonkaextras.BridgeLinkFix.restoreLink(this, prevLink);
+                prevLink = -1;
+            }
 
             Tile link = findLink(tile.x, tile.y);
             if(linkValid(tile, link) && this.link != link.pos() && !proximity.contains(link.build)){

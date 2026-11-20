@@ -311,7 +311,10 @@ abstract class BuilderComp implements Posc, Statusc, Teamc, Rotc{
         }
         if(replace != null){
             plans.remove(replace);
-            if(isLocalPlayer) control.input.playerPlanTree.remove(replace);
+            if(isLocalPlayer){
+                control.input.playerPlanTree.remove(replace);
+                sonkaextras.BridgeLinkFix.inheritPlanLink(replace, place, plans); //мост поверх плана моста не теряет связь дальше по цепочке
+            }
         }
         Tile tile = world.tile(place.x, place.y);
         if(tile != null && tile.build instanceof ConstructBuild cons){
