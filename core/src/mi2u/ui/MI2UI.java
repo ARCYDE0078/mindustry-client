@@ -224,6 +224,7 @@ public class MI2UI extends Mindow2{
         settings.checkPref("enMenderZone", false).tag(false, false, true);
         settings.checkPref("enSpawnZone", true);
         settings.checkPref("enTurretRangeZone", false);
+        settings.checkPref("turretZoneOnlyActive", false); //только турели с питанием и боезапасом (как у Foo); действует и на миникарте
         settings.entry("graphics.filterBlock", (entry, t) -> {
             t.button(entry.title, () -> {
                 new BaseDialog(entry.title){{

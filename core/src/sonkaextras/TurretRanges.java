@@ -71,6 +71,28 @@ public final class TurretRanges{
     }
 
     public static final String dpsFillKey = "sonka-zone-dps-fill";
+    /** Тумблер дедупликации радиусов (пункт 6): пунктир Foo / наведение EUI не рисуются там, где уже есть MI2U-зона. */
+    public static final String dedupeKey = "sonka-range-dedupe";
+
+    /**
+     * Рисует ли MI2U-зона (заливка + контур) эту турель в мире: включены «Радиусы турелей», тип блока не отфильтрован,
+     * а при «только действующие» у неё есть питание и боезапас. Единственное место этого условия - им пользуются и
+     * сама зона, и все остальные рисовальщики радиусов турелей, чтобы они не накладывались друг на друга.
+     */
+    public static boolean zoneAllows(BaseTurretBuild t){
+        var f = mi2u.graphics.RendererExt.filterTurretRangeZone;
+        if(f == null || t.block.id >= f.length || !f[t.block.id]) return false;
+        return !mi2u.graphics.RendererExt.turretZoneOnlyActive || t.canShoot();
+    }
+
+    /**
+     * Нарисована ли эта сущность MI2U-зоной - тогда пунктирное кольцо Foo (showingTurrets/Ally/Inv) и круг при
+     * наведении EUI дублировали бы её на том же радиусе. Не турель (юнит) или выключенная зона/дедупликация - false.
+     */
+    public static boolean coveredByZone(Object o){
+        return o instanceof BaseTurretBuild t && mi2u.graphics.RendererExt.enTurretZone
+            && Core.settings.getBool(dedupeKey, true) && zoneAllows(t);
+    }
 
     /** DPS, при котором заливка радиуса имеет «опорную» альфу (та, что без режима DPS была у любой турели). */
     private static final float DPS_REF = 60f;
@@ -136,6 +158,7 @@ public final class TurretRanges{
             Building b = list.get(i);
             if(!(b instanceof BaseTurretBuild t) || !t.isValid()) continue;
             if(!own && t.inFogTo(player.team())) continue;
+            if(mi2u.graphics.RendererExt.turretZoneOnlyActive && !t.canShoot()) continue; //тот же фильтр «только действующие», что у зоны в мире
             if(t.range() < 3f * scaleFactor) continue; //меньше ~3 пикселей - просто шум
             cand.add(t);
         }

@@ -128,6 +128,7 @@ public final class ChainWarn{
             t.checkPref(TurretRanges.minimapKey, true);
             t.checkPref(TurretRanges.minimapEnemyKey, true);
             t.checkPref(TurretRanges.dpsFillKey, true);
+            t.checkPref(TurretRanges.dedupeKey, true);
             t.checkPref(AntiGrusha.key, true);
             t.checkPref(BridgeLinkFix.key, true);
             //СКМ по руде = лучший доступный бур (sonkaextras.BestDrillPick) - тумблер, чтобы можно было вернуть ваниль

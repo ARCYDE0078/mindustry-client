@@ -144,6 +144,7 @@ object Client {
                 getTree().use {
                     intersect(bounds) {
                         if (!(showall || fogControl.isDiscovered(player.team(), it.entity.tileX(), it.entity.tileY()))) return@intersect
+                        if (sonkaextras.TurretRanges.coveredByZone(it.entity)) return@intersect // уже нарисована MI2U-зоной (пункт 6) - не дублируем кольцом
                         if ((enemyunits || it.turret) && it.canShoot() && (it.targetAir || it.targetGround) && it.entity != mouseBuild) {//circles.add(it to if (it.canHitPlayer()) it.entity.team().color else Team.derelict.color)
                             val valid = (flying && it.targetAir) || (!flying && it.targetGround)
                             val validInv = (!flying && it.targetAir) || (flying && it.targetGround)
@@ -158,7 +159,7 @@ object Client {
                 val allyunits = Core.settings.getBool("allyunitranges")
                 getAllyTree().use {
                     intersect(bounds) {
-                        if ((allyunits || it.turret) && it.canShoot() && (it.targetAir || it.targetGround)) {
+                        if ((allyunits || it.turret) && it.canShoot() && (it.targetAir || it.targetGround) && !sonkaextras.TurretRanges.coveredByZone(it.entity)) {
                             Drawf.dashCircle(it.entity.x, it.entity.y, it.range(), it.entity.team().color)
                         }
                     }
@@ -188,6 +189,7 @@ object Client {
             val team = player.team()
             overdrives.forEach { b ->
                 if (b.team != team) return@forEach
+                if (mi2u.graphics.RendererExt.enOverdriveZone && Core.settings.getBool(sonkaextras.TurretRanges.dedupeKey, true)) return@forEach // MI2U рисует его зону сам
                 val range = b.realRange()
                 if (bounds.overlaps(b.x - range, b.y - range, range * 2, range * 2)) b.drawSelect()
             }

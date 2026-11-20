@@ -110,6 +110,8 @@ public final class PlanRangeFeature{
     private static void drawPlan(BuildPlan plan, boolean all){
         if(plan.breaking || plan.block == null) return;
         if(!all && !(plan.block instanceof OverdriveProjector)) return;
+        //овердрайв-призрак у курсора форковый showdomes уже рисует (пунктир + подсветка охваченных блоков) - не дублируем кругом
+        if(plan.block instanceof OverdriveProjector && plan.worldContext && Core.settings.getBool("showdomes") && Core.settings.getBool(sonkaextras.TurretRanges.dedupeKey, true)) return;
         if(!seen.add(Point2.pack(plan.x, plan.y))) return;
 
         float x = plan.x * Vars.tilesize + plan.block.offset;

@@ -94,6 +94,7 @@ public class BlockInfoUi{
 
     void draw(){
         if(hovered == null || hovered.dead || isPlayerTeam || !(hovered instanceof Ranged ranged)) return;
+        if(sonkaextras.TurretRanges.coveredByZone(hovered)) return; //уже есть MI2U-зона этой турели - второй круг не нужен
 
         //перф: Draw.z + прямой вызов вместо Draw.draw(лямбда) - без аллокации на кадр при наведении
         float realRange = hovered instanceof OverdriveBuild ob ? ob.realRange() : ranged.range();

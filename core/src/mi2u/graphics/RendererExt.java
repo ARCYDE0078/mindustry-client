@@ -72,6 +72,8 @@ public class RendererExt{
     public static boolean enOverdriveZone;
     public static boolean enMenderZone;
     public static boolean enTurretZone;
+    /** Рисовать радиус только у турелей, которые реально могут стрелять (питание + боезапас), как у Foo. */
+    public static boolean turretZoneOnlyActive;
     public static boolean turretZoneAAColor;
     /** 2 = цвет заливки по питанию и типу патронов (sonkaextras.TurretRanges.statusColor) */
     public static boolean turretZoneStatusColor;
@@ -166,6 +168,7 @@ public class RendererExt{
         enOverdriveZone = mi2ui.settings.getBool("enOverdriveZone");
         enMenderZone = mi2ui.settings.getBool("enMenderZone");
         enTurretZone = mi2ui.settings.getBool("enTurretRangeZone");
+        turretZoneOnlyActive = mi2ui.settings.getBool("turretZoneOnlyActive");
         turretZoneAAColor = mi2ui.settings.getInt("turretZoneColorStyle") == 1;
         turretZoneStatusColor = mi2ui.settings.getInt("turretZoneColorStyle") == 2;
         rangeZoneTransparency = mi2ui.settings.getInt("rangeZoneTransparency") / 100f;
@@ -306,7 +309,7 @@ public class RendererExt{
                     boolean transport = drawBlackboxBuilding(build);
                     if(drevealInventory && !transport) drawItemStack(build);
                 }
-                if(enTurretZone && build instanceof BaseTurret.BaseTurretBuild btb && build.block.id < filterTurretRangeZone.length && filterTurretRangeZone[build.block.id]) drawTurretZone(btb);
+                if(enTurretZone && build instanceof BaseTurret.BaseTurretBuild btb && sonkaextras.TurretRanges.zoneAllows(btb)) drawTurretZone(btb);
                 if(enOverdriveZone && build instanceof OverdriveProjector.OverdriveBuild odb) drawOverDriver(odb);
                 if(enMenderZone && build instanceof MendProjector.MendBuild mb) drawMender(mb);
                 if(enMenderZone && build instanceof RegenProjector.RegenProjectorBuild rb) drawRegen(rb);
