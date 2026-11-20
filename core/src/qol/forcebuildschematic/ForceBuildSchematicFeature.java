@@ -118,7 +118,7 @@ public class ForceBuildSchematicFeature implements Feature{
     }
 
     boolean ctrlDown(){
-        return Core.input.keyDown(KeyCode.controlLeft) || Core.input.keyDown(KeyCode.controlRight);
+        return Binding.modifierHeld(Binding.forceBuildSchematicModifier); //по умолчанию Ctrl (обе стороны), теперь переназначается в управлении
     }
 
     //----------------------------------------------------------------------------------------------- отрисовка

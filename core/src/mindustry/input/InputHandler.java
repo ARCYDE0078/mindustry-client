@@ -2045,6 +2045,8 @@ public abstract class InputHandler implements InputProcessor, GestureListener{
         }
 
         var configLogic = Core.settings.getBool("processorconfigs");
+        //модификатор «не подменять блоки» (по умолчанию Shift, как раньше был жёстко зашит) - подмена вода-экстрактор→помпы и message↔reinforcedMessage
+        boolean swapBlocks = !Binding.modifierHeld(Binding.noBlockSwapModifier);
         var temp = new BuildPlan[plans.size + plans.count(plan -> plan.block == Blocks.waterExtractor) * 3]; // Cursed but works good enough for me
         var added = 0;
         IntSet toBreak = force ? new IntSet() : null;
@@ -2080,7 +2082,7 @@ public abstract class InputHandler implements InputProcessor, GestureListener{
 
             var tempTiles = Block.tempTiles;
             //FINISHME this code is kinda bad
-            if (plan.block == Blocks.waterExtractor && !input.shift() // Attempt to replace water extractors with pumps FINISHME: Don't place 4 pumps, only 2 needed.
+            if (plan.block == Blocks.waterExtractor && swapBlocks && Core.settings.getBool("swapwaterextractor", true) // Attempt to replace water extractors with pumps FINISHME: Don't place 4 pumps, only 2 needed.
                     && plan.tile() != null && plan.tile().getLinkedTilesAs(plan.block, tempTiles).contains(t -> t.floor().liquidDrop == Liquids.water)) { // Has water
                 var first = tempTiles.first();
                 // As long as there is a diagonal, all adjacent blocks are hydrated
@@ -2094,13 +2096,13 @@ public abstract class InputHandler implements InputProcessor, GestureListener{
                     temp[added++] = new BuildPlan(plan.x, plan.y, 0, Blocks.rotaryPump);
                     continue; // Swapped water extractor for rotary pump, don't place it
                 }
-            } else if (plan.block == Blocks.message && !input.shift() // Attempt to replace message with erekir message
+            } else if (plan.block == Blocks.message && swapBlocks && Core.settings.getBool("swapmessageblock", true) // Attempt to replace message with erekir message
                     && plan.tile() != null && !Blocks.message.environmentBuildable() && Blocks.reinforcedMessage.environmentBuildable()) { // Not buildable
                 if (validPlace(plan.x, plan.y, Blocks.reinforcedMessage, 0)) {
                     temp[added++] = new BuildPlan(plan.x, plan.y, 0, Blocks.reinforcedMessage, plan.config);
                     continue; // Swapped message for reinforced message, don't place it
                 }
-            } else if (plan.block == Blocks.reinforcedMessage && !input.shift() // Attempt to replace erekir message with message
+            } else if (plan.block == Blocks.reinforcedMessage && swapBlocks && Core.settings.getBool("swapmessageblock", true) // Attempt to replace erekir message with message
                     && plan.tile() != null && !Blocks.reinforcedMessage.environmentBuildable() && Blocks.message.environmentBuildable()) { // Not buildable
                 if (validPlace(plan.x, plan.y, Blocks.message, 0)) {
                     temp[added++] = new BuildPlan(plan.x, plan.y, 0, Blocks.message, plan.config);
@@ -2419,13 +2421,14 @@ public abstract class InputHandler implements InputProcessor, GestureListener{
         boolean single = x1 == x2 && y1 == y2;
         boolean bridgeMod = Core.input.keyDown(Binding.bridgeModifier);
 
-        if(isBridgePlacement(old) && !single && (Core.input.shift() || bridgeMod)){
+        boolean bridgePath = Binding.modifierHeld(Binding.bridgePathModifier);
+        if(isBridgePlacement(old) && !single && (bridgePath || bridgeMod)){
             Seq<Point2> nodes = new Seq<>();
             int range = old instanceof ItemBridge ib ? Math.max(1, ib.range) : old instanceof DirectionBridge db ? Math.max(1, db.range) : 4;
-            if(Core.input.shift()) Placement.buildBridgePath(x1, y1, x2, y2, range, old, rotation, nodes);
+            if(bridgePath) Placement.buildBridgePath(x1, y1, x2, y2, range, old, rotation, nodes);
             else Placement.diagonalBridgeNodes(x1, y1, x2, y2, range, old, rotation, nodes);
-            bridgeModLine = bridgeMod && !Core.input.shift();
-            bridgePathLine = Core.input.shift();
+            bridgeModLine = bridgeMod && !bridgePath;
+            bridgePathLine = bridgePath;
             fillBridgeLinePlans(nodes);
             return;
         }
@@ -2478,7 +2481,7 @@ public abstract class InputHandler implements InputProcessor, GestureListener{
 
     private void updateLineDefault(int x1, int y1, int x2, int y2){
         linePlans.clear();
-        if(block.group == BlockGroup.walls && Core.input.shift()) updateWallLine(x1, y1, x2, y2);
+        if(block.group == BlockGroup.walls && Binding.modifierHeld(Binding.wallLineModifier)) updateWallLine(x1, y1, x2, y2);
         else
         iterateLine(x1, y1, x2, y2, l -> {
             rotation = l.rotation;

@@ -468,7 +468,7 @@ public class DesktopInput extends InputHandler{
                     if (Time.timeSinceMillis(lastShiftZ) < 400) Navigation.navigateTo(lastWarnPos.cpy().scl(tilesize));
                     else Spectate.INSTANCE.spectate(lastWarnPos.cpy().scl(tilesize)); // reusing lastShiftZ should be fine since its a small interval welp
                 } else if(input.keyTap(Binding.navigateToCursor) && (!schematicFlip || Core.input.shift())){ //this is bad UX design to move bindings around based on state, too late to change it
-                    Navigation.navigateTo(input.mouseWorld(), Core.input.alt()); // Z to nav to cursor
+                    Navigation.navigateTo(input.mouseWorld(), Binding.modifierHeld(Binding.navigateIgnoreObstaclesModifier)); // Z to nav to cursor
                 }
                 if(input.keyTap(Binding.navigateToCursor) && selectPlans.isEmpty()){
                     lastShiftZ = Time.millis();
@@ -561,7 +561,7 @@ public class DesktopInput extends InputHandler{
                 //TODO do not pan
                 Team corePanTeam = state.won ? state.rules.waveTeam : player.team();
                 Position coreTarget = state.gameOver && !state.rules.pvp && corePanTeam.data().lastCore != null ? corePanTeam.data().lastCore : null;
-                Position panTarget = coreTarget != null && followGameEndPan ? coreTarget : spectating != null ? spectating : player;
+                Position panTarget = coreTarget != null && followGameEndPan && Core.settings.getBool("gameendpan", true) ? coreTarget : spectating != null ? spectating : player;
 
                 Core.camera.position.lerpDelta(panTarget, Core.settings.getBool("smoothcamera") ? 0.08f : 1f);
             }
@@ -650,7 +650,7 @@ public class DesktopInput extends InputHandler{
                     // Shift+цифра ДОБАВЛЯЕТ группу к текущему выделению (без сброса). Работает потому,
                     // что input.keyTap(бинд-цифра) срабатывает независимо от зажатых модификаторов -
                     // ровно так же ваниль ловит Ctrl (createControlGroup) поверх той же цифры.
-                    boolean additive = input.shift();
+                    boolean additive = Binding.modifierHeld(Binding.controlGroupAdditive);
 
                     //clear existing if making a new control group
                     //if any of the control group edit buttons are pressed take the current selection
@@ -840,14 +840,14 @@ public class DesktopInput extends InputHandler{
                 }
             }
             if(input.keyTap(Binding.select)){
-                if(Core.input.shift()){
+                if(Binding.modifierHeld(Binding.spectateControllerModifier)){
                     dragX = Core.input.mouseWorld().x;
                     dragY = Core.input.mouseWorld().y;
                 }else{
                     dragX = Float.NaN;
                 }
             }
-            if(!hidingUnits && input.shift() && input.keyRelease(Binding.select) && !isPlacing()
+            if(!hidingUnits && Binding.modifierHeld(Binding.spectateControllerModifier) && input.keyRelease(Binding.select) && !isPlacing()
                 && !Float.isNaN(dragX) && Core.input.mouseWorld().dst2(dragX, dragY) < tilesize * tilesize){
                 Vec2 mouseWorld = Core.input.mouseWorld();
                 Unit on = selectedUnit(true);
@@ -1246,7 +1246,7 @@ public class DesktopInput extends InputHandler{
         }else if(Core.input.keyTap(Binding.breakBlock) && !Core.scene.hasMouse() && !commandMode){
             //is recalculated because setting the mode to breaking removes potential multiblock cursor offset
             deleting = false;
-            mode = Core.input.shift() ? freezing : Core.input.ctrl() ? dequeue : breaking;
+            mode = Binding.modifierHeld(Binding.freezeBreakModifier) ? freezing : Binding.modifierHeld(Binding.dequeueBreakModifier) ? dequeue : breaking;
             selectX = tileX(Core.input.mouseX());
             selectY = tileY(Core.input.mouseY());
             schemX = rawCursorX;
@@ -1295,7 +1295,7 @@ public class DesktopInput extends InputHandler{
         }
 
         if(mode == breaking || mode == freezing || mode == dequeue){
-            mode = Core.input.shift() ?  freezing : Core.input.ctrl() ? dequeue : breaking;
+            mode = Binding.modifierHeld(Binding.freezeBreakModifier) ? freezing : Binding.modifierHeld(Binding.dequeueBreakModifier) ? dequeue : breaking;
         }
 
         if(Core.input.keyRelease(Binding.breakBlock) && Core.input.keyDown(Binding.schematicSelect) && mode == breaking){
@@ -1316,7 +1316,7 @@ public class DesktopInput extends InputHandler{
 //                if(input.keyDown(Binding.boost)){
 //                    flushPlansReverse(linePlans);
 //                }else{
-                    flushPlans(linePlans, isFreezeQueueing, input.alt() && !bridgeModLine, isFreezeQueueing); // Alt в режиме мостов - это bridgeModifier, а не force
+                    flushPlans(linePlans, isFreezeQueueing, Binding.modifierHeld(Binding.forcePlaceModifier) && !bridgeModLine, isFreezeQueueing); // Alt в режиме мостов - это bridgeModifier, а не force
 //                }
 
                 linePlans.clear();

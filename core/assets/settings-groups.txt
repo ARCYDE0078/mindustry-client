@@ -77,6 +77,7 @@ key:mineanything
 key:autotarget
 key:automega
 key:eui-action-delay
+key:eui-ActionDelayHotkey
 key:handMiner
 key:qol-control-helper-enabled
 key:unotify-TakeItemForSelectedTurret

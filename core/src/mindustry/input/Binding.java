@@ -1,5 +1,6 @@
 package mindustry.input;
 
+import arc.Core;
 import arc.input.*;
 import arc.input.KeyBind.*;
 import mindustry.*;
@@ -185,8 +186,43 @@ public class Binding{
     //и в ванили, и у вшитых модов (F1 block_info, F3 масс-драйверы, F5-F12 заняты)
     monolithHotkeys = KeyBind.add("monolith_hotkeys", KeyCode.f2),
     //sonka: отмотка времени в песочнице (sonkaextras.TimeRewind); F4 свободна и в ванили, и у вшитых модов
-    rewindTime = KeyBind.add("rewind_time", KeyCode.f4)
+    rewindTime = KeyBind.add("rewind_time", KeyCode.f4),
+    //sonka: раньше жёстко зашитые Shift/Ctrl/Alt (аудит тумблеров/хоткеев): теперь переназначаются, по умолчанию те же клавиши.
+    //Читать их через modifierHeld(), а не keyDown(): тот же смысл, что у input.shift() (правая копия клавиши тоже считается,
+    //другие зажатые модификаторы не мешают - иначе Shift+Ctrl ломал бы приоритет режимов)
+    bridgePathModifier = KeyBind.add("bridge_path_modifier", KeyCode.shiftLeft),
+    wallLineModifier = KeyBind.add("wall_line_modifier", KeyCode.shiftLeft),
+    freezeBreakModifier = KeyBind.add("freeze_break_modifier", KeyCode.shiftLeft),
+    dequeueBreakModifier = KeyBind.add("dequeue_break_modifier", KeyCode.controlLeft),
+    noBlockSwapModifier = KeyBind.add("no_block_swap_modifier", KeyCode.shiftLeft),
+    controlGroupAdditive = KeyBind.add("control_group_additive", KeyCode.shiftLeft),
+    navigateIgnoreObstaclesModifier = KeyBind.add("navigate_ignore_obstacles_modifier", KeyCode.altLeft),
+    spectateControllerModifier = KeyBind.add("spectate_controller_modifier", KeyCode.shiftLeft),
+    forceBuildSchematicModifier = KeyBind.add("force_build_schematic_modifier", KeyCode.controlLeft)
     ;
+
+    /**
+     * Зажат ли бинд-МОДИФИКАТОР (Shift/Ctrl/Alt или любая другая назначенная клавиша). В отличие от {@code input.keyDown(bind)}
+     * не требует, чтобы остальные модификаторы были отпущены, и принимает правую копию Shift/Ctrl/Alt - то есть ведёт себя
+     * как прежние {@code input.shift()/ctrl()/alt()}. Не назначенный бинд = false (так функцию можно отключить совсем).
+     */
+    public static boolean modifierHeld(KeyBind bind){
+        var v = bind.value;
+        if(v == null || v.key == null || v.key == KeyCode.unset || v.key == KeyCode.unknown) return false;
+        if(v.modifiers != null){
+            for(KeyCode m : v.modifiers){
+                if(m != null && m != KeyCode.unset && m != KeyCode.unknown && !Core.input.keyDown(m)) return false;
+            }
+        }
+        if(Core.input.keyDown(v.key)) return true;
+        KeyCode right = switch(v.key){
+            case shiftLeft -> KeyCode.shiftRight;
+            case controlLeft -> KeyCode.controlRight;
+            case altLeft -> KeyCode.altRight;
+            default -> null;
+        };
+        return right != null && Core.input.keyDown(right);
+    }
 
     //dummy static class initializer
     public static void init(){}

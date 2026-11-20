@@ -159,7 +159,7 @@ class ClientLogic {
         Events.on(GameOverEventClient::class.java) {
             if (net.client()) {
                 // Afk players will start mining at the end of a game (kind of annoying but worth it)
-                if ((Navigation.currentlyFollowing as? BuildPath)?.mineItems == null && !CustomMode.defense()) {
+                if (settings.getBool("automineongameover", true) && (Navigation.currentlyFollowing as? BuildPath)?.mineItems == null && !CustomMode.defense()) {
                     (control.input as? DesktopInput)?.moved = false
                     Navigation.follow(MinePath(args = "copper lead beryllium graphite", newGame = true))
                 }
@@ -177,7 +177,7 @@ class ClientLogic {
         }
 
         Events.on(BlockDestroyEvent::class.java) {
-            if (it.tile.block() is PowerVoid) {
+            if (it.tile.block() is PowerVoid && settings.getBool("voidwarnings", true)) {
                 NetClient.findCoords(ui.chatfrag.addMsg(bundle.format("client.voidwarn", it.tile.x.toString(), it.tile.y.toString()))) // FINISHME: Awful way to circumvent arc formatting numerics with commas at thousandth places
             }
         }
@@ -185,6 +185,7 @@ class ClientLogic {
         // Warn about turrets that are built with an enemy void in range
         Events.on(BlockBuildBeginEventBefore::class.java) { event ->
             val block = event.newBlock
+            if (!settings.getBool("voidwarnings", true)) return@on
             if (!((block as? Turret)?.targetGround ?: false)) return@on
             if (event.unit?.player == null) return@on
             if (state.rules.infiniteResources) return@on

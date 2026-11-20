@@ -69,6 +69,9 @@ public class ModSettingsDialog {
 		addCheck(table, "buildplans-calculations");
 		addCheck(table, "show-units-health");
 
+		category(table, "movement");
+		addCheck(table, "slow-movement");
+
 		category(table, "afk");
 
 		try {

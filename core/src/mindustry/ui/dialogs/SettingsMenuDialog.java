@@ -482,6 +482,7 @@ public class SettingsMenuDialog extends BaseDialog{
         client.checkPref("circleassist", false);
         client.checkPref("betterenemyblocktapping", false);
         client.checkPref("automega", false, i -> ui.unitPicker.type = i ? UnitTypes.mega : ui.unitPicker.type);
+        client.checkPref("gameendpan", true); // sonka: камера сама летит к ядру-победителю в конце игры (раньше включена жёстко)
 
         //autopilots: paths and what they switch between on their own
         client.category("automation");
@@ -493,6 +494,7 @@ public class SettingsMenuDialog extends BaseDialog{
         client.sliderPref("defaultbuildpathradius", 0, 0, 250, 5, s -> s == 0 ? "Unlimited" : String.valueOf(s));
         client.sliderPref("automapvote", 0, 0, 4, s -> s == 0 ? "Never" : s == 4 ? "Random vote" : "Always " + new String[]{"downvote", "novote", "upvote"}[--s]);
         client.checkPref("pathnav", true);
+        client.checkPref("automineongameover", true); // sonka: AFK-копание в конце игры на сервере (раньше включено жёстко)
 
         //no separate AutoTransfer delay slider here: 2026-08-27 it was rewired onto eui's own
         //InteractTimer/"eui-action-delay" (Settings > Mods > Extended UI++, plus its Alt+=/Alt+- binds) -
@@ -634,6 +636,8 @@ public class SettingsMenuDialog extends BaseDialog{
         client.checkPref("schematicuicarryover", false);
         client.checkPref("processorconfigs", false);
         client.checkPref("logiclinkorder", false);
+        client.checkPref("swapwaterextractor", true); // sonka: подмена водяного экстрактора помпами, где есть вода (Shift по умолчанию - не подменять, см. хоткей no_block_swap_modifier)
+        client.checkPref("swapmessageblock", true); // sonka: подмена message <-> reinforcedMessage по тому, какой стоится на этой карте
 
         client.category("antigrief");
         client.sliderPref("reactorwarningdistance", 40, 0, 101, s -> s == 101 ? "Always" : s == 0 ? "Never" : Integer.toString(s));
@@ -642,6 +646,7 @@ public class SettingsMenuDialog extends BaseDialog{
         client.sliderPref("incineratorsounddistance", 3, 0, 101, s -> s == 101 ? "Always" : s == 0 ? "Never" : Integer.toString(s));
         client.sliderPref("slagwarningdistance", 10, 0, 101, s -> s == 101 ? "Always" : s == 0 ? "Never" : Integer.toString(s));
         client.sliderPref("slagsounddistance", 5, 0, 101, s -> s == 101 ? "Always" : s == 0 ? "Never" : Integer.toString(s));
+        client.checkPref("voidwarnings", true); // sonka: сообщения про разрушение силового Void и про турель, построенную рядом с вражеским Void (раньше жёстко)
         client.checkPref("breakwarnings", true); // Warnings for removal of certain sandbox stuff (mostly sources)
         client.checkPref("powersplitwarnings", true); // FINISHME: Add a minimum building requirement and a setting for it
         client.checkPref("viruswarnings", true, b -> LExecutor.virusWarnings = b);

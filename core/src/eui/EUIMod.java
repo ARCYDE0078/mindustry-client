@@ -167,6 +167,7 @@ public class EUIMod{
             table.pref(new LabelSetting("eui-interact-header", Core.bundle.get("eui.interact.title", "Interact")));
             table.sliderPref("eui-action-delay", 500, 0, 3000, 25, i -> i + " ms");
             table.checkPref("eui-makeMineble", false);
+            table.checkPref("eui-ActionDelayHotkey", true); // sonka: Alt + хоткеи +/- для задержки авто-действий (раньше жёстко включено)
             if(!mobile){
                 table.checkPref("eui-DragBlock", false);
             }

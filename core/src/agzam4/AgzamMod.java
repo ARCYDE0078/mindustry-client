@@ -107,7 +107,7 @@ public class AgzamMod {
 			UnitSpawner.update();
 
 			if(Vars.player.unit() != null) {
-				if(ModWork.keyDown(KeyBinds.slowMovement) && ModWork.acceptKey()) {
+				if(ModWork.settingDef("slow-movement", true) && ModWork.keyDown(KeyBinds.slowMovement) && ModWork.acceptKey()) {
 					Vars.player.unit().vel.scl(.5f);
 				}
 			}

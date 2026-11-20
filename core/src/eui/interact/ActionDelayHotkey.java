@@ -61,6 +61,7 @@ public class ActionDelayHotkey{
     void update(){
         if(feedbackLabel == null) return;
         if(!Core.input.alt()) return;
+        if(!Core.settings.getBool("eui-ActionDelayHotkey", true)) return;
         if(!state.isGame() || Core.scene.hasDialog() || Core.scene.hasKeyboard()) return;
 
         //keyTap ("just pressed"), not keyDown ("held") - otherwise the value would fly by several

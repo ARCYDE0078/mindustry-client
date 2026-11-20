@@ -104,8 +104,8 @@ public class HotkeyCatalog{
 
         if(ComponentBoot.enabled("qol")){
             String qolCat = modsec("qol");
-            manual(out, qolCat, "autobuild_schem", () -> "Shift + " + key(Binding.select) + " (" + Core.bundle.get("client.sonka.hotkeys.drag") + ")", null, null);
-            manual(out, qolCat, "forcebuild_schem", () -> "Ctrl + " + key(Binding.select) + " (" + Core.bundle.get("client.sonka.hotkeys.drag") + ")", null, null);
+            manual(out, qolCat, "autobuild_schem", () -> key(Binding.autoBuildModifier) + " + " + key(Binding.select) + " (" + Core.bundle.get("client.sonka.hotkeys.drag") + ")", null, null);
+            manual(out, qolCat, "forcebuild_schem", () -> key(Binding.forceBuildSchematicModifier) + " + " + key(Binding.select) + " (" + Core.bundle.get("client.sonka.hotkeys.drag") + ")", null, null);
             manual(out, qolCat, "copy_anywhere", () -> key(Binding.schematicSelect), null, null);
         }
 
