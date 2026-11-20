@@ -98,6 +98,7 @@ public class QolControlMod{
 
             table.pref(new LabelSetting("qolc-planrange-header", Core.bundle.get("qolc.planrange.title")));
             table.checkPref("qolc-planrange", false);
+            table.checkPref("qolc-planrange-overdrive", true);
 
             table.pref(new LabelSetting("qolc-grab-header", Core.bundle.get("qolc.grab.title")));
             table.checkPref("qol-grab-effects", true);

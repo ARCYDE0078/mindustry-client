@@ -123,6 +123,8 @@ public final class ChainWarn{
             t.checkPref(LastController.selfKey, true);
             t.sliderPref(LastController.timeoutKey, 0, 0, 600, 30, v -> v == 0 ? Core.bundle.get("client.sonka.lastcontroller.forever") : v + " s");
             //анти-груша: прозрачные ники игроков делаются яркими (sonkaextras.AntiGrusha)
+            t.checkPref(AntiSplash.enabledKey, false);
+            t.sliderPref(AntiSplash.distKey, 3, 1, 10, 1, v -> v + " " + Core.bundle.get("client.sonka.antisplash.tiles"));
             t.checkPref(AntiGrusha.key, true);
             //СКМ по руде = лучший доступный бур (sonkaextras.BestDrillPick) - тумблер, чтобы можно было вернуть ваниль
             t.checkPref(BestDrillPick.settingKey, true);

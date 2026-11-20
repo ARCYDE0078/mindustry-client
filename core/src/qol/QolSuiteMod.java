@@ -67,6 +67,7 @@ public class QolSuiteMod{
         features.add(new CoreHealFeature());
         features.add(new PayloadDropFeature());
         features.add(new AssistShareFeature());
+        features.add(new qol.polyrecall.PolyRecallFeature());
         features.add(new TravelBoostFeature());
         features.add(new ConveyorUpgradeFeature());
         features.add(new ResourceForecastFeature());

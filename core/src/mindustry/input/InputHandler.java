@@ -1303,7 +1303,9 @@ public abstract class InputHandler implements InputProcessor, GestureListener{
                 int maxChunkSize = 200;
 
                 qol.core.ManualControl.mark(ids);
-                if(ids.length > maxChunkSize){
+                if(sonkaextras.AntiSplash.dispatch(ids, attack, target, queue)){
+                    //анти-сплэш: каждому юниту ушла своя точка построения (см. AntiSplash)
+                }else if(ids.length > maxChunkSize){
                     for(int i = 0; i < ids.length; i += maxChunkSize){
                         int[] data = Arrays.copyOfRange(ids, i, Math.min(i + maxChunkSize, ids.length));
                         Call.commandUnits(player, data, attack instanceof Building b ? b : null, attack instanceof Unit u ? u : null, target, queue, i + maxChunkSize >= ids.length);

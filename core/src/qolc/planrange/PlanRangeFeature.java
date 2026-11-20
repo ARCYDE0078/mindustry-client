@@ -54,29 +54,36 @@ public final class PlanRangeFeature{
         return Core.settings.getBool("qolc-planrange", false);
     }
 
+    /** Радиус сверхприводных проекторов в планах - отдельный тумблер (по умолчанию ВКЛ), не зависящий от общего. */
+    private static boolean overdriveEnabled(){
+        return Core.settings.getBool("qolc-planrange-overdrive", true);
+    }
+
     private static void draw(){
-        if(!enabled() || !Vars.state.isGame() || Vars.player == null) return;
+        boolean all = enabled();
+        if((!all && !overdriveEnabled()) || !Vars.state.isGame() || Vars.player == null) return;
 
         Draw.z(Layer.overlayUI);
         Lines.stroke(1f);
 
         seen.clear();
-        for(BuildPlan plan : Vars.control.input.selectPlans) drawPlan(plan);
-        for(BuildPlan plan : Vars.control.input.linePlans) drawPlan(plan);
+        for(BuildPlan plan : Vars.control.input.selectPlans) drawPlan(plan, all);
+        for(BuildPlan plan : Vars.control.input.linePlans) drawPlan(plan, all);
         Unit unit = Vars.player.unit();
         if(unit != null){
-            for(BuildPlan plan : unit.plans()) drawPlan(plan);
+            for(BuildPlan plan : unit.plans()) drawPlan(plan, all);
         }
 
-        drawHeldBlockPeers();
+        drawHeldBlockPeers(all);
 
         Draw.reset();
     }
 
     /** Радиусы всех ПОСТРОЕННЫХ блоков того же типа, пока в руке овердрайв или масс-драйвер - чтобы видеть дыры в покрытии, доставляя следующий. */
-    private static void drawHeldBlockPeers(){
+    private static void drawHeldBlockPeers(boolean all){
         Block held = Vars.control.input.block;
         if(!(held instanceof OverdriveProjector) && !(held instanceof MassDriver)) return;
+        if(!all && !(held instanceof OverdriveProjector)) return; //без общего тумблера - только овердрайвы
 
         for(Building b : Vars.player.team().data().getBuildings(held)){
             float range = b instanceof OverdriveProjector.OverdriveBuild ob ? ob.range() : ((MassDriver)held).range;
@@ -100,8 +107,9 @@ public final class PlanRangeFeature{
         return b.efficiency <= 0.001f;
     }
 
-    private static void drawPlan(BuildPlan plan){
+    private static void drawPlan(BuildPlan plan, boolean all){
         if(plan.breaking || plan.block == null) return;
+        if(!all && !(plan.block instanceof OverdriveProjector)) return;
         if(!seen.add(Point2.pack(plan.x, plan.y))) return;
 
         float x = plan.x * Vars.tilesize + plan.block.offset;

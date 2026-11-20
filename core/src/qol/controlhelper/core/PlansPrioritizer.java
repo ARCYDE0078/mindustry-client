@@ -16,6 +16,7 @@ import mindustry.world.Block;
 import mindustry.world.blocks.ConstructBlock.ConstructBuild;
 import mindustry.world.blocks.defense.turrets.LiquidTurret;
 import mindustry.world.blocks.defense.turrets.Turret;
+import mindustry.world.blocks.power.PowerNode;
 import qol.core.QueueCoordination;
 import qol.core.SafeSettings;
 
@@ -75,7 +76,31 @@ public class PlansPrioritizer{
                 plans.remove(plan);
                 plans.addFirst(plan);
             }
+
+            //силовые узлы всегда первыми, даже если их поставили в очередь позже другой схемы: без узлов схема
+            //строится обесточенной, а ждать её до конца ради пары узлов незачем. Двигаем только узлы, стоящие
+            //ПОСЛЕ первого не-узла, поэтому после одного прохода очередь больше не меняется (нет дёрганья каждый кадр)
+            if(SafeSettings.getBool("prioritizePowerNodes", true)){
+                prioritize.clear();
+                boolean seenOther = false;
+                for(BuildPlan plan : plans){
+                    if(isPowerNodePlan(plan)){
+                        if(seenOther) prioritize.add(plan);
+                    }else{
+                        seenOther = true;
+                    }
+                }
+                for(BuildPlan plan : prioritize){
+                    plans.remove(plan);
+                    plans.addFirst(plan);
+                }
+            }
         });
+    }
+
+    /** Достраиваемый узел питания (обычный, мощный, лазерный Эрекира); план сноса и уже построенные - нет. */
+    static boolean isPowerNodePlan(BuildPlan plan){
+        return plan != null && !plan.breaking && (plan.block instanceof PowerNode || plan.block instanceof mindustry.world.blocks.power.BeamNode);
     }
 
     public boolean IsEnabled(){

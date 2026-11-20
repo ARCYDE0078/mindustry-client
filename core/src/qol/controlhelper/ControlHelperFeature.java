@@ -112,6 +112,7 @@ public class ControlHelperFeature implements Feature{
         table.checkPref("dropOneTileMechDrills", true);
         table.checkPref("plansSaver", true);
         table.checkPref("prioritizePlans", true);
+        table.checkPref("prioritizePowerNodes", true);
         table.checkPref("handMiner", true);
         table.checkPref("ignoreSupportUnits", true);
         table.checkPref("highlightDisconnectedPower", false);
