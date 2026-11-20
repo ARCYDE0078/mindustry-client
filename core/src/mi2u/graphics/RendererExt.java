@@ -775,13 +775,31 @@ public class RendererExt{
 
     public static void drawTurretZone(BaseTurret.BaseTurretBuild btb){
         float z = Draw.z();
+        float range = btb.range();
+        Color fill = turretZoneStatusColor ? MI2UTmp.c1.set(sonkaextras.TurretRanges.statusColor(btb))
+            : MI2UTmp.c1.set(turretZoneAAColor && btb.block instanceof Turret tu ? (tu.targetAir ? Color.cyan : Color.darkGray) : btb.team.color);
+
+        //заливка - обычным батчем, а НЕ через буфер turretzone.frag: шейдер квантует альфу в одно значение и отдаёт
+        //почти чёрный premultiplied-цвет, поэтому наложение радиусов в нём не темнело. Здесь же каждая турель кладёт
+        //тёмный полупрозрачный слой, и 1-(1-a)^n на перекрытии растёт: чем больше радиусов на блок, тем темнее.
+        //Слой чуть ниже контура (plans+1), поверх зданий и под юнитами.
+        Draw.z(Layer.plans + 0.9f);
+        Draw.color(sonkaextras.TurretRanges.fillColor(fill), sonkaextras.TurretRanges.worldFillAlpha(rangeZoneTransparency));
+        Fill.poly(btb.x, btb.y, Math.max((int)range / 3, 12), range);
+
+        //контур - через буфер шейдера (бегущая штриховка), без заливки внутри
         Draw.z(TurretZoneDrawer.getLayer(btb.team.id));
-        drawRangeZone(btb.x, btb.y, btb.range(),
-            MI2UTmp.c2.set(btb.team.color),
-            turretZoneStatusColor ? MI2UTmp.c1.set(sonkaextras.TurretRanges.statusColor(btb))
-                : MI2UTmp.c1.set(turretZoneAAColor && btb.block instanceof Turret tu ? (tu.targetAir ? Color.cyan : Color.darkGray) : btb.team.color));
+        drawRangeRing(btb.x, btb.y, range, MI2UTmp.c2.set(btb.team.color));
         Draw.z(z);
         Draw.color();
+    }
+
+    /** Только контур зоны (для турелей: заливку рисует {@link #drawTurretZone} отдельно). */
+    public static void drawRangeRing(float x, float y, float range, Color border){
+        Draw.color(border);
+        Lines.stroke(3f);
+        Draw.alpha(animatedshields ? 1f : (0.8f * rangeZoneTransparency));
+        Lines.circle(x, y, range + 1);
     }
 
     public static void drawRangeZone(float x, float y, float range, Color border, Color fill){

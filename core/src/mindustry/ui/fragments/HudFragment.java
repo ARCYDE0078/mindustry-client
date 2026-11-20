@@ -555,6 +555,15 @@ public class HudFragment{
                     modeIcon(st, () -> control.input.isFreezeQueueing, () -> control.input.isFreezeQueueing ^= true, Icon.pause.tint(0.33f, 0.33f, 1, a), "Freeze Queuing", Binding.pauseBuilding, "Shift");
                     modeIcon(st, () -> Core.settings.getBool("autotarget"), () -> Core.settings.put("autotarget", !Core.settings.getBool("autotarget")), Icon.modeAttack.tint(1f, 0.33f, 0.33f, a), "Auto Target", Binding.toggleAutoTarget);
                     modeIcon(st, () -> AutoTransfer.enabled, () -> AutoTransfer.enabled ^= true, Icon.resize.tint(1, 0.33f, 1, a), "Auto Transfer", Binding.toggleAutoTarget, "Shift");
+                    //две половины автофилла отдельно (раньше были только в настройках): брать из ядра / класть в постройки
+                    modeIcon(st, () -> AutoTransfer.fromCores, () -> {
+                        AutoTransfer.fromCores ^= true;
+                        Core.settings.put("autotransfer-fromcores", AutoTransfer.fromCores);
+                    }, Icon.download.tint(1, 0.33f, 1, a), Core.bundle.get("client.setting.autotransfer-fromcores.name"), null);
+                    modeIcon(st, () -> AutoTransfer.deposit, () -> {
+                        AutoTransfer.deposit ^= true;
+                        Core.settings.put("autotransfer-deposit", AutoTransfer.deposit);
+                    }, Icon.upload.tint(1, 0.33f, 1, a), Core.bundle.get("client.setting.autotransfer-deposit.name"), null);
                     modeIcon(st, () -> dispatchingBuildPlans, () -> dispatchingBuildPlans ^= true, Icon.tree.tint(1, 1, 1, a), "Sending Build Plans", Binding.sendBuildQueue);
                     modeIcon(st, () -> Navigation.currentlyFollowing != null, Navigation::stopFollowing, Icon.android.tint(Color.cyan.cpy().a(a)), "Navigating", Binding.stopFollowingPath);
                 }).marginTop(3).marginBottom(3).growX().get();
@@ -834,7 +843,9 @@ public class HudFragment{
     }
 
     public void modeIcon(Table table, Boolp cond, Runnable toggle, Drawable icon, String text, KeyBind binding, String modifier){
-        var tooltipText = modifier != null
+        //binding == null: у режима нет хоткея (кнопки автофилла из панели в углу) - в подсказке только название
+        var tooltipText = binding == null ? text
+            : modifier != null
             ? Strings.format("@ [yellow](@ + @)", text, modifier, binding.value.key.toString())
             : Strings.format("@ [yellow](@)", text, binding.value.key.toString());
         var clicklayer = new Label("");

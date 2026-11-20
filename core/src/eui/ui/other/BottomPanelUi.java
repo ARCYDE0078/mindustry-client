@@ -103,10 +103,37 @@ public class BottomPanelUi{
         buttonTable.margin(UiStyle.PANEL_MARGIN / 2f);
         buttonTable.defaults().size(32f);
 
+        //переключатели автофилла: общий + две половины (брать из ядра / класть в постройки); состояние живёт
+        //в AutoTransfer и в настройках - те же ключи, что в меню настроек и у иконок HUD-панели режимов
+        autofillToggle(buttonTable, Icon.resize, "client.autotransfer",
+            () -> mindustry.client.utils.AutoTransfer.enabled,
+            () -> setAutofill("autotransfer", mindustry.client.utils.AutoTransfer.enabled ^ true));
+        autofillToggle(buttonTable, Icon.download, "client.setting.autotransfer-fromcores.name",
+            () -> mindustry.client.utils.AutoTransfer.fromCores,
+            () -> setAutofill("autotransfer-fromcores", mindustry.client.utils.AutoTransfer.fromCores ^ true));
+        autofillToggle(buttonTable, Icon.upload, "client.setting.autotransfer-deposit.name",
+            () -> mindustry.client.utils.AutoTransfer.deposit,
+            () -> setAutofill("autotransfer-deposit", mindustry.client.utils.AutoTransfer.deposit ^ true));
+
         buttonTable.button(Icon.list, Styles.cleari, autofillPriorityDialog::show).get().resizeImage(32f * 0.8f);
 
         buttonTable.button(Icons.getIconDrawable(selectedUnit), Styles.cleari, () -> selectUnitDialog.show())
             .get().resizeImage(32f * 0.8f);
+    }
+
+    private static void autofillToggle(Table t, arc.scene.style.Drawable icon, String nameKey, arc.func.Boolp state, Runnable toggle){
+        t.button(icon, Styles.clearNoneTogglei, toggle).update(b -> b.setChecked(state.get()))
+            .tooltip(Core.bundle.get(nameKey), true).get().resizeImage(32f * 0.8f);
+    }
+
+    /** Меняет поле AutoTransfer и сразу пишет настройку (поля читаются из неё при загрузке мира). */
+    private static void setAutofill(String key, boolean value){
+        switch(key){
+            case "autotransfer" -> mindustry.client.utils.AutoTransfer.enabled = value;
+            case "autotransfer-fromcores" -> mindustry.client.utils.AutoTransfer.fromCores = value;
+            case "autotransfer-deposit" -> mindustry.client.utils.AutoTransfer.deposit = value;
+        }
+        Core.settings.put(key, value);
     }
 
     void clearTable(){

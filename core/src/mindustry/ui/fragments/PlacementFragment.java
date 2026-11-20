@@ -774,6 +774,19 @@ public class PlacementFragment{
                                         }
                                     }).fillX().padTop(4f).left();
                                 }
+
+                                //анти-сплэш построение: пока включено, приказ «двигаться» расставляет юнитов сотами
+                                //(sonkaextras.AntiSplash); та же настройка, что хоткей и пункт в Sonka Extras
+                                u.row();
+                                if(commands.size > 1 || stances.size > 1){
+                                    u.add(new Image(Tex.whiteui)).height(3f).color(Pal.gray).pad(7f).growX().row();
+                                }
+                                u.table(coms -> {
+                                    coms.left();
+                                    coms.button(Icon.grid, Styles.clearNoneTogglei, sonkaextras.AntiSplash::toggle)
+                                        .size(50f).tooltip(Core.bundle.get("client.sonka.antisplash.button"), true)
+                                        .with(b -> b.update(() -> b.setChecked(sonkaextras.AntiSplash.enabled())));
+                                }).fillX().padTop(4f).left();
                             }else{
                                 u.add(Core.bundle.get("commandmode.nounits")).color(Color.lightGray).growX().center().labelAlign(Align.center).pad(6);
                             }
