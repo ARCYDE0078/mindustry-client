@@ -227,6 +227,12 @@ public class SettingHandler{
             description = bundle.getOrNull("settings." + this.name + ".description");
         }
 
+        /** Подзаголовок, а не настройка: глобальный поиск и «По функциям» не считают его строкой, а берут как «крошку». */
+        @Override
+        public boolean isHeader(){
+            return true;
+        }
+
         @Override
         public void build(Table table){
             table.add(title).growX().color(Pal.accent).style(Styles.outlineLabel).padTop(12f).row();

@@ -61,6 +61,7 @@ public class SettingsMenuDialog extends BaseDialog{
     private Planet planet = Planets.serpulo;
     private Seq<SettingsCategory> categories = new Seq<>();
     private SettingsSearch globalSearch;
+    private SettingsByFunction byFunction;
 
     public SettingsMenuDialog(){
         super(bundle.get("settings", "Settings"));
@@ -324,6 +325,16 @@ public class SettingsMenuDialog extends BaseDialog{
         addSettings();
 
         globalSearch = new SettingsSearch(this);
+        byFunction = new SettingsByFunction(this);
+        //-Dmonolith.dumpsettings=<файл>: через минуту после старта (моды уже добавили свои настройки) записать раскладку настроек по группам
+        String dumpPath = System.getProperty("monolith.dumpsettings");
+        if(dumpPath != null) arc.util.Timer.schedule(() -> Core.app.post(() -> byFunction.dump(dumpPath)), 75f);
+    }
+
+    /** Страница «Настройки по функциям» - все настройки одним списком, разложенные по назначению. */
+    public void showByFunction(){
+        prefs.clearChildren();
+        prefs.add(byFunction.open());
     }
 
     String getLogs(){
@@ -406,8 +417,16 @@ public class SettingsMenuDialog extends BaseDialog{
             prefs.add(globalSearch.open());
         }).marginLeft(marg).row();
 
-        //меню сгруппировано: ванильные вкладки / клиент и моды / прочее. Индексы visible() не меняются -
-        //порядок кнопок здесь на них не влияет
+        //главный вход - «По функциям» (все настройки одним списком по назначению, а не по моду-источнику), рядом то, что
+        //раньше жило отдельно: управление с хоткеями и справочник функций «Features»; ниже - старые вкладки по источнику
+        menuGroup("@client.settings.group.functions");
+        menu.button("@client.settings.byfunction", Icon.list, style, isize, this::showByFunction).marginLeft(marg).row();
+        if(!mobile || Core.settings.getBool("keyboard")){
+            menu.button("@settings.controls", Icon.move, style, isize, ui.controls::show).marginLeft(marg).row();
+        }
+        menu.button("@client.features", Icon.info, style, isize, FeaturesDialog.INSTANCE::show).marginLeft(marg).row();
+
+        //старые вкладки: ванильные / клиент и моды / прочее. Индексы visible() не меняются - порядок кнопок здесь на них не влияет
         menuGroup("@client.settings.group.game");
         menu.button("@settings.game", Icon.settings, style, isize, () -> visible(0)).marginLeft(marg).row();
         menu.button("@settings.graphics", Icon.image, style, isize, () -> visible(1)).marginLeft(marg).row();
@@ -429,9 +448,6 @@ public class SettingsMenuDialog extends BaseDialog{
 
         menuGroup("@client.settings.group.system");
         menu.button("@settings.language", Icon.chat, style, isize, ui.language::show).marginLeft(marg).row();
-        if(!mobile || Core.settings.getBool("keyboard")){
-            menu.button("@settings.controls", Icon.move, style, isize, ui.controls::show).marginLeft(marg).row();
-        }
 
         menu.button("@settings.data", Icon.save, style, isize, () -> dataDialog.show()).marginLeft(marg).row();
     }
@@ -1137,6 +1153,8 @@ public class SettingsMenuDialog extends BaseDialog{
         private boolean isRebuilding;
         /** Whether this table is safe to rebuild. A table is safe unless a mod has added a non Setting element. When this is false, rebuild() will always return immediately, even when called from the mod this table was created by */
         private boolean canRebuild = true;
+        /** Показывать ли внизу «Сбросить настройки». Выключено на странице «По функциям» ({@link mindustry.client.ui.SettingsByFunction}): там ВСЕ настройки игры разом. */
+        public boolean allowReset = true;
         /** Horrible way to force a rebuild right before a mod adds a non Setting */
         private boolean forceRebuild = false;
 
@@ -1231,7 +1249,7 @@ public class SettingsMenuDialog extends BaseDialog{
                 }
             }
 
-            button(bundle.get("settings.reset", "Reset to Defaults"), () -> {
+            if(allowReset) button(bundle.get("settings.reset", "Reset to Defaults"), () -> {
                 // На вкладке "Mods" это сразу все настройки 15 встроенных модов, а на "Client" - все 12 секций; без подтверждения
                 // один случайный клик стирал всю конфигурацию
                 int resetCount = 0;

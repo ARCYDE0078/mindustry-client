@@ -76,18 +76,27 @@ public class SettingsSearch{
         index.clear();
         Seq<Tab> tabs = dialog.tabs();
         tabCount = tabs.size;
-        for(Tab tab : tabs){
-            Category section = null;
-            String feature = null;
-            for(Setting s : tab.table.getSettings()){
-                if(s instanceof Category c){ //Category.isHeader() тоже true - поэтому проверяется первой
-                    section = c;
-                    feature = null;
-                }else if(s.isHeader()){
-                    feature = s.title;
-                }else if(s.title != null && !s.title.isEmpty()){
-                    index.add(new Entry(tab, section, feature, s));
-                }
+        for(Tab tab : tabs) indexList(tab, tab.table.getSettings());
+        //главные настройки MI2U (радиусы, HP-бары, потоки...): во вкладке MI2U они нарисованы сырыми add'ами и в её списке не
+        //лежат (там только списки отдельных окон), поэтому раньше не искались - индексируем отдельно, переход ведёт во вкладку MI2U
+        if(mi2u.MI2UVars.mi2ui != null){
+            String mi2uName = Core.bundle.get("settings.meta.category");
+            Tab mi2uTab = tabs.find(t -> t.name.equals(mi2uName));
+            if(mi2uTab != null) indexList(mi2uTab, mi2u.MI2UVars.mi2ui.settings.list);
+        }
+    }
+
+    private void indexList(Tab tab, Iterable<? extends Setting> list){
+        Category section = null;
+        String feature = null;
+        for(Setting s : list){
+            if(s instanceof Category c){ //Category.isHeader() тоже true - поэтому проверяется первой
+                section = c;
+                feature = null;
+            }else if(s.isHeader()){
+                feature = s.title;
+            }else if(s.title != null && !s.title.isEmpty()){
+                index.add(new Entry(tab, section, feature, s));
             }
         }
     }
