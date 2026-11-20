@@ -280,6 +280,8 @@ public class MinimapMindow extends Mindow2{
                 Draw.mixcol();
             }
 
+            sonkaextras.TurretRanges.drawOnMinimap(scaleFactor, color.a);
+
             //display labels
             if(withLabels){
                 for(Player player : Groups.player){

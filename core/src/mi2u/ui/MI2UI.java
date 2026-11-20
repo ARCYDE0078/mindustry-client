@@ -248,8 +248,9 @@ public class MI2UI extends Mindow2{
                 }};
             }).growX();
         });
-        settings.sliderPref("turretZoneColorStyle", 0, 0, 1, 1, s -> {
+        settings.sliderPref("turretZoneColorStyle", 0, 0, 2, 1, s -> {
             if(s == 1) return "Anti Air";
+            if(s == 2) return Core.bundle.get("client.sonka.zonestyle.status");
             return "-";
         });
         settings.checkPref("enUnitRangeZone", false);

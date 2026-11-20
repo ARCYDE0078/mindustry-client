@@ -73,6 +73,8 @@ public class RendererExt{
     public static boolean enMenderZone;
     public static boolean enTurretZone;
     public static boolean turretZoneAAColor;
+    /** 2 = цвет заливки по питанию и типу патронов (sonkaextras.TurretRanges.statusColor) */
+    public static boolean turretZoneStatusColor;
     public static boolean enBlockHpBar;
     public static boolean enTurretReloadBar;
     public static boolean enHeatBar;
@@ -165,6 +167,7 @@ public class RendererExt{
         enMenderZone = mi2ui.settings.getBool("enMenderZone");
         enTurretZone = mi2ui.settings.getBool("enTurretRangeZone");
         turretZoneAAColor = mi2ui.settings.getInt("turretZoneColorStyle") == 1;
+        turretZoneStatusColor = mi2ui.settings.getInt("turretZoneColorStyle") == 2;
         rangeZoneTransparency = mi2ui.settings.getInt("rangeZoneTransparency") / 100f;
         enBlockHpBar = mi2ui.settings.getBool("enBlockHpBar");
         enTurretReloadBar = mi2ui.settings.getBool("enTurretReloadBar");
@@ -775,7 +778,8 @@ public class RendererExt{
         Draw.z(TurretZoneDrawer.getLayer(btb.team.id));
         drawRangeZone(btb.x, btb.y, btb.range(),
             MI2UTmp.c2.set(btb.team.color),
-            MI2UTmp.c1.set(turretZoneAAColor && btb.block instanceof Turret tu ? (tu.targetAir ? Color.cyan : Color.darkGray) : btb.team.color));
+            turretZoneStatusColor ? MI2UTmp.c1.set(sonkaextras.TurretRanges.statusColor(btb))
+                : MI2UTmp.c1.set(turretZoneAAColor && btb.block instanceof Turret tu ? (tu.targetAir ? Color.cyan : Color.darkGray) : btb.team.color));
         Draw.z(z);
         Draw.color();
     }

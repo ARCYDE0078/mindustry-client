@@ -167,6 +167,9 @@ public class MinimapRenderer{
             Draw.reset();
         }
 
+        //радиусы турелей (цвет = питание/патроны), тонкие контуры без заливки
+        sonkaextras.TurretRanges.drawOnMinimap(scaleFactor, Draw.getColor().a);
+
         if(fullView){
             for(Player player : Groups.player){
                 if(!player.dead() && net.active()){

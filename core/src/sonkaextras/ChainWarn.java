@@ -125,6 +125,8 @@ public final class ChainWarn{
             //анти-груша: прозрачные ники игроков делаются яркими (sonkaextras.AntiGrusha)
             t.checkPref(AntiSplash.enabledKey, false);
             t.sliderPref(AntiSplash.distKey, 3, 1, 10, 1, v -> v + " " + Core.bundle.get("client.sonka.antisplash.tiles"));
+            t.checkPref(TurretRanges.minimapKey, true);
+            t.checkPref(TurretRanges.minimapEnemyKey, true);
             t.checkPref(AntiGrusha.key, true);
             //СКМ по руде = лучший доступный бур (sonkaextras.BestDrillPick) - тумблер, чтобы можно было вернуть ваниль
             t.checkPref(BestDrillPick.settingKey, true);

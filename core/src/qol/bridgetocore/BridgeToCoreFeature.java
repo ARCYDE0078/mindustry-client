@@ -172,6 +172,7 @@ public class BridgeToCoreFeature implements Feature{
      */
     @Override
     public void buildSettings(SettingsTable table){
+        table.checkPref("bridgetocore-endfinish", true);
         table.sliderPref("bridgetocore-turn-aversion", 100, 20, 300, 10, v -> (v / 100f) + "x");
         table.sliderPref("bridgetocore-no-turn-radius", NO_TURN_RADIUS, 4, 40, 2, v -> v + " tiles");
         table.sliderPref("bridgetocore-min-turn-distance", MIN_TURN_DISTANCE, 2, 30, 1, v -> v + " tiles");
@@ -244,6 +245,11 @@ public class BridgeToCoreFeature implements Feature{
         }
         if(ToolbarWindow.junctionBuildActive){
             rewriteRuns(freshPlans, Blocks.junction, run -> applyLinePattern(run, Blocks.junction));
+        }
+        //пункт 5: вручную проведённый мост к ядру - достроить последние 1-2 тайла сортировщиками
+        if(Core.settings.getBool("bridgetocore-endfinish", true)){
+            int done = BridgeEndFinisher.finish(freshPlans);
+            if(done > 0) ui.showInfoFade(Core.bundle.format("qol.bridgetocore.endfinish.done", done));
         }
     }
 
