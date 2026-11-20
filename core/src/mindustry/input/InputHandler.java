@@ -1962,7 +1962,7 @@ public abstract class InputHandler implements InputProcessor, GestureListener{
     }
 
     /** Перенастраивает уже построенный такой же блок из плана (ссылка моста, лазеры, массивы). true = план израсходован. */
-    private boolean queueExistingPlanConfig(BuildPlan plan){
+    public boolean queueExistingPlanConfig(BuildPlan plan){
         if(plan == null || plan.block == null || plan.config == null) return false;
         Tile tile = world.tiles.get(plan.x, plan.y);
         if(tile == null) return false;

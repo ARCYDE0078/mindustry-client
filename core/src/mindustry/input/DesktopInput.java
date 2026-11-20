@@ -1195,6 +1195,8 @@ public class DesktopInput extends InputHandler{
 
             if(Core.input.keyDown(Binding.breakBlock)){
                 mode = none;
+            }else if(qol.forcebuildschematic.ForceBuildSchematicFeature.handlesCtrlClick()){
+                //Ctrl+клик с блоком/схемой в руках: принудительную постройку ведёт Force Build, ваниль молчит
             }else if(selectPlans.any()){
                 flushPlans(
                     temp.selectFrom(selectPlans, s -> (state.rules.editor || s.block.isVisible()) || s.block instanceof CoreBlock),
