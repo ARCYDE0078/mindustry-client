@@ -22,6 +22,7 @@ import arc.scene.ui.Image;
 import arc.scene.ui.ScrollPane;
 import arc.scene.ui.TextField;
 import arc.scene.ui.layout.Cell;
+import arc.scene.ui.layout.Scl;
 import arc.scene.ui.layout.Table;
 import arc.scene.ui.layout.WidgetGroup;
 import arc.struct.IntIntMap;
@@ -2158,6 +2159,12 @@ public class SchematicsTableUi{
      * выбранные иконки, клик просто вызывает {@code onPicked} без закрытия контейнера.
      */
     void addIconPickTable(Table cont, float size, Cons<String> onPicked, Boolf<String> isSelected){
+        //sonka 2026-11-21 ("в меню выбора иконки всё ещё не все блоки, например нет циклона и катапульты"): раньше строки были
+        //по 16 иконок (16 x 56 = 896 px), а панель в диалоге ячейки - size*2 = 700 px при scrollX(false), так что 13-16-я
+        //колонки (у циклона и электромагнитной катапульты - 15-я) обрезались и до них нельзя было долистать. Теперь число
+        //колонок считается от реальной ширины панели (и она не шире экрана), а не зашито
+        float paneW = Math.max(240f, Math.min(size * 2, Core.graphics.getWidth() / Scl.scl(1f) - 120f));
+        int columns = Math.max(4, (int)((paneW - 40f) / 56f)); //иконка 48 + отступы по 4 с каждой стороны; 40 - полоса прокрутки и поля
         cont.pane(table -> {
             for(Category category : IconCategoriesConfig.CATEGORIES){
                 if(IconCategoriesConfig.isErrorCategory(category.name)) continue;
@@ -2193,7 +2200,7 @@ public class SchematicsTableUi{
                     var imageButton = cell.get();
                     imageButton.resizeImage(48f * 0.8f);
 
-                    if(++col[0] % IconCategoriesConfig.ICONS_PER_ROW == 0) iconsContent.row();
+                    if(++col[0] % columns == 0) iconsContent.row();
                 }
 
                 table.row();
@@ -2224,7 +2231,7 @@ public class SchematicsTableUi{
                 wrapperTable.collapser(collapserTable -> collapserTable.left().add(iconsContent), () -> isCollapsed[0]);
                 table.add(wrapperTable).growX();
             }
-        }).size(size * 2, size).scrollX(false).update(s -> iconScrollY = s.getScrollY()).get().setScrollYForce(iconScrollY);
+        }).size(paneW, size).scrollX(false).update(s -> iconScrollY = s.getScrollY()).get().setScrollYForce(iconScrollY);
     }
 
     // ---------------------------------------------------------------- schematic picker
