@@ -1312,6 +1312,7 @@ public class DesktopInput extends InputHandler{
                 // слушателям события содержимое линии уже недоступно. Замороженные (freeze-queueing)
                 // линии не строятся сейчас - их не проверяем. См. sonkaextras.ChainWarn.
                 if(!isFreezeQueueing) sonkaextras.ChainWarn.onLinePlaced(linePlans);
+                qol.bridgetocore.BridgeToCoreFeature.snapshotLine(linePlans); // отброшенный игрой «мост на ядре» виден только здесь
                 // Why do we even need reversed build plans - SBytes 17/08/2022
 //                if(input.keyDown(Binding.boost)){
 //                    flushPlansReverse(linePlans);

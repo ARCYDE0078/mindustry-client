@@ -202,6 +202,11 @@ public class BridgeToCoreFeature implements Feature{
         }
     }
 
+    /** Снимок линии ДО flushPlans (зовётся из DesktopInput/MobileInput): по нему видно мост, «поставленный на ядро» и отброшенный игрой. */
+    public static void snapshotLine(Seq<BuildPlan> line){
+        BridgeEndFinisher.snapshot(line);
+    }
+
     void syncKnownPlans(){
         knownPlans.clear();
         for(BuildPlan p : player.unit().plans()) knownPlans.add(p);

@@ -14,6 +14,7 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 
 import static arc.Core.graphics;
+import static arc.Core.settings;
 import static mindustry.Vars.state;
 import static mindustry.Vars.ui;
 
@@ -78,6 +79,9 @@ public class ToolbarWindow extends QolWindow{
         addBuildToggleButton(cont, Blocks.sorter.uiIcon, "@bridgetocore-titanium-build", () -> titaniumBuildActive, v -> titaniumBuildActive = v);
         addBuildToggleButton(cont, Blocks.conveyor.uiIcon, "@bridgetocore-conveyor-build", () -> conveyorBuildActive, v -> conveyorBuildActive = v);
         addBuildToggleButton(cont, Blocks.invertedSorter.uiIcon, "@bridgetocore-junction-build", () -> junctionBuildActive, v -> junctionBuildActive = v);
+        cont.row();
+        //доводка конца моста сортировщиками - тот же ключ, что и флажок в настройках (одно состояние на двоих, читается каждый кадр)
+        addBuildToggleButton(cont, Blocks.coreShard.uiIcon, "@bridgetocore-endfinish", () -> settings.getBool("bridgetocore-endfinish", true), v -> settings.put("bridgetocore-endfinish", v));
     }
 
     static void addModeButton(Table buttons, Block block, Mode mode, String tooltip){

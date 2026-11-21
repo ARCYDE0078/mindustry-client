@@ -571,6 +571,7 @@ public class MobileInput extends InputHandler implements GestureListener{
             int tileY = tileY(screenY);
 
             if(mode == placing && isPlacing()){
+                qol.bridgetocore.BridgeToCoreFeature.snapshotLine(linePlans);
                 flushSelectPlans(linePlans);
                 Events.fire(new LineConfirmEvent());
             }else if(mode == breaking){
