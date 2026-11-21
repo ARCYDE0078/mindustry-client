@@ -539,8 +539,10 @@ public class HudFragment{
                 wavesMain.table(Tex.wavepane, st -> {
                     var a = 0.5f;
                     //i dont think there is anything better
-                    modeIcon(st, () -> showingTurrets, () -> showingTurrets ^= true, Icon.turret.tint(1, 0.33f, 0.33f, a), "Showing Turrets", Binding.showTurretRanges);
-                    modeIcon(st, () -> showingAllyTurrets, () -> showingAllyTurrets ^= true, Icon.turret.tint(0.67f, 1, 0.67f, a), "Showing Ally Turrets", Binding.showTurretRanges, "Alt");
+                    //красный - радиусы ВРАЖЕСКИХ турелей, зелёный - СВОИХ; включают зону MI2U (контур + заливка, если она включена в
+                    //настройках), а при выключенной зоне - пунктирные кольца Foo. Миникарту не затрагивают (у неё свои настройки)
+                    modeIcon(st, () -> showingTurrets, () -> showingTurrets ^= true, Icon.turret.tint(1, 0.33f, 0.33f, a), Core.bundle.get("client.sonka.hud.enemyturrets"), Binding.showTurretRanges);
+                    modeIcon(st, () -> showingAllyTurrets, () -> showingAllyTurrets ^= true, Icon.turret.tint(0.67f, 1, 0.67f, a), Core.bundle.get("client.sonka.hud.ownturrets"), Binding.showTurretRanges, "Alt");
                     if(Core.settings.getBool("allowinvturrets"))
                         modeIcon(st, () -> showingInvTurrets, () -> showingInvTurrets ^= true, Icon.turret.tint(1, 0.67f, 0.33f, a), "Inverting Ground/Air", Binding.showTurretRanges, "Ctrl");
                     modeIcon(st, () -> hidingUnits, () -> hidingUnits ^= true, new SlashTextureRegionDrawable(Icon.units.getRegion(), new Color(1f, 1f, 1f, a)), "Hiding Units", Binding.invisibleUnits);

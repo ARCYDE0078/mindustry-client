@@ -127,7 +127,10 @@ public final class ChainWarn{
             t.sliderPref(AntiSplash.distKey, 3, 1, 10, 1, v -> v + " " + Core.bundle.get("client.sonka.antisplash.tiles"));
             t.checkPref(TurretRanges.minimapKey, true);
             t.checkPref(TurretRanges.minimapEnemyKey, true);
+            t.sliderPref(TurretRanges.minimapAlphaKey, 50, 0, 100, 5, v -> v + "%");
+            t.checkPref(TurretRanges.zoneFillKey, true);
             t.checkPref(TurretRanges.dpsFillKey, true);
+            t.sliderPref(TurretRanges.dynDarkKey, 0, 0, 95, 5, v -> v == 0 ? Core.bundle.get("client.sonka.dynfill.off") : v + "%");
             t.checkPref(TurretRanges.dedupeKey, true);
             t.checkPref(AntiGrusha.key, true);
             t.checkPref(BridgeLinkFix.key, true);

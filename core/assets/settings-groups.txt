@@ -132,7 +132,9 @@ key:qolc-planrange*
 key:qol-grab-effects
 key:qol-hp-*
 key:sonka-minimap-ranges*
+key:sonka-zone-fill
 key:sonka-zone-dps-fill
+key:sonka-zone-dps-maxdark
 key:sonka-range-dedupe
 key:eui-TrackPlayerCursor
 key:eui-playerCursorStyle
