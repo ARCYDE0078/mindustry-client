@@ -126,6 +126,18 @@ public final class LastController{
         entry.since = Time.millis();
     }
 
+    /**
+     * Когда юнит в последний раз получил приказ/управление от игрока ({@link Time#millis()}), 0 - не записан.
+     * Источник «новой команды»: {@code record} зовётся из remote-тел commandUnits/setUnitCommand ровно на каждый приказ
+     * игрока, а заводские точки сбора и сам ИИ его не вызывают - в отличие от скорости юнита или смены targetPos
+     * (застрявший в толчее юнит «пытается долететь» всю игру, и по ним это выглядело как свежее командование).
+     */
+    public static long lastOrderAt(Unit unit){
+        if(unit == null) return 0L;
+        Entry entry = byUnit.get(unit.id);
+        return entry == null || entry.unit != unit ? 0L : entry.since;
+    }
+
     static void draw(){
         if(byUnit.isEmpty() || state.isMenu() || !Core.settings.getBool(settingKey, true)) return;
 

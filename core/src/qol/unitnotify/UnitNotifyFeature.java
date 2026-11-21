@@ -39,6 +39,7 @@ import qol.core.ButtonSetting;
 import qol.core.Feature;
 import qol.core.SafeSettings;
 import qol.ui.QolWindow;
+import sonkaextras.LastController;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -75,20 +76,18 @@ public class UnitNotifyFeature implements Feature{
     static final int MAX_CONTROL_LOGS = 8;
     static final float CONTROL_LOG_LIFETIME_MS = 8000f;
 
-    /** Below this speed a "commanded" unit counts as just holding position, not actually moving. */
-    static final float MOVE_THRESHOLD = 0.05f;
     /**
-     * A factory/reconstructor commonly auto-assigns its freshly-built units a one-off "move to rally
-     * point" command the instant they roll out - that's normal production, not an enemy actively
-     * directing an attack, so a unit isn't eligible to trigger a notification until it's been seen alive
-     * for at least this long.
+     * Окно, за которое приказ ещё считается «новым»: оповещение срабатывает на ПРИКАЗ игрока, пришедший с прошлого скана,
+     * а не на то, что у юнита есть цель и он движется. Раньше смотрели на скорость - но группа юнитов, посланная в одну
+     * точку, из-за толчеи частично упирается друг в друга и всю игру безуспешно «долетает», что выглядело как командование.
+     * Если скан не шёл дольше этого (пауза, оповещения были выключены), старые приказы заново не считаем.
      */
-    static final long SPAWN_GRACE_MS = 3000L;
+    static final long MAX_ORDER_WINDOW_MS = 2500L;
 
     private final Set<Integer> plastaniumCompressorPlaced = new HashSet<>();
     private final Map<UnitType, Integer> controlledCounts = new HashMap<>();
-    private final Map<Integer, Long> firstSeenAt = new HashMap<>();
-    private final Set<Integer> seenThisScan = new HashSet<>();
+    /** Время прошлого скана приказов (мс): приказ новее него - новый. */
+    private long lastScanMs = 0L;
     private final IntSeq tempIDs = new IntSeq();
     private final AmmoFetchTimer ammoTimer = new AmmoFetchTimer();
     private int toastCountdown = 0;
@@ -119,7 +118,10 @@ public class UnitNotifyFeature implements Feature{
     @Override
     public void init(){
         window = new UnitControlWindow(this);
-        Events.on(WorldLoadEvent.class, e -> plastaniumCompressorPlaced.clear());
+        Events.on(WorldLoadEvent.class, e -> {
+            plastaniumCompressorPlaced.clear();
+            lastScanMs = Time.millis();
+        });
         Events.on(BlockBuildEndEvent.class, this::buildEnd);
         Events.run(Trigger.update, this::update);
     }
@@ -309,21 +311,20 @@ public class UnitNotifyFeature implements Feature{
             if(toastCountdown >= Core.graphics.getFramesPerSecond()){
                 toastCountdown = 0;
                 controlledCounts.clear();
-                seenThisScan.clear();
                 long now = Time.millis();
+                long from = Math.max(lastScanMs, now - MAX_ORDER_WINDOW_MS);
+                lastScanMs = now;
                 Groups.unit.each(u -> {
                     if(u.team.id == player.team().id) return;
 
-                    seenThisScan.add(u.id);
-                    firstSeenAt.putIfAbsent(u.id, now);
-
-                    if(!(u.controller() instanceof CommandAI commandAI) || !commandAI.hasCommand()) return;
-                    if(u.vel.len() < MOVE_THRESHOLD) return;
-                    if(now - firstSeenAt.get(u.id) < SPAWN_GRACE_MS) return;
+                    //юнит ещё выполняет приказ (идёт к точке или атакует цель)...
+                    if(!(u.controller() instanceof CommandAI commandAI) || !(commandAI.hasCommand() || commandAI.attackTarget != null)) return;
+                    //...и приказ этот НОВЫЙ: игрок отдал его с прошлого скана. Старый приказ, который юнит всё ещё пытается выполнить
+                    //(застрял в толчее, ждёт проход), - не командование; заводская точка сбора - тоже: она не идёт через commandUnits
+                    if(LastController.lastOrderAt(u) <= from) return;
 
                     controlledCounts.merge(u.type, 1, Integer::sum);
                 });
-                firstSeenAt.keySet().removeIf(id -> !seenThisScan.contains(id));
 
                 int minUnit = SafeSettings.getInt("unotify-MinUnit", 1);
                 StringBuilder dangerText = new StringBuilder(Core.bundle.format("danger.control.message"));
