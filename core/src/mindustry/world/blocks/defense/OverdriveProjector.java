@@ -53,11 +53,30 @@ public class OverdriveProjector extends Block{
         return false;
     }
 
+    /** Есть ли у проектора второй (фазовый) радиус: купол без буста и проектор с нулевой прибавкой его не имеют. */
+    public boolean hasPhaseRange(){
+        return hasBoost && phaseRangeBoost > 0f;
+    }
+
+    /**
+     * Два радиуса: без фазы ({@code range}) и с фазой ({@code range + phaseRangeBoost}). Если проектор уже запитан фазой,
+     * радиус без фазы не рисуется - он ничего не отражает, действует только большой. Цвета передаёт вызывающий
+     * (у наведения/выделения они свои), у блока без фазового радиуса рисуется один обычный круг.
+     */
+    public void drawRangeRings(float x, float y, boolean phasePowered, Color base, Color phase){
+        if(!hasPhaseRange()){
+            Drawf.dashCircle(x, y, range, base);
+            return;
+        }
+        if(!phasePowered) Drawf.dashCircle(x, y, range, base);
+        Drawf.dashCircle(x, y, range + phaseRangeBoost, phase);
+    }
+
     @Override
     public void drawPlace(int x, int y, int rotation, boolean valid){
         super.drawPlace(x, y, rotation, valid);
 
-        Drawf.dashCircle(x * tilesize + offset, y * tilesize + offset, range, baseColor);
+        drawRangeRings(x * tilesize + offset, y * tilesize + offset, false, baseColor, phaseColor);
 
         indexer.eachBlock(player.team(), x * tilesize + offset, y * tilesize + offset, range, other -> other.block.canOverdrive, other -> Drawf.selected(other, Tmp.c1.set(baseColor).a(Mathf.absin(4f, 1f))));
     }
@@ -65,7 +84,7 @@ public class OverdriveProjector extends Block{
     @Override
     public void drawPlanConfigTop(BuildPlan req, Eachable<BuildPlan> list){
         if (!settings.getBool("showdomes") || !req.worldContext) return;
-        Drawf.dashCircle(req.drawx(), req.drawy(), range, baseColor);
+        drawRangeRings(req.drawx(), req.drawy(), false, baseColor, phaseColor);
         indexer.eachBlock(player.team(), req.drawx(), req.drawy(), range, other -> other.block.canOverdrive, other -> Drawf.selected(other, Tmp.c1.set(baseColor).a(Mathf.absin(4f, 1f))));
     }
 
@@ -114,6 +133,11 @@ public class OverdriveProjector extends Block{
             return range + phaseHeat * phaseRangeBoost;
         }
 
+        /** Проектор запитан фазой (или ещё не остыл после неё): действующий радиус уже больше базового. */
+        public boolean phasePowered(){
+            return hasBoost && (optionalEfficiency > 0f || phaseHeat > 0.01f);
+        }
+
         @Override
         public void drawLight(){
             Drawf.light(x, y, lightRadius * smoothEfficiency, baseColor, 0.7f * smoothEfficiency);
@@ -156,7 +180,7 @@ public class OverdriveProjector extends Block{
 
             indexer.eachBlock(this, realRange, other -> other.block.canOverdrive, other -> Drawf.selected(other, Tmp.c1.set(baseColor).a(Mathf.absin(4f, 1f))));
 
-            Drawf.dashCircle(x, y, realRange, baseColor);
+            drawRangeRings(x, y, phasePowered(), baseColor, phaseColor);
         }
 
         @Override

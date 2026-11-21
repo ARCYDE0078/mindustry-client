@@ -89,7 +89,13 @@ public final class PlanRangeFeature{
             float range = b instanceof OverdriveProjector.OverdriveBuild ob ? ob.range() : ((MassDriver)held).range;
             //серый для тех, кто на деле не работает - сразу видно, какие из них реально дают покрытие
             Draw.color(isBlockIdle(b) ? idleColor : held instanceof OverdriveProjector ? overdriveColor : Pal.accent, 0.5f);
-            Lines.circle(b.x, b.y, range);
+            if(b instanceof OverdriveProjector.OverdriveBuild ob && ob.block instanceof OverdriveProjector op && op.hasPhaseRange()){
+                //два радиуса: без фазы и с фазой; запитанному фазой - только с фазой
+                if(!ob.phasePowered()) Lines.circle(b.x, b.y, range);
+                Lines.circle(b.x, b.y, range + op.phaseRangeBoost);
+            }else{
+                Lines.circle(b.x, b.y, range);
+            }
         }
     }
 
@@ -126,6 +132,7 @@ public final class PlanRangeFeature{
         }else if(plan.block instanceof OverdriveProjector op){
             Draw.color(overdriveColor, 0.7f);
             Lines.circle(x, y, op.range);
+            if(op.hasPhaseRange()) Lines.circle(x, y, op.range + op.phaseRangeBoost); //второй радиус - с фазой
         }else if(plan.block instanceof BaseTurret bt){
             Draw.color(turretColor, 0.7f);
             Lines.circle(x, y, bt.range);

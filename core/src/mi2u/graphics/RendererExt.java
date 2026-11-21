@@ -744,6 +744,14 @@ public class RendererExt{
         Lines.stroke(2f);
         Draw.alpha(1f);
         Lines.circle(odb.x, odb.y, block.range + odb.phaseHeat * block.phaseRangeBoost);
+
+        //второй радиус - с фазой: пока фаза не подана, тонкое кольцо показывает, докуда зона вырастет. Запитанному фазой
+        //проектору кольцо без фазы не нужно, а действующий радиус выше и есть радиус с фазой - лишнего не рисуем
+        if(block.hasPhaseRange() && !odb.phasePowered()){
+            Lines.stroke(1.5f);
+            Draw.alpha(0.5f);
+            Lines.circle(odb.x, odb.y, block.range + block.phaseRangeBoost);
+        }
     }
 
     public static void drawMender(MendProjector.MendBuild mb){

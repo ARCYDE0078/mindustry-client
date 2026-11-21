@@ -97,10 +97,14 @@ public class BlockInfoUi{
         if(sonkaextras.TurretRanges.coveredByZone(hovered)) return; //уже есть MI2U-зона этой турели - второй круг не нужен
 
         //перф: Draw.z + прямой вызов вместо Draw.draw(лямбда) - без аллокации на кадр при наведении
-        float realRange = hovered instanceof OverdriveBuild ob ? ob.realRange() : ranged.range();
         float prevZ = Draw.z();
         Draw.z(Layer.overlayUI + 0.01f);
-        Drawf.dashCircle(hovered.x, hovered.y, realRange, hovered.team.color);
+        if(hovered instanceof OverdriveBuild ob){
+            //сверхприводной проектор: два кольца (без фазы / с фазой), запитанный фазой - только большое
+            ((mindustry.world.blocks.defense.OverdriveProjector)ob.block).drawRangeRings(ob.x, ob.y, ob.phasePowered(), hovered.team.color, hovered.team.color);
+        }else{
+            Drawf.dashCircle(hovered.x, hovered.y, ranged.range(), hovered.team.color);
+        }
         Draw.z(prevZ);
     }
 
