@@ -37,7 +37,7 @@ public class IconCategoriesConfig{
             "wrench", "hammer", "file", "fileText", "fileImage", "folder",
             "link", "upload", "download", "export", "import", "zoom"),
 
-        new Category("UI Textures", "alphaaaa",
+        new Category("UI Textures", "button",
             "alphaaaa", "alphaBg", "alphaBgLine", "pane", "pane2", "paneSolid",
             "paneTop", "paneLeft", "paneRight", "whitePane", "whiteui",
             "button", "buttonDown", "buttonOver", "buttonDisabled", "buttonRed",
@@ -174,9 +174,20 @@ public class IconCategoriesConfig{
         return all;
     }
 
+    /** Категория "UI Textures": сначала знакомые имена из списка выше, затем все остальные текстуры {@code Tex} (по алфавиту) - раньше они в пикере не показывались вовсе. */
+    public static Seq<String> getUiTextureIcons(){
+        Seq<String> names = new Seq<>();
+        for(Category category : CATEGORIES){
+            if(category.name.equals("UI Textures")) for(String n : category.icons) if(Icons.resolves(n) && !names.contains(n)) names.add(n);
+        }
+        for(String n : Icons.texIconNames()) if(!names.contains(n)) names.add(n);
+        return names;
+    }
+
     /** Every icon {@link Icons} can resolve that isn't already listed in a real category or contributed by a mod - the picker's catch-all bucket. */
     public static Seq<String> getOtherIcons(){
         Seq<String> categorized = getAllCategoryIcons();
+        categorized.addAll(Icons.texIconNames()); //показаны в своей категории
         Seq<String> modIconNames = getModIconsCategory();
 
         Seq<String> other = new Seq<>();

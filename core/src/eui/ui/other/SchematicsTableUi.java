@@ -2166,7 +2166,13 @@ public class SchematicsTableUi{
                 if(IconCategoriesConfig.USE_ICON_CATEGORIES){
                     if(category.name.equals("Other")) iconsToDisplay = IconCategoriesConfig.getOtherIcons();
                     else if(category.name.equals("Mods")) iconsToDisplay = IconCategoriesConfig.getModIconsCategory();
-                    else iconsToDisplay = Seq.with(category.icons);
+                    else if(category.name.equals("UI Textures")) iconsToDisplay = IconCategoriesConfig.getUiTextureIcons();
+                    else{
+                        //имена из статического списка, которых нет в этой версии движка, не показываем: раньше они рисовались
+                        //одинаковым карандашом и выглядели как «иконка есть, но не та»
+                        iconsToDisplay = new Seq<>();
+                        for(String n : category.icons) if(Icons.resolves(n)) iconsToDisplay.add(n);
+                    }
                 }else{
                     iconsToDisplay = IconCategoriesConfig.getAllCategoryIcons();
                 }
