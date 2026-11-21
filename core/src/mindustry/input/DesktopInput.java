@@ -807,7 +807,7 @@ public class DesktopInput extends InputHandler{
                 var build = selectedControlBuild();
                 boolean hidingAirUnits = ClientVars.hidingAirUnits;
                 //Ctrl с блоком/схемой в руках - это принудительное строительство, а не вселение (иначе промахнувшись по клику улетаешь в турель)
-                boolean holdingBuild = block != null || selectPlans.any();
+                boolean holdingBuild = block != null || selectPlans.any() || qol.forcebuildschematic.ForceBuildSchematicFeature.handlesCtrlClick(); // схему Force Build уже забрала в этом кадре (selectPlans пуст)
                 if(on != null){
                     // FINISHME: This belongs in its own method, its also very messy
                     if (input.keyDown(Binding.control) && !holdingBuild && on.isAI() && state.rules.possessionAllowed) { // Ctrl + click: control unit
@@ -1196,7 +1196,7 @@ public class DesktopInput extends InputHandler{
             if(Core.input.keyDown(Binding.breakBlock)){
                 mode = none;
             }else if(qol.forcebuildschematic.ForceBuildSchematicFeature.handlesCtrlClick()){
-                //Ctrl+клик с блоком/схемой в руках: принудительную постройку ведёт Force Build, ваниль молчит
+                //Ctrl+клик со схемой в руках: принудительную постройку ведёт Force Build, ваниль молчит (с блоком - обычная линия, см. forceLine на отпускании)
             }else if(selectPlans.any()){
                 flushPlans(
                     temp.selectFrom(selectPlans, s -> (state.rules.editor || s.block.isVisible()) || s.block instanceof CoreBlock),
@@ -1317,7 +1317,10 @@ public class DesktopInput extends InputHandler{
 //                if(input.keyDown(Binding.boost)){
 //                    flushPlansReverse(linePlans);
 //                }else{
-                    flushPlans(linePlans, isFreezeQueueing, Binding.modifierHeld(Binding.forcePlaceModifier) && !bridgeModLine, isFreezeQueueing); // Alt в режиме мостов - это bridgeModifier, а не force
+                    // Ctrl на отпускании = принудительная постройка линии (снос мешающего, затем постройка); в режиме заморозки - обычный путь
+                    if(isFreezeQueueing || !qol.forcebuildschematic.ForceBuildSchematicFeature.forceLine(linePlans)){
+                        flushPlans(linePlans, isFreezeQueueing, Binding.modifierHeld(Binding.forcePlaceModifier) && !bridgeModLine, isFreezeQueueing); // Alt в режиме мостов - это bridgeModifier, а не force
+                    }
 //                }
 
                 linePlans.clear();

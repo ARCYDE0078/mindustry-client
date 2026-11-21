@@ -107,14 +107,38 @@ public class ForceBuildSchematicFeature implements Feature{
     public void buildSettings(SettingsTable table){
     }
 
+    /** Кадр, в котором фича приняла Ctrl+клик схемой (и очистила selectPlans): ввод идёт ПОЗЖЕ в том же кадре и иначе увидел бы «пустые руки». */
+    long consumedFrame = -1;
+
     /**
-     * Ctrl + ЛКМ с блоком/схемой в руках обрабатывает эта фича. DesktopInput зовёт это, чтобы ваниль не ставила
-     * в тот же клик свою копию (мимо ожидания сноса) и не начинала линию.
+     * Ctrl + ЛКМ со СХЕМОЙ в руках обрабатывает эта фича (в том же кадре, когда она приняла клик, - тоже: selectPlans
+     * к этому моменту уже очищен, а Logic с Trigger.update отрабатывает раньше ввода). DesktopInput зовёт это, чтобы ваниль
+     * не ставила в тот же клик свою копию (мимо ожидания сноса), не вселяла в турель/роутер под курсором и не начинала линию.
+     * С одиночным блоком в руках Ctrl+ЛКМ - обычная линия (можно тянуть), а снос и постройку делает {@link #forceLine} на отпускании.
      */
     public static boolean handlesCtrlClick(){
         ForceBuildSchematicFeature f = instance;
         if(f == null || !f.isEnabled() || state.isMenu() || player == null || player.dead()) return false;
-        return f.ctrlDown() && (control.input.block != null || !control.input.selectPlans.isEmpty());
+        if(f.consumedFrame == Core.graphics.getFrameId()) return true;
+        return f.ctrlDown() && !control.input.selectPlans.isEmpty();
+    }
+
+    /**
+     * Отпускание ЛКМ после линии/клика блоком при зажатом Ctrl: те же снос мешающего и отложенная постройка, что и у схемы.
+     * @return true - линия принята фичей, обычную постановку (flushPlans) делать не нужно.
+     */
+    public static boolean forceLine(Seq<BuildPlan> line){
+        ForceBuildSchematicFeature f = instance;
+        if(f == null || !f.isEnabled() || state.isMenu() || player == null || player.dead() || player.unit() == null) return false;
+        if(!f.ctrlDown() || line == null || line.isEmpty()) return false;
+        if(f.pending != null) return true; //предыдущая принудительная постройка ещё ждёт сноса - как и раньше, новый клик не принимаем
+        Seq<BuildPlan> copy = new Seq<>();
+        for(BuildPlan p : line){
+            if(p != null && p.block != null && !p.breaking) copy.add(new BuildPlan(p.x, p.y, p.rotation, p.block, p.config));
+        }
+        if(copy.isEmpty()) return false;
+        f.start(copy, player.unit());
+        return true;
     }
 
     boolean ctrlDown(){
@@ -138,8 +162,17 @@ public class ForceBuildSchematicFeature implements Feature{
                 for(Tile t : footprintTiles(p.x, p.y, size)) highlight(t);
             }
         }else if(control.input.block != null && !Core.scene.hasMouse()){
-            int cx = control.input.tileX(Core.input.mouseX()), cy = control.input.tileY(Core.input.mouseY());
-            for(Tile t : footprintTiles(cx, cy, control.input.block.size)) highlight(t);
+            Seq<BuildPlan> line = control.input.linePlans;
+            if(!line.isEmpty()){
+                //тянут линию: подсвечиваем площадь каждого плана линии
+                for(BuildPlan p : line){
+                    int size = p.block != null ? p.block.size : 1;
+                    for(Tile t : footprintTiles(p.x, p.y, size)) highlight(t);
+                }
+            }else{
+                int cx = control.input.tileX(Core.input.mouseX()), cy = control.input.tileY(Core.input.mouseY());
+                for(Tile t : footprintTiles(cx, cy, control.input.block.size)) highlight(t);
+            }
         }
         Draw.reset();
     }
@@ -215,20 +248,13 @@ public class ForceBuildSchematicFeature implements Feature{
         if(unit == null) return;
 
         Seq<BuildPlan> selectPlans = control.input.selectPlans;
+        if(selectPlans.isEmpty()) return; //одиночный блок/линию ведёт DesktopInput, а сюда она придёт на отпускании (forceLine)
         Seq<BuildPlan> previewPlans = new Seq<>();
-        if(!selectPlans.isEmpty()){
-            for(BuildPlan p : selectPlans){
-                previewPlans.add(new BuildPlan(p.x, p.y, p.rotation, p.block, p.config));
-            }
-            selectPlans.clear();
-        }else if(control.input.block != null){
-            Block block = control.input.block;
-            int cx = control.input.tileX(Core.input.mouseX()), cy = control.input.tileY(Core.input.mouseY());
-            BuildPlan one = new BuildPlan(cx, cy, control.input.rotation, block);
-            if(block.saveConfig) one.config = block.lastConfig;
-            previewPlans.add(one);
+        for(BuildPlan p : selectPlans){
+            previewPlans.add(new BuildPlan(p.x, p.y, p.rotation, p.block, p.config));
         }
-        if(previewPlans.isEmpty()) return;
+        consumedFrame = Core.graphics.getFrameId(); //selectPlans очищаем ниже, а ввод ещё должен увидеть, что клик уже принят
+        selectPlans.clear();
 
         start(previewPlans, unit);
     }

@@ -163,7 +163,7 @@ public class OverlayRenderer{
 
         Sized select = input.selectedUnit();
         if(select == null) select = input.selectedControlBuild();
-        if(!Core.input.keyDown(Binding.control) || input.block != null) select = null;
+        if(!Core.input.keyDown(Binding.control) || input.block != null || input.selectPlans.any()) select = null; // со схемой/блоком Ctrl - это постройка, а не вселение
 
         unitFade = Mathf.lerpDelta(unitFade, Mathf.num(select != null), 0.1f);
 
