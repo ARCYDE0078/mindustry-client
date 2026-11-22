@@ -125,6 +125,9 @@ public final class ChainWarn{
             //анти-груша: прозрачные ники игроков делаются яркими (sonkaextras.AntiGrusha)
             t.checkPref(AntiSplash.enabledKey, false);
             t.sliderPref(AntiSplash.distKey, 3, 1, 10, 1, v -> v + " " + Core.bundle.get("client.sonka.antisplash.tiles"));
+            //команда «разряжать турели» (кнопка в панели команд юнитов): лечение побитых и радиус циклона 29 блоков
+            t.checkPref(TurretDrain.repairKey, true);
+            t.checkPref(TurretDrain.cyclone29Key, false);
             t.checkPref(TurretRanges.minimapKey, true);
             t.checkPref(TurretRanges.minimapEnemyKey, true);
             t.sliderPref(TurretRanges.minimapAlphaKey, 50, 0, 100, 5, v -> v + "%");

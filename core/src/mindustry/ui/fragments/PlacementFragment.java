@@ -786,6 +786,11 @@ public class PlacementFragment{
                                     coms.button(Icon.grid, Styles.clearNoneTogglei, sonkaextras.AntiSplash::toggle)
                                         .size(50f).tooltip(Core.bundle.get("client.sonka.antisplash.button"), true)
                                         .with(b -> b.update(() -> b.setChecked(sonkaextras.AntiSplash.enabled())));
+                                    //«разряжать турели» (sonkaextras.TurretDrain): выбранные юниты по очереди заходят в зоны вражеских
+                                    //турелей и выходят обратно (ванильный патруль), пока те не опустеют; режим сессионный, не настройка
+                                    coms.button(Icon.turret, Styles.clearNoneTogglei, sonkaextras.TurretDrain::toggle)
+                                        .size(50f).tooltip(Core.bundle.get("client.sonka.turretdrain.button"), true)
+                                        .with(b -> b.update(() -> b.setChecked(sonkaextras.TurretDrain.enabled())));
                                 }).fillX().padTop(4f).left();
                             }else{
                                 u.add(Core.bundle.get("commandmode.nounits")).color(Color.lightGray).growX().center().labelAlign(Align.center).pad(6);

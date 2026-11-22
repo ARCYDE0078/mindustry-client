@@ -140,6 +140,7 @@ object Main : ApplicationListener {
         // sonka+Amie: «анти-груша» - прозрачные ники игроков делаются видимыми (sonkaextras.AntiGrusha)
         sonkaextras.AntiGrusha.init()
         sonkaextras.AntiSplash.init()
+        sonkaextras.TurretDrain.init()
 
         // sonka: «что нового» после обновления - заметки релизов custom-b(M..N] с GitHub
         // (sonkaextras.WhatsNew, правила показа в его javadoc); тоже только вешает слушатель

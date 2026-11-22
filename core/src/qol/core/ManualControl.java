@@ -30,6 +30,11 @@ public final class ManualControl{
         return Time.timeSinceMillis(lastManual.get(unitId, 0L)) <= holdMs && lastManual.containsKey(unitId);
     }
 
+    /** true, если игрок вручную командовал юнитом ПОСЛЕ момента sinceMs (метки до этого момента не считаются). */
+    public static boolean markedSince(int unitId, long sinceMs){
+        return lastManual.containsKey(unitId) && lastManual.get(unitId, 0L) > sinceMs;
+    }
+
     /** Помечает юнитов ручной сменой stance и возвращает тот же массив (удобно оборачивать аргумент Call). */
     public static int[] markStance(int[] unitIds){
         long now = Time.millis();
