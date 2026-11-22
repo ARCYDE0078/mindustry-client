@@ -451,9 +451,8 @@ public class DesktopInput extends InputHandler{
                 }
 
                 if (input.keyTap(Binding.autoTransfer)) {
-                    AutoTransfer.enabled ^= true;
-                    settings.put("autotransfer", AutoTransfer.enabled);
-                    new Toast(1).add(bundle.get("client.autotransfer") + ": " + bundle.get(AutoTransfer.enabled ? "mod.enabled" : "mod.disabled"));
+                    boolean on = AutoTransfer.toggleAll(); // обе половины автофилла разом (общего ключа больше нет)
+                    new Toast(1).add(bundle.get("client.autotransfer") + ": " + bundle.get(on ? "mod.enabled" : "mod.disabled"));
                 } else if(input.keyTap(Binding.toggleAutoTarget) && (selectPlans.isEmpty() || !input.keyTap(Binding.schematicFlipY))){
                     player.shooting = false;
                     settings.put("autotarget", !settings.getBool("autotarget"));
@@ -756,9 +755,8 @@ public class DesktopInput extends InputHandler{
 
                 table.row().fill();
                 table.button("@client.autotransfer", () -> { // Auto transfer
-                    AutoTransfer.enabled ^= true;
-                    settings.put("autotransfer", AutoTransfer.enabled);
-                    new Toast(1).add(bundle.get("client.autotransfer") + ": " + bundle.get(AutoTransfer.enabled ? "mod.enabled" : "mod.disabled"));
+                    boolean on = AutoTransfer.toggleAll();
+                    new Toast(1).add(bundle.get("client.autotransfer") + ": " + bundle.get(on ? "mod.enabled" : "mod.disabled"));
                     table.remove();
                 }).disabled(b -> state.rules.pvp && Server.io.b());
 

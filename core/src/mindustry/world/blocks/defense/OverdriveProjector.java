@@ -133,9 +133,27 @@ public class OverdriveProjector extends Block{
             return range + phaseHeat * phaseRangeBoost;
         }
 
+        /**
+         * Фаза лежит в проекторе - независимо от того, включён ли он. {@code optionalEfficiency} для этого не годится:
+         * у выключенного (процессором) блока {@code updateConsumption} обнуляет её, и проектор с фазой на кольцах
+         * выглядел как без фазы. Поэтому смотрим на сами необязательные потребители (предметы-бустеры).
+         */
+        public boolean phaseHeld(){
+            if(!hasBoost || optionalConsumers.length == 0) return false;
+            for(var cons : optionalConsumers){
+                if(cons.efficiency(this) <= 0f) return false;
+            }
+            return true;
+        }
+
         /** Проектор запитан фазой (или ещё не остыл после неё): действующий радиус уже больше базового. */
         public boolean phasePowered(){
-            return hasBoost && (optionalEfficiency > 0f || phaseHeat > 0.01f);
+            return hasBoost && (phaseHeld() || phaseHeat > 0.01f);
+        }
+
+        /** Радиус для отрисовки: как {@link #realRange()}, но фаза в выключенном проекторе считается сразу действующей. */
+        public float displayRange(){
+            return range + (phaseHeld() ? 1f : phaseHeat) * phaseRangeBoost;
         }
 
         @Override
@@ -176,7 +194,7 @@ public class OverdriveProjector extends Block{
 
         @Override
         public void drawSelect(){
-            float realRange = range + phaseHeat * phaseRangeBoost;
+            float realRange = displayRange();
 
             indexer.eachBlock(this, realRange, other -> other.block.canOverdrive, other -> Drawf.selected(other, Tmp.c1.set(baseColor).a(Mathf.absin(4f, 1f))));
 

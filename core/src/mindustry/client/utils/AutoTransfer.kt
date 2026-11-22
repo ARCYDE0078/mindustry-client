@@ -16,6 +16,7 @@ import mindustry.graphics.*
 import mindustry.type.*
 import mindustry.world.Block
 import mindustry.world.blocks.defense.turrets.*
+import mindustry.world.blocks.distribution.MassDriver
 import mindustry.world.blocks.power.NuclearReactor.*
 import mindustry.world.blocks.production.*
 import mindustry.world.blocks.production.Drill.*
@@ -29,11 +30,22 @@ import kotlin.math.*
 class AutoTransfer {
     companion object Settings {
         // All of these settings (aside from debug) are overwritten on init()
-        @JvmField var enabled = false
-        /** Take items out of the core (key `autotransfer-fromcores`; had no UI until 2026-11-20). */
-        @JvmField var fromCores = true
+        /**
+         * Общего тумблера «Auto Transfer» больше нет (sonka, 2026-11-22): автофилл включён, когда включена хотя бы
+         * одна из двух половин - [fromCores] или [deposit]. Раньше поверх них стоял ещё мастер-ключ `autotransfer`,
+         * и обе половины молча ничего не делали, пока он выключен (а иконка HUD его даже не сохраняла - после
+         * захода на карту он сбрасывался).
+         */
+        @JvmStatic val enabled: Boolean
+            get() = !blocked && !suspended && (fromCores || deposit)
+        /** Вето мира: PvP-сервер или правило карты «только вносить в ядро» (ставит ClientLogic при загрузке мира). */
+        @JvmField var blocked = false
+        /** Временно выключен, пока идёт MinePath (с ним автофилл не дружит); снимает слушатель пути. */
+        @JvmField var suspended = false
+        /** Take items out of the core (key `autotransfer-fromcores`). */
+        @JvmField var fromCores = false
         /** Put the carried items into buildings (key `autotransfer-deposit`) - the "give" half, separate from [fromCores]. */
-        @JvmField var deposit = true
+        @JvmField var deposit = false
         @JvmField var fromContainers = false
         @JvmField var minCoreItems = -1
         var debug = false
@@ -211,11 +223,61 @@ class AutoTransfer {
             return true
         }
 
+        /** Что были включены обе половины перед тем, как хоткей выключил автофилл целиком (чтобы хоткей вернул то же). */
+        private var rememberedFromCores = true
+        private var rememberedDeposit = true
+
+        /** Меняет «брать из ядра» и сразу сохраняет (HUD-иконка, нижняя панель); меню настроек пишет ключ само. */
+        @JvmStatic fun changeFromCores(value: Boolean) {
+            fromCores = value
+            Core.settings.put("autotransfer-fromcores", value)
+        }
+
+        /** Меняет «класть в постройки» и сразу сохраняет - см. [changeFromCores]. */
+        @JvmStatic fun changeDeposit(value: Boolean) {
+            deposit = value
+            Core.settings.put("autotransfer-deposit", value)
+        }
+
+        /**
+         * Хоткей/кнопка «Auto Transfer»: если хоть что-то включено - гасит обе половины (запомнив, какие были),
+         * иначе возвращает запомненные (по умолчанию обе). Возвращает, включён ли автофилл после переключения.
+         */
+        @JvmStatic fun toggleAll(): Boolean {
+            if (fromCores || deposit) {
+                rememberedFromCores = fromCores
+                rememberedDeposit = deposit
+                changeFromCores(false)
+                changeDeposit(false)
+            } else {
+                val both = !rememberedFromCores && !rememberedDeposit
+                changeFromCores(both || rememberedFromCores)
+                changeDeposit(both || rememberedDeposit)
+            }
+            return fromCores || deposit
+        }
+
+        /**
+         * Один раз переносит старый мастер-ключ `autotransfer` на две половины: был выключен - обе выключены (автофилл
+         * и работал выключенным), был включён - оставляем половины как есть (по старому умолчанию обе включены).
+         */
+        private fun migrateMasterKey() {
+            if (!Core.settings.has("autotransfer")) return
+            if (Core.settings.getBool("autotransfer", false)) {
+                if (!Core.settings.has("autotransfer-fromcores")) Core.settings.put("autotransfer-fromcores", true)
+                if (!Core.settings.has("autotransfer-deposit")) Core.settings.put("autotransfer-deposit", true)
+            } else {
+                Core.settings.put("autotransfer-fromcores", false)
+                Core.settings.put("autotransfer-deposit", false)
+            }
+            Core.settings.remove("autotransfer")
+        }
+
         fun init() {
             // Main settings
-            enabled = Core.settings.getBool("autotransfer", false)
-            fromCores = Core.settings.getBool("autotransfer-fromcores", true)
-            deposit = Core.settings.getBool("autotransfer-deposit", true)
+            migrateMasterKey()
+            fromCores = Core.settings.getBool("autotransfer-fromcores", false)
+            deposit = Core.settings.getBool("autotransfer-deposit", false)
             fromContainers = Core.settings.getBool("autotransfer-fromcontainers", true)
             minCoreItems = Core.settings.getInt("autotransfer-mincoreitems", 100)
             minTransferTotal = Core.settings.getInt("autotransfer-mintransfertotal", 10)
@@ -246,14 +308,13 @@ class AutoTransfer {
     fun update() {
         if (!enabled) return
         if (state.rules.onlyDepositCore) {
-            // Only catches a rule pushed mid-game (NetClient.setRules/setRule) after the toggle was
+            // Only catches a rule pushed mid-game (NetClient.setRules/setRule) after autofill was
             // already on - the join-time computation in ClientLogic's WorldLoadEvent listener already
-            // keeps AutoTransfer off from the start on maps/sectors that start with this rule set (e.g.
-            // several campaign planets default to it, see Planets.java), so flip the toggle itself off
-            // here too (not just skip this round) and say so once, instead of leaving a checkbox that
-            // looks on but silently does nothing.
-            enabled = false
-            Core.settings.put("autotransfer", false)
+            // keeps AutoTransfer blocked from the start on maps/sectors that start with this rule set (e.g.
+            // several campaign planets default to it, see Planets.java). Block it here too (not just skip
+            // this round) and say so once. Только вето мира - сохранённые настройки половин не трогаем,
+            // на другой карте автофилл снова заработает сам.
+            blocked = true
             Toast(4f).add(Core.bundle.get("client.autotransfer.disabled-onlydepositcore"))
             return
         }
@@ -298,7 +359,8 @@ class AutoTransfer {
 
         if (fromContainers && (core == null || !player.within(core, itemTransferRange))) {
             val sourceBlocks = loadSourceBlocks()
-            core = containers.selectFrom(builds) { it.block is StorageBlock && sourceAllowed(sourceBlocks, it.block) && (item == null || it.items.has(item)) }.min { it -> it.dst(player) }
+            // Источник - склад или катапульта (MassDriver держит предметы и отдаёт их через requestItem, как контейнер)
+            core = containers.selectFrom(builds) { (it.block is StorageBlock || it.block is MassDriver) && sourceAllowed(sourceBlocks, it.block) && (item == null || it.items.has(item)) }.min { it -> it.dst(player) }
         }
         val fetchCore = core
 
@@ -343,10 +405,19 @@ class AutoTransfer {
             justTransferred = true
             item = null
         } else if (fetchItem != null && fetchCore != null && player.within(fetchCore, itemTransferRange)) {
-            if (stack.amount > 0) Call.transferInventory(player, fetchCore) // Holding something unwanted here - drop it off first, fetch next round
-            else Call.requestItem(player, fetchCore, fetchItem, Int.MAX_VALUE)
-            markActionTaken()
-            justTransferred = true
+            val held = if (stack.amount > 0) stack.item else null
+            if (held == fetchItem) {
+                // Уже держим именно это (положить не вышло или «класть» выключено) - ничего не делаем, иначе
+                // «сдать в ядро -> взять -> сдать...» по кругу, пока работает только половина «брать из ядра».
+            } else if (held != null && !deposit) {
+                // В руках другое, а класть автофилл не должен: это, скорее всего, то, что игрок несёт ставить сам -
+                // не сдаём его ради чужого заказа. Берём только когда руки свободны.
+            } else {
+                if (held != null) Call.transferInventory(player, fetchCore) // Holding something unwanted here - drop it off first, fetch next round
+                else Call.requestItem(player, fetchCore, fetchItem, Int.MAX_VALUE)
+                markActionTaken()
+                justTransferred = true
+            }
             item = null
         }
         // Nothing to do this round: no `timer = delay` reset needed anymore - update() is gated purely by
@@ -364,8 +435,9 @@ class AutoTransfer {
 
         return when (val cons = build.block.findConsumer<Consume> { (it is ConsumeItems || it is ConsumeItemFilter || it is ConsumeItemDynamic) && it !is ConsumeItemExplode } ?: build.block.findConsumer { it is ConsumeItems || it is ConsumeItemFilter || it is ConsumeItemDynamic }) {
             is ConsumeItems -> {
-                if (cons.booster) null // Don't boost menders, projectors or overdrives
-                else cons.items.firstOrNull { i -> build.acceptStack(i.item, build.getMaximumAccepted(i.item), player.unit()) >= minTransfer && hasMinItems(i.item, max(i.amount, minItems)) }?.item
+                // Бустеры (фаза в проектор, кремний в хилку...) заправляем как и остальное: раньше тут стояло
+                // «if (cons.booster) null», из-за чего автофил не грузил блоки, работающие и без ресурса
+                cons.items.firstOrNull { i -> build.acceptStack(i.item, build.getMaximumAccepted(i.item), player.unit()) >= minTransfer && hasMinItems(i.item, max(i.amount, minItems)) }?.item
             }
             is ConsumeItemFilter -> {
                 if (build.block is ItemTurret) {
@@ -526,11 +598,10 @@ class AutoTransfer {
         return loadables
     }
 
-    /** Whether depositing the player's currently-held item into [build] is safe (no self-destructing explosives, no feeding boosters). */
+    /** Whether depositing the player's currently-held item into [build] is safe (no self-destructing explosives). Бустеры кормим - см. [pickFetchItem]. */
     private fun canDeposit(build: Building): Boolean {
         val heldItem = player.unit().item() ?: return false
-        return !(heldItem == Items.blastCompound && build.block.findConsumer<ConsumeItems> { it is ConsumeItemExplode } != null // Don't explode things
-            || build.block.findConsumer<ConsumeItems> { it.booster && it is ConsumeItems && it.items.any { it.item == heldItem } } != null) // Don't provide boosters
+        return !(heldItem == Items.blastCompound && build.block.findConsumer<ConsumeItems> { it is ConsumeItemExplode } != null) // Don't explode things
     }
 
     /** Attempts to make a deposit. Returns the remaining [held] value. */
@@ -550,7 +621,6 @@ class AutoTransfer {
         when (val cons = build.block.findConsumer<Consume> { (it is ConsumeItems || it is ConsumeItemFilter || it is ConsumeItemDynamic) && it !is ConsumeItemExplode } ?: build.block.findConsumer { it is ConsumeItems || it is ConsumeItemFilter || it is ConsumeItemDynamic }) { // Cursed af
             is ConsumeItems -> {
                 cons.items.forEach { i ->
-                    if (cons.booster) return@forEach // Don't boost menders, projectors or overdrives
                     val acceptedC = build.acceptStack(i.item, build.getMaximumAccepted(i.item), player.unit())
                     if (acceptedC >= minTransfer && hasMinItems(i.item, max(i.amount, minItems))) {
                         counts[i.item.id.toInt()] += acceptedC

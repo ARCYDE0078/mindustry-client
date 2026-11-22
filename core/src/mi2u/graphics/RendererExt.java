@@ -735,21 +735,27 @@ public class RendererExt{
 
     public static void drawOverDriver(OverdriveProjector.OverdriveBuild odb){
         OverdriveProjector block = (OverdriveProjector)odb.block;
+        //displayRange: у выключенного процессором проектора с фазой phaseHeat падает к нулю, но радиус остаётся с фазой
+        float range = odb.displayRange();
         Draw.color(block.baseColor, block.phaseColor, odb.phaseHeat);
         Draw.mixcol(Color.black, 1f - odb.efficiency);
         Draw.z(91.1f);
         Draw.alpha(animatedshields?1f:0.1f);
-        Fill.poly(odb.x, odb.y, (int)(block.range + odb.phaseHeat * block.phaseRangeBoost) / 4, block.range + odb.phaseHeat * block.phaseRangeBoost);
+        Fill.poly(odb.x, odb.y, (int)range / 4, range);
 
         Lines.stroke(2f);
         Draw.alpha(1f);
-        Lines.circle(odb.x, odb.y, block.range + odb.phaseHeat * block.phaseRangeBoost);
+        Lines.circle(odb.x, odb.y, range);
 
-        //второй радиус - с фазой: пока фаза не подана, тонкое кольцо показывает, докуда зона вырастет. Запитанному фазой
-        //проектору кольцо без фазы не нужно, а действующий радиус выше и есть радиус с фазой - лишнего не рисуем
+        //второй радиус - с фазой: пока фазы нет, тонкое кольцо показывает, докуда зона вырастет. Запитанному фазой
+        //проектору кольцо без фазы не нужно, а действующий радиус выше и есть радиус с фазой - лишнего не рисуем.
+        //Кольцо рисуем ВНЕ окна шейдера (91.1 +- 0.02): шейдер обводит альфу-области на 2 px и перекрашивает
+        //внутренность, и одиночная тонкая линия превращалась в полосу шириной с полблока, то есть в «третий радиус»
         if(block.hasPhaseRange() && !odb.phasePowered()){
+            Draw.mixcol(Color.black, 0f);
+            Draw.z(91.15f);
             Lines.stroke(1.5f);
-            Draw.alpha(0.5f);
+            Draw.color(block.phaseColor, 0.6f);
             Lines.circle(odb.x, odb.y, block.range + block.phaseRangeBoost);
         }
     }

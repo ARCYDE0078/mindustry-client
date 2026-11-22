@@ -275,7 +275,7 @@ public class UnitNotifyFeature implements Feature{
     void takeItemForSelectedTurret(){
         if(!SafeSettings.getBool("unotify-TakeItemForSelectedTurret", false) || !ammoTimer.canInteract()) return;
         //подчиняется автофиллу: выключили автофилл (или запретили ему брать из ядра) - тут тоже ничего не берётся
-        if(!mindustry.client.utils.AutoTransfer.enabled || !mindustry.client.utils.AutoTransfer.fromCores) return;
+        if(!mindustry.client.utils.AutoTransfer.getEnabled() || !mindustry.client.utils.AutoTransfer.fromCores) return;
         //правило карты «разрешён перенос только в ядро»: в турель всё равно ничего не положить, значит и брать ресурс из ядра незачем
         //(автофилл сам гасится этим правилом при загрузке мира, но тут проверяем явно - правило может прилететь посреди игры)
         if(state.rules.onlyDepositCore) return;

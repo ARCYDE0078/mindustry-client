@@ -46,7 +46,7 @@ class MinePath @JvmOverloads constructor(
             player.sendMessage(Core.bundle.format("client.path.miner.toidle", items.joinToString(), player.closestCore()?.storageCapacity ?: "-∞"))
         }
 
-        addListener { AutoTransfer.enabled = Core.settings.getBool("autotransfer") && !(state.rules.pvp && Server.io()) && !state.rules.onlyDepositCore } // Re-enable autoTransfer if we turned it off during the path
+        addListener { AutoTransfer.suspended = false } // Re-enable autoTransfer if we turned it off during the path
     }
 
     companion object {
@@ -64,7 +64,7 @@ class MinePath @JvmOverloads constructor(
 
     override fun follow() {
         if (player.unit() == null) return
-        if (AutoTransfer.enabled) AutoTransfer.enabled = false // AutoTransfer doesn't play well with MinePath
+        AutoTransfer.suspended = true // AutoTransfer doesn't play well with MinePath
 
         val core = player.closestCore() ?: return
         val maxCap = if (cap <= 0) core.storageCapacity else core.storageCapacity.coerceAtMost(cap)

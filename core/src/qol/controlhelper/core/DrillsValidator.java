@@ -5,17 +5,20 @@ import arc.struct.ObjectIntMap;
 import arc.struct.ObjectSet;
 import arc.struct.Queue;
 import arc.struct.Seq;
+import arc.util.Time;
 import mindustry.entities.units.BuildPlan;
 import mindustry.game.EventType;
 import mindustry.content.Blocks;
 import mindustry.type.Item;
 import mindustry.content.Items;
+import mindustry.world.Block;
 import mindustry.world.Tile;
 import mindustry.world.blocks.production.Drill;
 import qol.core.SafeSettings;
 
 import java.util.function.BooleanSupplier;
 
+import static mindustry.Vars.control;
 import static mindustry.Vars.player;
 import static mindustry.Vars.state;
 
@@ -29,6 +32,16 @@ public class DrillsValidator{
     private final Queue<BuildPlan> newPlansTmp = new Queue<>();
     private final ObjectSet<BuildPlan> plansSetTmp = new ObjectSet<>();
 
+    /**
+     * Бур, который игрок САМ выбрал в меню строительства (или пипеткой по руде), и когда это в последний раз видели.
+     * Такой бур строится как есть, даже на 1 клетке руды при малой меди (sonka, 2026-11-22): фильтр нужен, чтобы не
+     * сыпались лишние планы от автоматики/схем, а не чтобы спорить с явным решением игрока. Окно {@link #MANUAL_GRACE_MS}
+     * нужно на случай, когда выбор снимается сразу после установки - план к проверке уже в очереди, а выбора уже нет.
+     */
+    private Block pickedDrill;
+    private long pickedDrillMs;
+    private static final long MANUAL_GRACE_MS = 1500;
+
     final BooleanSupplier masterEnabled;
 
     public DrillsValidator(BooleanSupplier masterEnabled){
@@ -37,6 +50,11 @@ public class DrillsValidator{
 
     public void Init(){
         Events.run(EventType.Trigger.update, () -> {
+            //слежение за выбранным буром - до ранних выходов ниже, оно нужно, даже когда проверять нечего
+            if(control != null && control.input != null && control.input.block instanceof Drill){
+                pickedDrill = control.input.block;
+                pickedDrillMs = Time.millis();
+            }
             if(!masterEnabled.getAsBoolean() || !IsEnabled() || !state.isGame() || player == null || player.unit() == null) return;
 
             Queue<BuildPlan> plans = player.unit().plans;
@@ -113,7 +131,7 @@ public class DrillsValidator{
         Queue<BuildPlan> kept = new Queue<>();
         Seq<Tile> temp = new Seq<>();
         for(BuildPlan plan : plans){
-            if(!plan.breaking && plan.block == Blocks.mechanicalDrill && plan.tile() != null){
+            if(!plan.breaking && plan.block == Blocks.mechanicalDrill && plan.tile() != null && !isManualPick(plan.block)){
                 Item item = GetDrillReturnItem((Drill)plan.block, plan.tile());
                 int count = 0;
                 if(item != null){
@@ -126,6 +144,11 @@ public class DrillsValidator{
             kept.add(plan);
         }
         return kept;
+    }
+
+    /** Этот блок игрок выбрал сам прямо сейчас (или только что, см. {@link #pickedDrill}). */
+    boolean isManualPick(Block block){
+        return block == pickedDrill && Time.timeSinceMillis(pickedDrillMs) < MANUAL_GRACE_MS;
     }
 
     public Item GetDrillReturnItem(Drill drill, Tile tile){

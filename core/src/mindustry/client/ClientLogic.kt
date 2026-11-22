@@ -68,7 +68,7 @@ class ClientLogic {
             app.post { syncing = false } // Run this next frame so that it can be used elsewhere safely
             lastJoinTime = Time.millis()
             if (!syncing) {
-                AutoTransfer.enabled = settings.getBool("autotransfer") && !(state.rules.pvp && Server.io()) && !state.rules.onlyDepositCore
+                AutoTransfer.blocked = (state.rules.pvp && Server.io()) || state.rules.onlyDepositCore // вето мира; сами настройки половин не трогаем
                 frozenPlans.clear()
                 app.post {
                 when (val vote = settings.getInt("automapvote")) {
@@ -76,17 +76,11 @@ class ClientLogic {
                     4 -> Server.current.mapVote(Random.nextInt(0..2))
                     }
                 }
-                hidingAirUnits = false
-                showingTurrets = false
-                showingAllyTurrets = false
-                showingInvTurrets = false
+                // тумблеры панели режимов (радиусы, скрытие юнитов/блоков...) больше не сбрасываем - они сохраняются, см. PersistentToggles
             }
             configs.clear()
             control.input.lastVirusWarning = null
             control.input.followGameEndPan = true
-            dispatchingBuildPlans = false
-            hidingBlocks = false
-            hidingUnits = false
             if (state.rules.pvp && !isDeveloper()) ui.announce("@client.nopvp", 5f)
             if (settings.getBool("forceallowschematics") && !state.rules.schematicsAllowed && !syncing) ui.announce("@client.schematicsdisabled", 5f)
             overdrives.clear()

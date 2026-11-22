@@ -14,6 +14,7 @@ import mindustry.graphics.Pal;
 import mindustry.type.Category;
 import mindustry.ui.dialogs.BaseDialog;
 import mindustry.world.Block;
+import mindustry.world.blocks.distribution.MassDriver;
 import mindustry.world.blocks.storage.CoreBlock;
 import mindustry.world.blocks.storage.StorageBlock;
 
@@ -132,8 +133,9 @@ public class SourceBlocksDialog{
 
         blocks.clear();
         content.blocks().each(block -> {
-            //cores are handled by the separate "From Cores" checkbox, not this list
-            if(block instanceof StorageBlock && !(block instanceof CoreBlock) && block.uiIcon != null && block.uiIcon.found()){
+            //cores are handled by the separate "From Cores" checkbox, not this list; катапульта (MassDriver) держит
+            //предметы и отдаёт их через requestItem, как склад - автофилл может брать и из неё
+            if((block instanceof StorageBlock || block instanceof MassDriver) && !(block instanceof CoreBlock) && block.uiIcon != null && block.uiIcon.found()){
                 blocks.add(block);
             }
         });

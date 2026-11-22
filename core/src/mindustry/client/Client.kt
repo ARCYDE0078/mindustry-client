@@ -45,6 +45,7 @@ object Client {
     fun initialize() {
         mainExecutor.execute(::setupCommands)
         AutoTransfer.init()
+        PersistentToggles.init()
         ClientLogic()
         Server // Force the init block to be run
         CustomMode // Force the init block to be run
@@ -190,7 +191,7 @@ object Client {
             overdrives.forEach { b ->
                 if (b.team != team) return@forEach
                 if (mi2u.graphics.RendererExt.enOverdriveZone && Core.settings.getBool(sonkaextras.TurretRanges.dedupeKey, true)) return@forEach // MI2U рисует его зону сам
-                val range = b.realRange()
+                val range = b.displayRange()
                 if (bounds.overlaps(b.x - range, b.y - range, range * 2, range * 2)) b.drawSelect()
             }
         }
