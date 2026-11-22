@@ -152,13 +152,13 @@ public class TurretDrainTest{
     // ------------------------------------------------------------------ планирование и отправка
 
     @Test
-    void groundUnitGetsPatrolPlanAndOrdersAreSent(){
+    void groundUnitGetsCyclePlanAndPlainMoveOrder(){
         Building t = turret(Blocks.duo, 60, 60, Items.copper);
         Unit u = unit(UnitTypes.dagger, 20, 60);
         TurretDrain.Member m = join(u);
         step();
 
-        assertEquals(1, m.mode, "патруль");
+        assertEquals(1, m.mode, "цикл захода/выхода");
         assertEquals(t.pos(), m.turret);
         float r = ((BaseTurretBuild)t).range() / tilesize;
         float pd = distTiles(m.px, m.py, t.x, t.y), qd = distTiles(m.qx, m.qy, t.x, t.y);
@@ -170,8 +170,8 @@ public class TurretDrainTest{
         assertNotNull(ai.targetPos, "цель движения выставлена");
         assertEquals(m.px, ai.targetPos.x, 0.5f);
         assertEquals(m.py, ai.targetPos.y, 0.5f);
-        assertEquals(1, ai.commandQueue.size, "точка выхода в очереди");
-        assertTrue(ai.hasStance(UnitStance.patrol), "включён патруль");
+        assertEquals(0, ai.commandQueue.size, "обычный приказ движения, без очереди");
+        assertFalse(ai.hasStance(UnitStance.patrol), "ванильный патруль не используется");
         assertFalse(ManualControl.markedSince(u.id, 0L), "собственные приказы режима не считаются ручными");
     }
 
@@ -252,9 +252,9 @@ public class TurretDrainTest{
         ((ItemTurretBuild)t).ammo.clear();
         ((ItemTurretBuild)t).totalAmmo = 0;
         step();
-        assertEquals(2, m.mode, "разряжено: уходим к точке выхода, а не курсируем по устаревшему маршруту");
+        assertEquals(2, m.mode, "разряжено: уходим к точке выхода, а не заходим по устаревшему маршруту");
         CommandAI ai = (CommandAI)u.controller();
-        assertFalse(ai.hasStance(UnitStance.patrol), "патруль снят");
+        assertFalse(ai.hasStance(UnitStance.patrol));
         assertEquals(m.qx, ai.targetPos.x, 0.5f);
         assertEquals(m.qy, ai.targetPos.y, 0.5f);
     }
@@ -293,10 +293,22 @@ public class TurretDrainTest{
         long sent = m.sentAt;
         CommandAI ai = (CommandAI)u.controller();
         ai.clearCommands(); //приказ потерялся
-        ai.setStance(UnitStance.patrol, false);
         step();
-        assertTrue(m.sentAt > sent, "потеря обнаружена, план отправлен заново");
-        assertTrue(ai.hasStance(UnitStance.patrol));
+        assertTrue(m.sentAt > sent, "потеря обнаружена, приказ отправлен заново");
+        assertNotNull(ai.targetPos);
+        assertEquals(m.px, ai.targetPos.x, 0.5f);
+        assertEquals(m.py, ai.targetPos.y, 0.5f);
+    }
+
+    @Test
+    void patrolStanceOfAUnitIsSwitchedOff(){
+        turret(Blocks.duo, 60, 60, Items.copper);
+        Unit u = unit(UnitTypes.dagger, 20, 60);
+        CommandAI ai = (CommandAI)u.controller();
+        ai.setStance(UnitStance.patrol, true); //включён игрой/игроком: иначе CommandAI сам зациклил бы пройденные точки
+        join(u);
+        step();
+        assertFalse(ai.hasStance(UnitStance.patrol));
     }
 
     @Test
@@ -356,123 +368,176 @@ public class TurretDrainTest{
         assertEquals(0, m.mode, "подойти нельзя - юнита не гоняем впустую");
     }
 
-    // ------------------------------------------------------------------ живой патруль
+    // ------------------------------------------------------------------ живой цикл
 
-    /** Прогон настоящего CommandAI: после ОДНОЙ отправки юнит сам курсирует P-Q (заходит в зону и выходит), новых пакетов нет. */
-    @Test
-    void airUnitPatrolsInAndOutOfZoneWithoutFurtherOrders(){
-        Building t = turret(Blocks.duo, 60, 60, Items.copper);
-        Unit u = unit(UnitTypes.flare, 20, 60);
-        TurretDrain.Member m = join(u);
-        step();
-        assertEquals(1, m.mode);
-        long sent = m.sentAt;
-        float r = ((BaseTurretBuild)t).range();
-
-        int crossings = 0;
-        boolean inside = false;
+    /** Результат прогона цикла юнита: входы в зону и выходы из неё, в тиках. */
+    static final class Run{
+        final Seq<Integer> entries = new Seq<>(), exits = new Seq<>();
         float minD = Float.MAX_VALUE, maxD = 0f;
-        for(int tick = 0; tick < 3000; tick++){
+        int maxQueue = 0;
+        boolean patrolSeen = false;
+    }
+
+    /** Прогон настоящего CommandAI с покадровым tick() режима: клиент ведёт цикл обычными приказами. */
+    Run simulate(Unit u, Building t, int ticks){
+        float r = ((BaseTurretBuild)t).range();
+        CommandAI ai = (CommandAI)u.controller();
+        Run run = new Run();
+        boolean inside = false;
+        for(int tick = 0; tick < ticks; tick++){
             Time.update();
+            clock += 17;
+            TurretDrain.tick(clock);
             u.update();
             float d = Mathf.dst(u.x, u.y, t.x, t.y);
-            minD = Math.min(minD, d);
-            if(tick > 60) maxD = Math.max(maxD, d);
+            run.minD = Math.min(run.minD, d);
+            if(tick > 60) run.maxD = Math.max(run.maxD, d);
             boolean now = d < r;
-            if(tick > 0 && now != inside) crossings++;
+            if(tick > 0 && now && !inside) run.entries.add(tick);
+            if(tick > 0 && !now && inside) run.exits.add(tick);
             inside = now;
+            run.maxQueue = Math.max(run.maxQueue, ai.commandQueue.size);
+            run.patrolSeen |= ai.hasStance(UnitStance.patrol);
         }
-        assertEquals(sent, m.sentAt, "клиент ничего не переотправлял");
-        assertTrue(minD < r, "юнит заходил в зону: min=" + minD + " r=" + r);
-        assertTrue(maxD > r, "и выходил из неё: max=" + maxD + " r=" + r);
-        assertTrue(crossings >= 6, "курсирует циклически (3+ захода): пересечений границы " + crossings);
-        assertTrue(((CommandAI)u.controller()).hasStance(UnitStance.patrol));
+        return run;
+    }
+
+    void assertCycles(Run run, Building t){
+        float r = ((BaseTurretBuild)t).range();
+        assertTrue(run.minD < r, "юнит заходил в зону: min=" + run.minD + " r=" + r);
+        assertTrue(run.maxD > r, "и выходил из неё: max=" + run.maxD + " r=" + r);
+        assertTrue(run.entries.size >= 3, "циклически (3+ захода): заходов " + run.entries.size);
+        assertEquals(0, run.maxQueue, "очередь приказов не используется");
+        assertFalse(run.patrolSeen, "ванильный патруль не включался");
     }
 
     @Test
-    void groundUnitPatrolsInAndOutOfZoneWithoutFurtherOrders(){
+    void airUnitCyclesInAndOutOfZoneWithPlainMoves(){
+        Building t = turret(Blocks.duo, 60, 60, Items.copper);
+        Unit u = unit(UnitTypes.flare, 20, 60);
+        join(u);
+        step();
+        assertCycles(simulate(u, t, 3000), t);
+    }
+
+    @Test
+    void groundUnitCyclesInAndOutOfZoneWithPlainMoves(){
         Building t = turret(Blocks.duo, 60, 60, Items.copper);
         Unit u = unit(UnitTypes.dagger, 20, 60);
-        TurretDrain.Member m = join(u);
+        join(u);
         step();
-        assertEquals(1, m.mode);
-        long sent = m.sentAt;
-        float r = ((BaseTurretBuild)t).range();
-
-        int crossings = 0;
-        boolean inside = false;
-        float minD = Float.MAX_VALUE, maxD = 0f;
-        for(int tick = 0; tick < 3000; tick++){
-            Time.update();
-            u.update();
-            float d = Mathf.dst(u.x, u.y, t.x, t.y);
-            minD = Math.min(minD, d);
-            if(tick > 60) maxD = Math.max(maxD, d);
-            boolean now = d < r;
-            if(tick > 0 && now != inside) crossings++;
-            inside = now;
-        }
-        assertEquals(sent, m.sentAt, "клиент ничего не переотправлял");
-        assertTrue(minD < r, "юнит заходил в зону: min=" + minD + " r=" + r);
-        assertTrue(maxD > r, "и выходил из неё: max=" + maxD + " r=" + r);
-        assertTrue(crossings >= 6, "курсирует циклически (3+ захода): пересечений границы " + crossings);
-        assertTrue(((CommandAI)u.controller()).hasStance(UnitStance.patrol));
+        assertCycles(simulate(u, t, 4000), t);
     }
 
     // ------------------------------------------------------------------ пауза после отхода
 
     @Test
-    void fastUnitGetsWaitLegSlowOneDoesNot(){
-        Building scatter = turret(Blocks.scatter, 60, 60, Items.scrap);   //воздух, снаряд летит заметное время
-        Unit flare = unit(UnitTypes.flare, 20, 60);
-        TurretDrain.Member fast = join(flare);
-        step();
-        assertEquals(1, fast.mode);
-        assertTrue(fast.hasQ2, "быстрому юниту добавлена точка ожидания");
-        float qd = Mathf.dst(fast.qx, fast.qy, scatter.x, scatter.y), q2d = Mathf.dst(fast.q2x, fast.q2y, scatter.x, scatter.y);
-        assertTrue(q2d > qd + 3f, "ожидание дальше точки выхода: " + q2d + " > " + qd);
-        CommandAI ai = (CommandAI)flare.controller();
-        assertEquals(2, ai.commandQueue.size, "в очереди выход и ожидание");
-
-        TurretDrain.resetForTest();
-        Building hail = turret(Blocks.hail, 60, 90, Items.graphite);      //земля, но юнит медленный: круг и так долгий
-        Unit dagger = unit(UnitTypes.dagger, 20, 90);
-        TurretDrain.Member slow = join(dagger);
-        step();
-        assertEquals(1, slow.mode);
-        assertFalse(slow.hasQ2, "медленному юниту хватает обычного круга");
-        assertEquals(1, ((CommandAI)dagger.controller()).commandQueue.size);
-    }
-
-    @Test
-    void airUnitStaysAwayAtLeastBulletFlightTime(){
+    void airUnitWaitsOutsideForBulletFlight(){
         Building t = turret(Blocks.scatter, 60, 60, Items.scrap);
         Unit u = unit(UnitTypes.flare, 20, 60);
         TurretDrain.Member m = join(u);
         step();
-        assertTrue(m.hasQ2);
         float r = ((BaseTurretBuild)t).range();
         var bt = ((ItemTurretBuild)t).peekAmmo();
         float flight = Math.min(r / bt.speed, bt.scaleLife ? Float.MAX_VALUE : bt.lifetime);
+        assertEquals(flight, m.flight, 0.5f, "время полёта снаряда взято у турели");
 
-        //без ожидания один круг P-Q-P занял бы столько тиков - и это МЕНЬШЕ времени полёта: тест иначе ничего не проверяет
-        float plainLoop = 2f * Mathf.dst(m.px, m.py, m.qx, m.qy) / u.type.speed;
-        assertTrue(plainLoop < flight, "без паузы круг короче полёта снаряда: " + plainLoop + " < " + flight);
+        //без паузы юнит вернулся бы, едва выйдя (путь до Q и обратно ~ 2*24 px) - это короче полёта, иначе тест ничего не доказывает
+        float plainOutside = 2f * 24f / u.type.speed;
+        assertTrue(plainOutside < flight, "без паузы вне зоны быстрее полёта снаряда: " + plainOutside + " < " + flight);
 
-        Seq<Integer> entries = new Seq<>();
-        boolean inside = false;
-        for(int tick = 0; tick < 4000; tick++){
-            Time.update();
-            u.update();
-            boolean now = Mathf.dst(u.x, u.y, t.x, t.y) < r;
-            if(now && !inside) entries.add(tick);
-            inside = now;
+        Run run = simulate(u, t, 4000);
+        assertCycles(run, t);
+        int checked = 0;
+        for(int i = 1; i < run.entries.size; i++){
+            //выход, после которого был этот заход
+            int exit = -1;
+            for(int ex : run.exits) if(ex < run.entries.get(i) && ex > run.entries.get(i - 1)) exit = ex;
+            if(exit < 0) continue;
+            int outside = run.entries.get(i) - exit;
+            assertTrue(outside >= flight, "вне зоны " + outside + " тиков, снаряд летит " + flight);
+            checked++;
         }
-        assertTrue(entries.size >= 4, "заходов: " + entries.size);
-        for(int i = 2; i < entries.size; i++){ //первый заход и разгон не считаем
-            int period = entries.get(i) - entries.get(i - 1);
-            assertTrue(period >= flight, "между заходами " + period + " тиков, снаряд летит " + flight);
-        }
+        assertTrue(checked >= 2, "проверено кругов: " + checked);
+    }
+
+    @Test
+    void noFlightTimeMeansNoWait(){
+        //луч/мгновенный снаряд (flight = 0): после выхода юнит ждёт только запас
+        Building t = turret(Blocks.duo, 60, 60, Items.copper);
+        Unit u = unit(UnitTypes.flare, 20, 60);
+        TurretDrain.Member m = join(u);
+        step();
+        m.flight = 0f;
+        Run run = simulate(u, t, 3000);
+        assertCycles(run, t);
+    }
+
+    // ------------------------------------------------------------------ состав отряда
+
+    @Test
+    void toggleTakesOnlyCurrentSelectionAndLaterOnesDoNotJoin(){
+        Unit a = unit(UnitTypes.dagger, 20, 60);
+        Unit b = unit(UnitTypes.dagger, 20, 62);
+        TurretDrain.testSelection = Seq.with(a);
+        assertTrue(TurretDrain.toggle(), "включилось");
+        assertTrue(TurretDrain.enabled());
+        assertNotNull(TurretDrain.member(a.id));
+
+        TurretDrain.testSelection = Seq.with(a, b); //игрок выделил ещё одного
+        for(int i = 0; i < 40; i++) TurretDrain.update();
+        assertNull(TurretDrain.member(b.id), "новый выделенный в отряд не берётся");
+        assertNotNull(TurretDrain.member(a.id));
+        assertTrue(TurretDrain.enabled());
+    }
+
+    @Test
+    void toggleWithoutSelectionStaysOff(){
+        TurretDrain.testSelection = new Seq<>();
+        assertFalse(TurretDrain.toggle());
+        assertFalse(TurretDrain.enabled());
+    }
+
+    @Test
+    void toggleOffAndOnTakesNewSelection(){
+        Unit a = unit(UnitTypes.dagger, 20, 60);
+        Unit b = unit(UnitTypes.dagger, 20, 62);
+        TurretDrain.testSelection = Seq.with(a);
+        TurretDrain.toggle();
+        TurretDrain.toggle();
+        assertFalse(TurretDrain.enabled());
+        TurretDrain.testSelection = Seq.with(b);
+        assertTrue(TurretDrain.toggle());
+        assertNull(TurretDrain.member(a.id));
+        assertNotNull(TurretDrain.member(b.id));
+    }
+
+    @Test
+    void modeSwitchesOffWhenSquadIsGone(){
+        Unit a = unit(UnitTypes.dagger, 20, 60);
+        TurretDrain.testSelection = Seq.with(a);
+        assertTrue(TurretDrain.toggle());
+        a.kill();
+        a.update();
+        a.remove();
+        Groups.unit.update();
+        for(int i = 0; i < 40; i++) TurretDrain.update();
+        assertFalse(TurretDrain.enabled(), "отряда нет - режим выключился сам");
+    }
+
+    @Test
+    void manualOrderDropsUnitForGood() throws Exception{
+        Unit a = unit(UnitTypes.dagger, 20, 60);
+        Unit b = unit(UnitTypes.dagger, 20, 62);
+        TurretDrain.testSelection = Seq.with(a, b);
+        TurretDrain.toggle();
+        Thread.sleep(5); //метка ручного приказа строго позже включения (в живой игре они разнесены сильно больше)
+        ManualControl.mark(new int[]{a.id}); //игрок дал приказ сам
+        for(int i = 0; i < 40; i++) TurretDrain.update();
+        assertNull(TurretDrain.member(a.id), "ушёл из отряда");
+        assertNotNull(TurretDrain.member(b.id));
+        for(int i = 0; i < 40; i++) TurretDrain.update();
+        assertNull(TurretDrain.member(a.id), "и обратно не вернулся, хотя всё ещё выбран");
     }
 
     // ------------------------------------------------------------------ лечение
@@ -493,7 +558,7 @@ public class TurretDrainTest{
         assertEquals(rp.pos(), m.repairPos);
         assertEquals(2, m.mode);
         assertTrue(Mathf.dst(m.px, m.py, rp.x, rp.y) < 6f * tilesize, "точка лечения у ремонтного пункта");
-        assertFalse(((CommandAI)u.controller()).hasStance(UnitStance.patrol), "на время лечения патруль снят");
+        assertFalse(((CommandAI)u.controller()).hasStance(UnitStance.patrol));
 
         u.health = u.maxHealth;
         step();

@@ -7,7 +7,6 @@ import arc.math.Mathf;
 import arc.math.geom.Vec2;
 import arc.struct.IntMap;
 import arc.struct.IntSeq;
-import arc.struct.IntSet;
 import arc.struct.Seq;
 import arc.util.Time;
 import mindustry.ai.UnitStance;
@@ -34,36 +33,34 @@ import static mindustry.Vars.*;
 
 /**
  * Режим «разряжать турели»: выбранные юниты расходятся по вражеской линии обороны, каждый подлетает к своей
- * турели, на миг заходит в зону её поражения (турель тратит боезапас на выстрелы по нему) и сразу уходит назад;
- * цикл повторяется, пока турель не опустеет.
+ * турели, на миг заходит в зону её поражения (турель тратит боезапас на выстрелы по нему), уходит назад и пережидает,
+ * пока выпущенный снаряд долетит; цикл повторяется, пока турель не опустеет.
  * <p>
  * <b>Почему клиентский режим, а не настоящая UnitCommand.</b> Новая команда в контенте игры сдвинула бы id контента
  * и сломала совместимость с ванильными серверами, а клиенту, по сути, нужна только раздача обычных приказов. Поэтому
  * режим живёт на клиенте (как {@link AntiSplash}) и общается с сервером ванильными RPC.
  * <p>
- * <b>Зацикливание ванильным патрулём.</b> Каждому юниту отправляется пара точек: «вход» P (чуть внутри зоны турели) и
- * «выход» Q (за её радиусом). Первая идёт обычным приказом, вторая - в очередь, затем включается stance
- * {@link UnitStance#patrol}: по прибытии CommandAI сам кладёт пройденную точку в конец очереди, так что юнит курсирует
- * P-Q бесконечно без единого дальнейшего пакета (клиент шлёт только при смене плана).
- * <p>
- * <b>Пауза после отхода.</b> Снаряд, выпущенный по юниту в момент захода, ещё летит, когда юнит уже вышел из зоны;
- * вернись он сразу - попал бы под тот же залп. Ванильный патруль паузы не умеет, поэтому круг удлиняется: в очередь
- * кладётся третья точка Q2 дальше по тому же лучу (P - Q - Q2 - обратно), и полный круг занимает не меньше времени
- * полёта снаряда ({@link Zone#flight}) плюс {@link #WAIT_MARGIN}. Быстрые юниты уходят дальше, медленным круга и так хватает.
+ * <b>Обычные приказы движения, не патруль.</b> Ванильный патруль ({@link UnitStance#patrol}) разворачивает юнита сразу
+ * в точке и ждать не умеет, поэтому цикл ведёт сам клиент: у каждого юнита три фазы - IN (идёт к точке входа P чуть
+ * внутри зоны турели), OUT (по прибытии - приказ к точке выхода Q за радиусом), WAIT (стоит у Q, пока с момента отхода
+ * не пройдёт время полёта снаряда {@link Zone#flight} плюс {@link #WAIT_MARGIN}), затем снова IN. Это по одному
+ * обычному приказу {@code commandUnits} на смену фазы; прибытие определяется по позиции юнита, а не по эху сервера.
+ * Если у юнита был включён патруль, он снимается: иначе CommandAI сам зациклил бы пройденные точки.
  * <p>
  * <b>Перепланирование.</b> Каждые {@link #SCAN_TICKS} тиков считается «подпись» обстановки (какие турели опасны, какие
  * ещё заряжены, кто в отряде). Изменилась (турель разрядилась/уничтожена, враг поставил новую) - план пересчитывается
  * целиком, а юнитам отправляются только изменившиеся приказы. Воздух и земля считаются отдельно: турель опасна для
  * категории, только если умеет по ней стрелять ({@code targetAir}/{@code targetGround}).
  * <p>
- * <b>Состав отряда.</b> Юниты входят в отряд, когда выбраны при включённом режиме; выходят при ручном приказе
- * ({@link ManualControl}) и снова входят только после снятия/нового выбора. Выключение режима снимает патруль и
- * останавливает отряд.
+ * <b>Состав отряда.</b> Отряд фиксируется в момент включения режима: в него попадают ТОЛЬКО юниты, выбранные в эту
+ * секунду. Выбранные позже (при уже включённом режиме) не подключаются; чтобы добавить их, режим выключают и включают
+ * снова. Юнит выходит из отряда насовсем при ручном приказе ({@link ManualControl}) или гибели; когда отряд опустел,
+ * режим выключается сам. Выключение режима останавливает отряд.
  * <p>
  * Ограничения (честно): ходьба наземных юнитов проверяется только по проходимости точек входа/выхода, а не полным
- * путём; патруль CommandAI останавливается, когда юнит видит цель в {@code range - 2} (юниты с большей дальностью, чем
- * у турели, встанут и начнут её расстреливать сами); «заряжена ли турель» берётся из синхронизированного
- * {@code hasAmmo()}; энергетические турели не разряжаются (боезапаса нет), но учитываются как опасные зоны.
+ * путём; обычный приказ движения не мешает юниту стрелять, но юнит с дальностью больше турельной может начать
+ * расстреливать её сам; «заряжена ли турель» берётся из синхронизированного {@code hasAmmo()}; энергетические турели
+ * не разряжаются (боезапаса нет), но учитываются как опасные зоны.
  * <p>
  * Настройки (секция Sonka Extras): {@link #repairKey} - лечить сильно побитых у ближайшей ремонтной башни и
  * возвращать в строй; {@link #cyclone29Key} - для этой команды считать радиус циклона не меньше 29 блоков
@@ -78,15 +75,24 @@ public final class TurretDrain{
     private static final long REPLAN_MIN_MS = 1000L;
     /** Сколько ждать после отправки, прежде чем считать, что приказ потерян, и слать заново. */
     private static final long RESEND_GRACE_MS = 3000L;
-    /** Сколько юнитов обслуживать за тик (по 2-3 пакета на юнита; не упираемся в антиспам сервера). */
+    /** Сколько приказов уходит за тик (смены фаз у большого отряда могут совпасть; не упираемся в антиспам сервера). */
     private static final int PER_TICK = 20;
 
     /** Глубина захода в зону = скорость * это (чтобы турель успела выбрать цель: у неё интервал поиска 20 тиков), в пределах [MIN, MAX]. */
     private static final float DIP_PER_SPEED = 18f, DIP_MIN = 8f, DIP_MAX = 48f;
     /** Насколько точка выхода дальше радиуса поражения (с запасом на неточность прибытия). */
     private static final float RETREAT = 24f;
-    /** Запас к времени полёта снаряда (тиков) и предел удлинения пути в одну сторону (px); короче {@link #WAIT_MIN_EXTRA} не стоит. */
-    private static final float WAIT_MARGIN = 20f, WAIT_MAX_EXTRA = 160f, WAIT_MIN_EXTRA = 4f;
+    /**
+     * Запас к времени полёта снаряда (тиков): турель может выстрелить и в те тики, пока юнит ещё выходит из зоны.
+     * Ожидание отсчитывается от прибытия в точку входа.
+     */
+    private static final float WAIT_MARGIN = 20f;
+    /** Заход считается состоявшимся на эту долю глубины P (юнит гасит скорость не мгновенно, а ждать точного попадания не нужно). */
+    private static final float DIP_REACHED = 0.75f;
+    /** Выход считается состоявшимся, когда юнит дальше границы собственной зоны турели на столько (px) или у Q ближе 10 px. */
+    private static final float OUT_REACHED = 18f;
+    /** Юнит не приближается к цели фазы дольше этого (тиков) - фаза пропускается (застрял, цель недостижима). */
+    private static final float STUCK_TICKS = 240f;
     /** Шаг перебора направлений захода вокруг турели и максимум перебора (до разворота на 180). */
     private static final float ANGLE_STEP = 15f, SPREAD_STEP = 12f;
 
@@ -95,39 +101,56 @@ public final class TurretDrain{
     /** Лечение не дало результата за это время - бросаем и не пробуем {@link #REPAIR_BAN_MS}. */
     private static final long REPAIR_TIMEOUT_MS = 45_000L, REPAIR_BAN_MS = 60_000L;
 
-    private static final int MODE_NONE = 0, MODE_PATROL = 1, MODE_MOVE = 2;
+    private static final int MODE_NONE = 0, MODE_CYCLE = 1, MODE_MOVE = 2;
+    private static final int PH_IN = 0, PH_OUT = 1, PH_WAIT = 2;
 
     private static boolean active, wasActive;
     private static float timer;
 
     private static final IntMap<Member> squad = new IntMap<>();
-    /** Выбранные юниты, ушедшие из отряда по ручному приказу: не берём обратно, пока их не снимут с выделения. */
-    private static final IntSet ignored = new IntSet();
-    private static final IntSet selectedNow = new IntSet();
+    /** Очередь приказов на отправку (сглаживает всплески смены фаз). */
+    private static final Seq<Order> outbox = new Seq<>();
+    /** Для теста: подменяет выделение игрока. */
+    static Seq<Unit> testSelection;
 
     @SuppressWarnings("unchecked")
     private static final Seq<Zone>[] zones = new Seq[]{new Seq<Zone>(), new Seq<Zone>()};
     private static final long[] lastSig = new long[2], lastReplan = new long[2];
     private static final Seq<Unit> catUnits = new Seq<>();
     private static final Seq<Zone> targets = new Seq<>();
-    private static final IntSeq tmpIds = new IntSeq(), patrolOn = new IntSeq(), patrolOff = new IntSeq();
+    private static final IntSeq tmpIds = new IntSeq(), patrolOff = new IntSeq();
 
     private TurretDrain(){
+    }
+
+    /** Приказ «идти в точку» из очереди отправки. */
+    private static final class Order{
+        final int id;
+        final float x, y;
+
+        Order(int id, float x, float y){
+            this.id = id;
+            this.x = x;
+            this.y = y;
+        }
     }
 
     /** Состояние одного юнита отряда. */
     static final class Member{
         final long joinedAt = Time.millis();
-        /** План: MODE_NONE - ничего не делаем, PATROL - курсируем P-Q вокруг turret, MOVE - стоим в точке P (лечение/отход). */
+        /** План: MODE_NONE - ничего не делаем, CYCLE - ходим фазами IN/OUT/WAIT вокруг turret, MOVE - стоим в точке P (лечение/отход). */
         int mode = MODE_NONE;
         int turret = -1;
+        /** Точка входа P (она же цель режима MOVE) и точка выхода Q. */
         float px, py, qx, qy;
-        /** Точка «подождать, пока долетит снаряд» дальше Q по тому же лучу; hasQ2 - нужна ли она. */
-        float q2x, q2y;
-        boolean hasQ2;
+        /** Турель цикла: центр, эффективный радиус зоны, глубина захода и время полёта её снаряда (тиков). */
+        float zx, zy, zr, dip, flight;
+        /** Фаза цикла и её признаки: когда юнит прибыл к P и пошёл на выход (Time.time), прогресс подхода к цели фазы. */
+        int phase = PH_IN;
+        float leftAt, bestDist, progressAt;
         /** План пересчитан под текущую подпись обстановки. */
         boolean evaluated;
-        /** План надо (пере)отправить; sentAt - когда последний раз отправляли (0 = ещё не отправляли). */
+        /** Приказ текущей фазы надо (пере)отправить; sentAt - когда последний раз отправляли (0 = ещё не отправляли). */
         boolean needSend;
         long sentAt;
         /** Лечение. */
@@ -135,6 +158,12 @@ public final class TurretDrain{
         int repairPos = -1;
         long repairSince, repairBanUntil;
         float repairStartHp;
+
+        void beginPhase(int ph){
+            phase = ph;
+            bestDist = Float.MAX_VALUE;
+            progressAt = Time.time;
+        }
     }
 
     /** Опасная для категории турель. */
@@ -157,23 +186,38 @@ public final class TurretDrain{
         return active;
     }
 
-    /** Кнопка в панели команд. Режим не сохраняется между запусками: иначе выбранные юниты сами уходили бы в бой. */
+    /**
+     * Кнопка в панели команд. Включение берёт в отряд тех, кто выбран СЕЙЧАС; выбранные позже не подключаются (чтобы
+     * добавить - выключить и включить снова). Режим не сохраняется между запусками: иначе выбранные юниты сами уходили бы в бой.
+     */
     public static boolean toggle(){
-        active = !active;
+        if(active){
+            active = false;
+            if(ui != null) ui.showInfoFade(Core.bundle.get("client.sonka.turretdrain.off"));
+            return false;
+        }
+        if(player == null || !state.isGame()) return false;
+
+        int n = capture();
+        if(n == 0){
+            if(ui != null) ui.showInfoFade(Core.bundle.get("client.sonka.turretdrain.nounits"));
+            return false;
+        }
+        active = true;
         timer = SCAN_TICKS;
-        if(ui != null) ui.showInfoFade(Core.bundle.get(active ? "client.sonka.turretdrain.on" : "client.sonka.turretdrain.off"));
-        return active;
+        if(ui != null) ui.showInfoFade(Core.bundle.format("client.sonka.turretdrain.on", n));
+        return true;
     }
 
     private static void reset(){
         active = wasActive = false;
         squad.clear();
-        ignored.clear();
+        outbox.clear();
         lastSig[0] = lastSig[1] = 0;
         lastReplan[0] = lastReplan[1] = 0;
     }
 
-    private static void update(){
+    static void update(){
         if(!state.isGame() || player == null){
             if(active || wasActive) reset();
             return;
@@ -188,16 +232,24 @@ public final class TurretDrain{
         }
         wasActive = true;
 
+        long now = Time.millis();
         timer += Time.delta;
-        if(timer < SCAN_TICKS) return;
-        timer = 0f;
-
-        syncSquad();
-        step(Time.millis());
+        if(timer >= SCAN_TICKS){
+            timer = 0f;
+            prune();
+            if(squad.isEmpty()){
+                //все погибли или взяты под ручное управление - режиму делать нечего
+                active = wasActive = false;
+                if(ui != null) ui.showInfoFade(Core.bundle.get("client.sonka.turretdrain.empty"));
+                return;
+            }
+            scan(now);
+        }
+        tick(now);
     }
 
-    /** Один проход планировщика по уже собранному отряду (вынесен из update, чтобы его можно было гонять в тесте без UI-выделения). */
-    static void step(long now){
+    /** Редкий проход планировщика по уже собранному отряду: обстановка, лечение, план, потерянные приказы. */
+    static void scan(long now){
         if(squad.isEmpty()) return;
 
         buildZones(Core.settings.getBool(cyclone29Key, false));
@@ -205,6 +257,19 @@ public final class TurretDrain{
         for(int c = 0; c < 2; c++) plan(c, now);
         checkLost(now);
         sendPending(now);
+    }
+
+    /** Покадровая часть: смена фаз цикла по положению юнитов и отправка накопившихся приказов. */
+    static void tick(long now){
+        if(squad.isEmpty()) return;
+        cycle(now);
+        drain(PER_TICK);
+    }
+
+    /** Для теста: scan + tick одним вызовом. */
+    static void step(long now){
+        scan(now);
+        tick(now);
     }
 
     /** Для теста: добавить юнита в отряд, минуя выделение. */
@@ -225,41 +290,44 @@ public final class TurretDrain{
     /** Для теста: полный сброс состояния режима. */
     static void resetForTest(){
         reset();
+        testSelection = null;
         timer = 0f;
     }
 
     // ---------------------------------------------------------------- состав отряда
 
-    private static void syncSquad(){
-        selectedNow.clear();
-        for(Unit u : control.input.selectedUnits){
+    private static Seq<Unit> selection(){
+        return testSelection != null ? testSelection : control.input.selectedUnits;
+    }
+
+    /** Новый отряд = выбранные сейчас юниты с CommandAI своей команды. */
+    private static int capture(){
+        squad.clear();
+        outbox.clear();
+        lastSig[0] = lastSig[1] = 0;
+        lastReplan[0] = lastReplan[1] = 0;
+        for(Unit u : selection()){
             if(u == null || !u.isValid() || u.team != player.team() || !(u.controller() instanceof CommandAI)) continue;
-            selectedNow.add(u.id);
-            if(squad.containsKey(u.id) || ignored.contains(u.id)) continue;
             squad.put(u.id, new Member());
         }
+        return squad.size;
+    }
 
-        //«ушедшие по ручному приказу» возвращаются в игру, как только их сняли с выделения
-        var it = ignored.iterator();
-        while(it.hasNext){
-            if(!selectedNow.contains(it.next())) it.remove();
-        }
-
+    /** Убирает из отряда погибших и тех, кому игрок дал ручной приказ (насовсем: обратно сами не возвращаются). */
+    private static void prune(){
         tmpIds.clear();
         for(var e : squad){
             Unit u = Groups.unit.getByID(e.key);
-            if(u == null || !u.isValid() || !(u.controller() instanceof CommandAI)){
+            if(u == null || !u.isValid() || !(u.controller() instanceof CommandAI) || ManualControl.markedSince(e.key, e.value.joinedAt)){
                 tmpIds.add(e.key);
-            }else if(ManualControl.markedSince(e.key, e.value.joinedAt)){
-                tmpIds.add(e.key);
-                if(selectedNow.contains(e.key)) ignored.add(e.key);
             }
         }
         for(int i = 0; i < tmpIds.size; i++) squad.remove(tmpIds.get(i));
     }
 
-    /** Выключение режима: снимаем патруль и останавливаем тех, кому что-то отправляли. */
+    /** Выключение режима: останавливаем тех, кому что-то отправляли (и снимаем патруль, если он был). */
     private static void release(){
+        outbox.clear();
         patrolOff.clear();
         tmpIds.clear();
         for(var e : squad){
@@ -272,7 +340,6 @@ public final class TurretDrain{
         if(patrolOff.size > 0) sendStance(patrolOff, UnitStance.patrol, false);
         if(tmpIds.size > 0) sendStance(tmpIds, UnitStance.stop, true);
         squad.clear();
-        ignored.clear();
         lastSig[0] = lastSig[1] = 0;
     }
 
@@ -368,7 +435,6 @@ public final class TurretDrain{
         //встаём внутри радиуса лечения, но не в центре башни (наземным она - стена)
         float k = d < 1f ? 0f : Math.min(d, radius * 0.5f) / d;
         m.mode = MODE_MOVE;
-        m.hasQ2 = false;
         m.px = rb.x + (u.x - rb.x) * k;
         m.py = rb.y + (u.y - rb.y) * k;
         m.repairPos = rb.pos();
@@ -482,38 +548,23 @@ public final class TurretDrain{
         }
         if(bestCost == Float.MAX_VALUE) return false;
 
-        //пауза: круг P-Q-Q2-P не короче времени полёта снаряда (+запас). Все три точки лежат примерно на одном луче,
-        //путь туда-обратно = 2 * (|PQ| + extra), поэтому extra = полкруга - |PQ|
-        float speed = Math.max(u.type.speed, 0.05f);
-        float extra = z.flight > 0f ? speed * (z.flight + WAIT_MARGIN) / 2f - Mathf.dst(bpx, bpy, bqx, bqy) : 0f;
-        extra = Math.min(extra, WAIT_MAX_EXTRA);
-        float dirx = bqx - z.x, diry = bqy - z.y, dl = Math.max(Mathf.len(dirx, diry), 0.001f);
-        dirx /= dl;
-        diry /= dl;
-        boolean hasQ2 = false;
-        float bq2x = bqx, bq2y = bqy;
-        for(int attempt = 0; attempt < 3 && extra >= WAIT_MIN_EXTRA; attempt++, extra /= 2f){
-            float cx = bqx + dirx * extra, cy = bqy + diry * extra;
-            if(!standable(u, cx, cy) || coveredBy(all, cx, cy, hs + 8f, null) > 0) continue;
-            hasQ2 = true;
-            bq2x = cx;
-            bq2y = cy;
-            break;
-        }
-
-        boolean same = m.mode == MODE_PATROL && m.turret == z.pos && m.sentAt != 0
-            && Mathf.dst(m.px, m.py, bpx, bpy) < 4f && Mathf.dst(m.qx, m.qy, bqx, bqy) < 4f
-            && m.hasQ2 == hasQ2 && (!hasQ2 || Mathf.dst(m.q2x, m.q2y, bq2x, bq2y) < 4f);
-        m.mode = MODE_PATROL;
+        boolean same = m.mode == MODE_CYCLE && m.turret == z.pos && m.sentAt != 0
+            && Mathf.dst(m.px, m.py, bpx, bpy) < 4f && Mathf.dst(m.qx, m.qy, bqx, bqy) < 4f;
+        m.mode = MODE_CYCLE;
         m.turret = z.pos;
         m.px = bpx;
         m.py = bpy;
         m.qx = bqx;
         m.qy = bqy;
-        m.hasQ2 = hasQ2;
-        m.q2x = bq2x;
-        m.q2y = bq2y;
-        if(!same) m.needSend = true;
+        m.zx = z.x;
+        m.zy = z.y;
+        m.zr = rEff;
+        m.dip = dip;
+        m.flight = z.flight;
+        if(!same){
+            m.beginPhase(PH_IN);
+            m.needSend = true;
+        }
         return true;
     }
 
@@ -542,11 +593,10 @@ public final class TurretDrain{
      * выхода (она была безопасной на момент плана) вместо вечного курсирования по устаревшему маршруту.
      */
     private static void parkOrIdle(Unit u, Member m){
-        if(m.mode == MODE_PATROL && m.sentAt != 0){
+        if(m.mode == MODE_CYCLE && m.sentAt != 0){
             m.mode = MODE_MOVE;
             m.px = m.qx;
             m.py = m.qy;
-            m.hasQ2 = false;
             m.turret = -1;
             m.needSend = true;
         }else if(m.mode != MODE_MOVE){
@@ -555,79 +605,104 @@ public final class TurretDrain{
         }
     }
 
-    // ---------------------------------------------------------------- отправка
+    // ---------------------------------------------------------------- цикл и отправка
 
-    /** Приказ мог потеряться (рейт-лимит сервера, обрыв): патруль без stance/очереди или стоящий вдали от точки - шлём заново. */
+    /** Куда сейчас должен идти юнит по плану; false - ничего ждать (WAIT/нет плана). */
+    private static boolean target(Member m, Vec2 out){
+        if(m.mode == MODE_MOVE){
+            out.set(m.px, m.py);
+            return true;
+        }
+        if(m.mode != MODE_CYCLE || m.phase == PH_WAIT) return false;
+        if(m.phase == PH_IN) out.set(m.px, m.py);
+        else out.set(m.qx, m.qy);
+        return true;
+    }
+
+    /** Нет приближения к цели фазы дольше STUCK_TICKS: юнит упёрся/цель недостижима - пропускаем фазу, а не висим. */
+    private static boolean stuck(Member m, Unit u, float tx, float ty){
+        float d = Mathf.dst(u.x, u.y, tx, ty);
+        if(d < m.bestDist - 4f){
+            m.bestDist = d;
+            m.progressAt = Time.time;
+        }
+        return Time.time - m.progressAt > STUCK_TICKS;
+    }
+
+    /**
+     * Смена фаз цикла по положению юнита (каждый тик, дёшево): IN - дошёл до глубины захода -> приказ к Q;
+     * OUT - вышел за зону -> ждёт; WAIT - с момента отхода прошло время полёта снаряда -> приказ к P.
+     */
+    private static void cycle(long now){
+        for(var e : squad){
+            Member m = e.value;
+            if(m.mode != MODE_CYCLE || m.repairing || m.needSend || m.sentAt == 0) continue;
+            Unit u = Groups.unit.getByID(e.key);
+            if(u == null) continue;
+            float d = Mathf.dst(u.x, u.y, m.zx, m.zy);
+
+            if(m.phase == PH_IN){
+                if(d <= m.zr - m.dip * DIP_REACHED || u.within(m.px, m.py, 6f) || stuck(m, u, m.px, m.py)){
+                    m.leftAt = Time.time;
+                    m.beginPhase(PH_OUT);
+                    m.sentAt = now;
+                    outbox.add(new Order(u.id, m.qx, m.qy));
+                }
+            }else if(m.phase == PH_OUT){
+                if(d >= m.zr + OUT_REACHED || u.within(m.qx, m.qy, 10f) || stuck(m, u, m.qx, m.qy)){
+                    m.beginPhase(PH_WAIT);
+                }
+            }else if(Time.time - m.leftAt >= m.flight + WAIT_MARGIN){
+                m.beginPhase(PH_IN);
+                m.sentAt = now;
+                outbox.add(new Order(u.id, m.px, m.py));
+            }
+        }
+    }
+
+    /** Приказ мог потеряться (рейт-лимит сервера, обрыв): юнит без цели и вдали от точки своей фазы - шлём заново. */
     private static void checkLost(long now){
+        Vec2 t = new Vec2();
         for(var e : squad){
             Member m = e.value;
             if(m.needSend || m.sentAt == 0 || now - m.sentAt < RESEND_GRACE_MS) continue;
             Unit u = Groups.unit.getByID(e.key);
             if(u == null || !(u.controller() instanceof CommandAI ai)) continue;
-
-            if(m.mode == MODE_PATROL){
-                if(!ai.hasStance(UnitStance.patrol) || (ai.targetPos == null && ai.commandQueue.isEmpty())) m.needSend = true;
-            }else if(m.mode == MODE_MOVE){
-                if(ai.targetPos == null && !u.within(m.px, m.py, 6f * tilesize)) m.needSend = true;
-            }
+            if(!target(m, t)) continue;
+            if(ai.targetPos == null && !u.within(t.x, t.y, 6f * tilesize)) m.needSend = true;
         }
     }
 
+    /** Отправка плана тем, у кого он изменился: снять патруль (если был) и приказать идти в точку текущей фазы. */
     private static void sendPending(long now){
-        Seq<Unit> pending = new Seq<>();
-        for(var e : squad){
-            if(!e.value.needSend) continue;
-            Unit u = Groups.unit.getByID(e.key);
-            if(u != null && u.controller() instanceof CommandAI) pending.add(u);
-        }
-        if(pending.isEmpty()) return;
-
-        patrolOn.clear();
         patrolOff.clear();
-        for(Unit u : pending){
-            Member m = squad.get(u.id);
-            CommandAI ai = (CommandAI)u.controller();
+        Vec2 t = new Vec2();
+        for(var e : squad){
+            Member m = e.value;
+            if(!m.needSend) continue;
+            Unit u = Groups.unit.getByID(e.key);
+            if(u == null || !(u.controller() instanceof CommandAI ai)) continue;
             m.needSend = false;
             m.sentAt = now;
-            if(m.mode == MODE_PATROL){
-                if(!ai.hasStance(UnitStance.patrol)) patrolOn.add(u.id);
-            }else if(ai.hasStance(UnitStance.patrol)){
-                patrolOff.add(u.id);
-            }
+            if(ai.hasStance(UnitStance.patrol)) patrolOff.add(e.key);
+            if(target(m, t)) outbox.add(new Order(e.key, t.x, t.y));
         }
-
-        //стойку патруля снимаем ДО приказа «идти» (иначе патруль успел бы положить старую точку в очередь), включаем - после
+        //патруль снимаем ДО приказа «идти» (иначе он успел бы положить старую точку в очередь); outbox уходит позже, в tick
         if(patrolOff.size > 0) sendStance(patrolOff, UnitStance.patrol, false);
-
-        for(int i = 0; i < pending.size; i++){
-            Unit u = pending.get(i);
-            Member m = squad.get(u.id);
-            final int id = u.id, mode = m.mode;
-            final float px = m.px, py = m.py, qx = m.qx, qy = m.qy, q2x = m.q2x, q2y = m.q2y;
-            final boolean q2 = m.hasQ2;
-            float delay = (i / PER_TICK) * 1f;
-            if(delay <= 0f) sendPlan(id, mode, px, py, qx, qy, q2, q2x, q2y);
-            else Time.run(delay, () -> sendPlan(id, mode, px, py, qx, qy, q2, q2x, q2y));
-        }
-
-        if(patrolOn.size > 0){
-            int[] ids = patrolOn.toArray();
-            float delay = (pending.size / PER_TICK) * 1f + 1f;
-            Time.run(delay, () -> {
-                if(player == null || state.isMenu()) return;
-                IntSeq seq = new IntSeq(ids);
-                sendStance(seq, UnitStance.patrol, true);
-            });
-        }
     }
 
-    private static void sendPlan(int id, int mode, float px, float py, float qx, float qy, boolean hasQ2, float q2x, float q2y){
-        if(player == null || state.isMenu() || mode == MODE_NONE) return;
-        int[] one = {id};
-        Call.commandUnits(player, one, null, null, new Vec2(px, py), false, true);
-        if(mode == MODE_PATROL){
-            Call.commandUnits(player, one, null, null, new Vec2(qx, qy), true, true);
-            if(hasQ2) Call.commandUnits(player, one, null, null, new Vec2(q2x, q2y), true, true);
+    /** Отправляет до limit приказов из очереди; приказы тех, кто уже вышел из отряда, не шлём (не перебиваем ручное управление). */
+    private static void drain(int limit){
+        if(outbox.isEmpty()) return;
+        if(player == null || state.isMenu()){
+            outbox.clear();
+            return;
+        }
+        while(limit > 0 && !outbox.isEmpty()){
+            Order o = outbox.remove(0);
+            if(!squad.containsKey(o.id)) continue;
+            limit--;
+            Call.commandUnits(player, new int[]{o.id}, null, null, new Vec2(o.x, o.y), false, true);
         }
     }
 
