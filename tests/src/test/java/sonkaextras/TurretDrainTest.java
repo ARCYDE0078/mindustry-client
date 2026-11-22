@@ -419,6 +419,62 @@ public class TurretDrainTest{
         assertTrue(((CommandAI)u.controller()).hasStance(UnitStance.patrol));
     }
 
+    // ------------------------------------------------------------------ пауза после отхода
+
+    @Test
+    void fastUnitGetsWaitLegSlowOneDoesNot(){
+        Building scatter = turret(Blocks.scatter, 60, 60, Items.scrap);   //воздух, снаряд летит заметное время
+        Unit flare = unit(UnitTypes.flare, 20, 60);
+        TurretDrain.Member fast = join(flare);
+        step();
+        assertEquals(1, fast.mode);
+        assertTrue(fast.hasQ2, "быстрому юниту добавлена точка ожидания");
+        float qd = Mathf.dst(fast.qx, fast.qy, scatter.x, scatter.y), q2d = Mathf.dst(fast.q2x, fast.q2y, scatter.x, scatter.y);
+        assertTrue(q2d > qd + 3f, "ожидание дальше точки выхода: " + q2d + " > " + qd);
+        CommandAI ai = (CommandAI)flare.controller();
+        assertEquals(2, ai.commandQueue.size, "в очереди выход и ожидание");
+
+        TurretDrain.resetForTest();
+        Building hail = turret(Blocks.hail, 60, 90, Items.graphite);      //земля, но юнит медленный: круг и так долгий
+        Unit dagger = unit(UnitTypes.dagger, 20, 90);
+        TurretDrain.Member slow = join(dagger);
+        step();
+        assertEquals(1, slow.mode);
+        assertFalse(slow.hasQ2, "медленному юниту хватает обычного круга");
+        assertEquals(1, ((CommandAI)dagger.controller()).commandQueue.size);
+    }
+
+    @Test
+    void airUnitStaysAwayAtLeastBulletFlightTime(){
+        Building t = turret(Blocks.scatter, 60, 60, Items.scrap);
+        Unit u = unit(UnitTypes.flare, 20, 60);
+        TurretDrain.Member m = join(u);
+        step();
+        assertTrue(m.hasQ2);
+        float r = ((BaseTurretBuild)t).range();
+        var bt = ((ItemTurretBuild)t).peekAmmo();
+        float flight = Math.min(r / bt.speed, bt.scaleLife ? Float.MAX_VALUE : bt.lifetime);
+
+        //без ожидания один круг P-Q-P занял бы столько тиков - и это МЕНЬШЕ времени полёта: тест иначе ничего не проверяет
+        float plainLoop = 2f * Mathf.dst(m.px, m.py, m.qx, m.qy) / u.type.speed;
+        assertTrue(plainLoop < flight, "без паузы круг короче полёта снаряда: " + plainLoop + " < " + flight);
+
+        Seq<Integer> entries = new Seq<>();
+        boolean inside = false;
+        for(int tick = 0; tick < 4000; tick++){
+            Time.update();
+            u.update();
+            boolean now = Mathf.dst(u.x, u.y, t.x, t.y) < r;
+            if(now && !inside) entries.add(tick);
+            inside = now;
+        }
+        assertTrue(entries.size >= 4, "заходов: " + entries.size);
+        for(int i = 2; i < entries.size; i++){ //первый заход и разгон не считаем
+            int period = entries.get(i) - entries.get(i - 1);
+            assertTrue(period >= flight, "между заходами " + period + " тиков, снаряд летит " + flight);
+        }
+    }
+
     // ------------------------------------------------------------------ лечение
 
     @Test

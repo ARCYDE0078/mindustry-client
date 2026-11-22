@@ -13,6 +13,7 @@ import arc.util.Time;
 import mindustry.ai.UnitStance;
 import mindustry.ai.types.CommandAI;
 import mindustry.content.Blocks;
+import mindustry.entities.bullet.BulletType;
 import mindustry.game.EventType.Trigger;
 import mindustry.game.EventType.WorldLoadEvent;
 import mindustry.gen.Building;
@@ -44,6 +45,11 @@ import static mindustry.Vars.*;
  * «выход» Q (за её радиусом). Первая идёт обычным приказом, вторая - в очередь, затем включается stance
  * {@link UnitStance#patrol}: по прибытии CommandAI сам кладёт пройденную точку в конец очереди, так что юнит курсирует
  * P-Q бесконечно без единого дальнейшего пакета (клиент шлёт только при смене плана).
+ * <p>
+ * <b>Пауза после отхода.</b> Снаряд, выпущенный по юниту в момент захода, ещё летит, когда юнит уже вышел из зоны;
+ * вернись он сразу - попал бы под тот же залп. Ванильный патруль паузы не умеет, поэтому круг удлиняется: в очередь
+ * кладётся третья точка Q2 дальше по тому же лучу (P - Q - Q2 - обратно), и полный круг занимает не меньше времени
+ * полёта снаряда ({@link Zone#flight}) плюс {@link #WAIT_MARGIN}. Быстрые юниты уходят дальше, медленным круга и так хватает.
  * <p>
  * <b>Перепланирование.</b> Каждые {@link #SCAN_TICKS} тиков считается «подпись» обстановки (какие турели опасны, какие
  * ещё заряжены, кто в отряде). Изменилась (турель разрядилась/уничтожена, враг поставил новую) - план пересчитывается
@@ -79,6 +85,8 @@ public final class TurretDrain{
     private static final float DIP_PER_SPEED = 18f, DIP_MIN = 8f, DIP_MAX = 48f;
     /** Насколько точка выхода дальше радиуса поражения (с запасом на неточность прибытия). */
     private static final float RETREAT = 24f;
+    /** Запас к времени полёта снаряда (тиков) и предел удлинения пути в одну сторону (px); короче {@link #WAIT_MIN_EXTRA} не стоит. */
+    private static final float WAIT_MARGIN = 20f, WAIT_MAX_EXTRA = 160f, WAIT_MIN_EXTRA = 4f;
     /** Шаг перебора направлений захода вокруг турели и максимум перебора (до разворота на 180). */
     private static final float ANGLE_STEP = 15f, SPREAD_STEP = 12f;
 
@@ -114,6 +122,9 @@ public final class TurretDrain{
         int mode = MODE_NONE;
         int turret = -1;
         float px, py, qx, qy;
+        /** Точка «подождать, пока долетит снаряд» дальше Q по тому же лучу; hasQ2 - нужна ли она. */
+        float q2x, q2y;
+        boolean hasQ2;
         /** План пересчитан под текущую подпись обстановки. */
         boolean evaluated;
         /** План надо (пере)отправить; sentAt - когда последний раз отправляли (0 = ещё не отправляли). */
@@ -131,6 +142,8 @@ public final class TurretDrain{
         float x, y, r;
         int pos;
         boolean drain;
+        /** Сколько тиков снаряд текущего боезапаса летит до границы настоящей (не раздутой настройкой) дальности; 0 - мгновенный/неизвестно. */
+        float flight;
     }
 
     /** Из Main.kt: слушаем тики и сброс при смене мира. */
@@ -286,10 +299,20 @@ public final class TurretDrain{
             z.pos = b.pos();
             //разряжаем только тех, у кого есть боезапас, который тратится выстрелами (энергетические - нет)
             z.drain = (b.block instanceof ItemTurret || b.block instanceof LiquidTurret) && b instanceof TurretBuild tb && tb.hasAmmo();
+            z.flight = z.drain ? flightTicks((TurretBuild)b, t.range()) : 0f;
 
             if(t.targetAir()) zones[0].add(z);
             if(t.targetGround()) zones[1].add(z);
         }
+    }
+
+    /** Время полёта снаряда текущего боезапаса на дальность range (px); артиллерия летит ровно до цели, прочие - не дольше жизни пули. */
+    private static float flightTicks(TurretBuild tb, float range){
+        BulletType bt = tb.peekAmmo();
+        if(bt == null || bt.speed < 0.1f) return 0f; //лучи/мгновенные: ждать нечего
+        float t = range / bt.speed;
+        if(!bt.scaleLife) t = Math.min(t, bt.lifetime);
+        return t;
     }
 
     // ---------------------------------------------------------------- лечение
@@ -345,6 +368,7 @@ public final class TurretDrain{
         //встаём внутри радиуса лечения, но не в центре башни (наземным она - стена)
         float k = d < 1f ? 0f : Math.min(d, radius * 0.5f) / d;
         m.mode = MODE_MOVE;
+        m.hasQ2 = false;
         m.px = rb.x + (u.x - rb.x) * k;
         m.py = rb.y + (u.y - rb.y) * k;
         m.repairPos = rb.pos();
@@ -374,7 +398,7 @@ public final class TurretDrain{
         Seq<Zone> zs = zones[c];
         for(int i = 0; i < zs.size; i++){
             Zone z = zs.get(i);
-            sig += hash(z.pos, Math.round(z.r), z.drain ? 1 : 0, 13);
+            sig += hash(z.pos, Math.round(z.r), z.drain ? 1 : 0, 13 + Math.round(z.flight) * 31);
         }
 
         if(sig == lastSig[c] && !unevaluated) return;
@@ -458,14 +482,37 @@ public final class TurretDrain{
         }
         if(bestCost == Float.MAX_VALUE) return false;
 
+        //пауза: круг P-Q-Q2-P не короче времени полёта снаряда (+запас). Все три точки лежат примерно на одном луче,
+        //путь туда-обратно = 2 * (|PQ| + extra), поэтому extra = полкруга - |PQ|
+        float speed = Math.max(u.type.speed, 0.05f);
+        float extra = z.flight > 0f ? speed * (z.flight + WAIT_MARGIN) / 2f - Mathf.dst(bpx, bpy, bqx, bqy) : 0f;
+        extra = Math.min(extra, WAIT_MAX_EXTRA);
+        float dirx = bqx - z.x, diry = bqy - z.y, dl = Math.max(Mathf.len(dirx, diry), 0.001f);
+        dirx /= dl;
+        diry /= dl;
+        boolean hasQ2 = false;
+        float bq2x = bqx, bq2y = bqy;
+        for(int attempt = 0; attempt < 3 && extra >= WAIT_MIN_EXTRA; attempt++, extra /= 2f){
+            float cx = bqx + dirx * extra, cy = bqy + diry * extra;
+            if(!standable(u, cx, cy) || coveredBy(all, cx, cy, hs + 8f, null) > 0) continue;
+            hasQ2 = true;
+            bq2x = cx;
+            bq2y = cy;
+            break;
+        }
+
         boolean same = m.mode == MODE_PATROL && m.turret == z.pos && m.sentAt != 0
-            && Mathf.dst(m.px, m.py, bpx, bpy) < 4f && Mathf.dst(m.qx, m.qy, bqx, bqy) < 4f;
+            && Mathf.dst(m.px, m.py, bpx, bpy) < 4f && Mathf.dst(m.qx, m.qy, bqx, bqy) < 4f
+            && m.hasQ2 == hasQ2 && (!hasQ2 || Mathf.dst(m.q2x, m.q2y, bq2x, bq2y) < 4f);
         m.mode = MODE_PATROL;
         m.turret = z.pos;
         m.px = bpx;
         m.py = bpy;
         m.qx = bqx;
         m.qy = bqy;
+        m.hasQ2 = hasQ2;
+        m.q2x = bq2x;
+        m.q2y = bq2y;
         if(!same) m.needSend = true;
         return true;
     }
@@ -499,6 +546,7 @@ public final class TurretDrain{
             m.mode = MODE_MOVE;
             m.px = m.qx;
             m.py = m.qy;
+            m.hasQ2 = false;
             m.turret = -1;
             m.needSend = true;
         }else if(m.mode != MODE_MOVE){
@@ -555,10 +603,11 @@ public final class TurretDrain{
             Unit u = pending.get(i);
             Member m = squad.get(u.id);
             final int id = u.id, mode = m.mode;
-            final float px = m.px, py = m.py, qx = m.qx, qy = m.qy;
+            final float px = m.px, py = m.py, qx = m.qx, qy = m.qy, q2x = m.q2x, q2y = m.q2y;
+            final boolean q2 = m.hasQ2;
             float delay = (i / PER_TICK) * 1f;
-            if(delay <= 0f) sendPlan(id, mode, px, py, qx, qy);
-            else Time.run(delay, () -> sendPlan(id, mode, px, py, qx, qy));
+            if(delay <= 0f) sendPlan(id, mode, px, py, qx, qy, q2, q2x, q2y);
+            else Time.run(delay, () -> sendPlan(id, mode, px, py, qx, qy, q2, q2x, q2y));
         }
 
         if(patrolOn.size > 0){
@@ -572,11 +621,14 @@ public final class TurretDrain{
         }
     }
 
-    private static void sendPlan(int id, int mode, float px, float py, float qx, float qy){
+    private static void sendPlan(int id, int mode, float px, float py, float qx, float qy, boolean hasQ2, float q2x, float q2y){
         if(player == null || state.isMenu() || mode == MODE_NONE) return;
         int[] one = {id};
         Call.commandUnits(player, one, null, null, new Vec2(px, py), false, true);
-        if(mode == MODE_PATROL) Call.commandUnits(player, one, null, null, new Vec2(qx, qy), true, true);
+        if(mode == MODE_PATROL){
+            Call.commandUnits(player, one, null, null, new Vec2(qx, qy), true, true);
+            if(hasQ2) Call.commandUnits(player, one, null, null, new Vec2(q2x, q2y), true, true);
+        }
     }
 
     private static void sendStance(IntSeq ids, UnitStance stance, boolean enable){
