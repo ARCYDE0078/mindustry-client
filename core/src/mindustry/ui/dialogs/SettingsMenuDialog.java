@@ -581,6 +581,8 @@ public class SettingsMenuDialog extends BaseDialog{
         });
         // sonka: выбор юнита фона главного меню - рядом с cursednesslevel, второй настройкой этого фона
         client.pref(new qol.core.ButtonSetting("menu-unit-configure", () -> new sonkaextras.MenuUnitDialog().show()));
+        // sonka: менеджер аккаунтов (UUID) - переключение/сброс/правка личности, с которой заходим на серверы
+        client.pref(new qol.core.ButtonSetting("uuid-accounts", () -> new sonkaextras.accounts.AccountsDialog().show()));
         // sonka: свои названия блокам/юнитам/настройкам и любым текстам игры
         client.pref(new qol.core.ButtonSetting("bundle-editor", () -> new sonkaextras.BundleEditorDialog().show()));
         client.checkPref("placementfragmentsearch", true);
