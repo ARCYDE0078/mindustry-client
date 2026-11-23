@@ -2,23 +2,26 @@ package sonkaextras;
 
 import arc.Core;
 import arc.Events;
-import arc.math.Angles;
 import arc.math.Mathf;
+import arc.math.geom.Intersector;
 import arc.math.geom.Vec2;
+import arc.struct.IntIntMap;
 import arc.struct.IntMap;
 import arc.struct.IntSeq;
+import arc.struct.LongMap;
+import arc.struct.ObjectMap;
 import arc.struct.Seq;
 import arc.util.Time;
 import mindustry.ai.UnitStance;
 import mindustry.ai.types.CommandAI;
 import mindustry.content.Blocks;
-import mindustry.entities.bullet.BulletType;
 import mindustry.game.EventType.Trigger;
 import mindustry.game.EventType.WorldLoadEvent;
 import mindustry.gen.Building;
 import mindustry.gen.Call;
 import mindustry.gen.Groups;
 import mindustry.gen.Unit;
+import mindustry.type.UnitType;
 import mindustry.world.Tile;
 import mindustry.world.blocks.defense.turrets.BaseTurret.BaseTurretBuild;
 import mindustry.world.blocks.defense.turrets.ItemTurret;
@@ -32,42 +35,57 @@ import qol.core.ManualControl;
 import static mindustry.Vars.*;
 
 /**
- * Режим «разряжать турели»: выбранные юниты расходятся по вражеской линии обороны, каждый подлетает к своей
- * турели, на миг заходит в зону её поражения (турель тратит боезапас на выстрелы по нему), уходит назад и пережидает,
- * пока выпущенный снаряд долетит; цикл повторяется, пока турель не опустеет.
+ * Режим «разряжать турели»: выбранные юниты расходятся по вражеской ЛИНИИ ОБОРОНЫ, каждый заходит краем хитбокса в
+ * зону поражения, сразу отлетает назад за радиус и пережидает там; турели тратят боезапас на выстрелы по нему.
  * <p>
  * <b>Почему клиентский режим, а не настоящая UnitCommand.</b> Новая команда в контенте игры сдвинула бы id контента
- * и сломала совместимость с ванильными серверами, а клиенту, по сути, нужна только раздача обычных приказов. Поэтому
- * режим живёт на клиенте (как {@link AntiSplash}) и общается с сервером ванильными RPC.
+ * и сломала совместимость с ванильными серверами, а клиенту нужна только раздача обычных приказов. Поэтому режим
+ * живёт на клиенте (как {@link AntiSplash}) и общается с сервером ванильными RPC.
  * <p>
- * <b>Обычные приказы движения, не патруль.</b> Ванильный патруль ({@link UnitStance#patrol}) разворачивает юнита сразу
- * в точке и ждать не умеет, поэтому цикл ведёт сам клиент: у каждого юнита три фазы - IN (идёт к точке входа P чуть
- * внутри зоны турели), OUT (по прибытии - приказ к точке выхода Q за радиусом), WAIT (стоит у Q, пока с момента отхода
- * не пройдёт время полёта снаряда {@link Zone#flight} плюс {@link #WAIT_MARGIN}), затем снова IN. Это по одному
- * обычному приказу {@code commandUnits} на смену фазы; прибытие определяется по позиции юнита, а не по эху сервера.
- * Если у юнита был включён патруль, он снимается: иначе CommandAI сам зациклил бы пройденные точки.
+ * <b>Линия обороны.</b> Турели не разбираются по одной: берётся «карта поражения» всех опасных для категории
+ * (воздух/земля) турелей, и на внешней границе объединения их зон ставятся точки проникновения - слоты. Граница
+ * строится выборкой по окружности каждой турели: точка годится, если её не накрывает НИ ОДНА другая зона (иначе она
+ * внутри линии, а не на ней). Для слота считаются: P - точка входа на глубину {@link #DIP_PER_SPEED} от скорости внутрь
+ * зоны (хитбокс касается радиуса и чуть глубже, чтобы турель успела выбрать цель), Q - точка отхода по нормали наружу
+ * на настройку {@link #retreatKey}. Слот отбрасывается, если Q (или путь к ней) попадает в чью-то зону. Из слотов
+ * юнит берёт тот, где его накрывает меньше всего турелей (число других зон над P), затем ближайший, с поправкой на
+ * то, сколько юнитов уже у этой турели (чтобы разряжали разные).
  * <p>
- * <b>Перепланирование.</b> Каждые {@link #SCAN_TICKS} тиков считается «подпись» обстановки (какие турели опасны, какие
- * ещё заряжены, кто в отряде). Изменилась (турель разрядилась/уничтожена, враг поставил новую) - план пересчитывается
- * целиком, а юнитам отправляются только изменившиеся приказы. Воздух и земля считаются отдельно: турель опасна для
- * категории, только если умеет по ней стрелять ({@code targetAir}/{@code targetGround}).
+ * <b>Интервал между юнитами.</b> Два слота не выдаются, если их P или Q ближе настройки {@link #gapKey}: снаряды,
+ * пущенные по одному юниту, не заденут соседа. Юнитам, которым места не хватило, слот не даётся - они стоят в тылу
+ * и займут место, как только оно освободится (погиб юнит, разрядилась турель, линия сдвинулась).
+ * <p>
+ * <b>Цикл одним пакетом приказов.</b> Заход и отход отправляются сразу ЦЕПОЧКОЙ: приказ «идти в P» и в очередь приказ
+ * «идти в Q» (ванильная очередь команд, shift). Сервер сам разворачивает юнита у P, клиент не ждёт ничьего ответа и не
+ * проверяет, стреляла ли турель: задержка не стоит юниту жизни. Юнит, которому далеко до слота, получает впереди ещё
+ * приказ «в Q» (подлёт к линии снаружи и вход строго по нормали). После отхода юнит стоит у Q, пока общее время за
+ * радиусом (включая обратный путь до границы) не достигнет {@link #safeKey} секунд - чтобы все снаряды успели пропасть.
+ * <p>
+ * <b>Страховки.</b> Юнит дольше положенного внутри зоны (приказ отхода потерялся) - Q отправляется заново отдельным
+ * приказом; юнит у Q накрыт новой турелью - уводится из зоны; слот, до которого юнит не дошёл за 3 попытки, получает
+ * временный бан. Юнит, уже зашедший в зону, не перепланируется до выхода (его отход уже в очереди).
  * <p>
  * <b>Состав отряда.</b> Отряд фиксируется в момент включения режима: в него попадают ТОЛЬКО юниты, выбранные в эту
- * секунду. Выбранные позже (при уже включённом режиме) не подключаются; чтобы добавить их, режим выключают и включают
- * снова. Юнит выходит из отряда насовсем при ручном приказе ({@link ManualControl}) или гибели; когда отряд опустел,
- * режим выключается сам. Выключение режима останавливает отряд.
+ * секунду. Выбранные позже не подключаются; чтобы добавить, режим выключают и включают снова. Юнит выходит из отряда
+ * насовсем при ручном приказе ({@link ManualControl}) или гибели; когда отряд опустел, режим выключается сам.
  * <p>
- * Ограничения (честно): ходьба наземных юнитов проверяется только по проходимости точек входа/выхода, а не полным
- * путём; обычный приказ движения не мешает юниту стрелять, но юнит с дальностью больше турельной может начать
- * расстреливать её сам; «заряжена ли турель» берётся из синхронизированного {@code hasAmmo()}; энергетические турели
- * не разряжаются (боезапаса нет), но учитываются как опасные зоны.
+ * <b>Турели.</b> Разряжаются турели с боезапасом, в том числе ВЫКЛЮЧЕННЫЕ процессором (они включатся, как только в
+ * зоне появится цель): важен сам заряд, а не флаг «включена». Энергетические турели боезапаса не имеют - они
+ * учитываются только как опасные зоны.
  * <p>
- * Настройки (секция Sonka Extras): {@link #repairKey} - лечить сильно побитых у ближайшей ремонтной башни и
- * возвращать в строй; {@link #cyclone29Key} - для этой команды считать радиус циклона не меньше 29 блоков
- * (циклоны с аутренжем-патчем, дальность которых клиент не видит).
+ * Ограничения (честно): ходьба наземных юнитов проверяется по проходимости точек и по прямой «юнит - Q», а не по
+ * настоящему пути; юнит с дальностью больше турельной может начать расстреливать турель сам; «заряжена ли турель»
+ * берётся из синхронизированного {@code hasAmmo()}; интервал считается между слотами воздуха и земли тоже, но только
+ * по уже выданным слотам.
+ * <p>
+ * Настройки (секция Sonka Extras): {@link #repairKey}, {@link #cyclone29Key}, {@link #retreatKey},
+ * {@link #safeKey}, {@link #gapKey}.
  */
 public final class TurretDrain{
-    public static final String repairKey = "sonka-turretdrain-repair", cyclone29Key = "sonka-turretdrain-cyclone29";
+    public static final String repairKey = "sonka-turretdrain-repair", cyclone29Key = "sonka-turretdrain-cyclone29",
+        retreatKey = "sonka-turretdrain-retreat", safeKey = "sonka-turretdrain-safetime", gapKey = "sonka-turretdrain-gap";
+    /** Значения настроек по умолчанию: отлёт за радиус (блоков), время за радиусом (секунд), интервал между юнитами (блоков). */
+    public static final int DEF_RETREAT = 7, DEF_SAFE = 5, DEF_GAP = 7;
 
     /** Период пересмотра отряда/обстановки. */
     private static final float SCAN_TICKS = 15f;
@@ -75,26 +93,31 @@ public final class TurretDrain{
     private static final long REPLAN_MIN_MS = 1000L;
     /** Сколько ждать после отправки, прежде чем считать, что приказ потерян, и слать заново. */
     private static final long RESEND_GRACE_MS = 3000L;
-    /** Сколько приказов уходит за тик (смены фаз у большого отряда могут совпасть; не упираемся в антиспам сервера). */
+    /** Сколько ВЫЗОВОВ commandUnits уходит за тик (цепочка одного юнита не разрывается между тиками). */
     private static final int PER_TICK = 20;
 
     /** Глубина захода в зону = скорость * это (чтобы турель успела выбрать цель: у неё интервал поиска 20 тиков), в пределах [MIN, MAX]. */
     private static final float DIP_PER_SPEED = 18f, DIP_MIN = 8f, DIP_MAX = 48f;
-    /** Насколько точка выхода дальше радиуса поражения (с запасом на неточность прибытия). */
-    private static final float RETREAT = 24f;
-    /**
-     * Запас к времени полёта снаряда (тиков): турель может выстрелить и в те тики, пока юнит ещё выходит из зоны.
-     * Ожидание отсчитывается от прибытия в точку входа.
-     */
-    private static final float WAIT_MARGIN = 20f;
-    /** Заход считается состоявшимся на эту долю глубины P (юнит гасит скорость не мгновенно, а ждать точного попадания не нужно). */
-    private static final float DIP_REACHED = 0.75f;
-    /** Выход считается состоявшимся, когда юнит дальше границы собственной зоны турели на столько (px) или у Q ближе 10 px. */
-    private static final float OUT_REACHED = 18f;
-    /** Юнит не приближается к цели фазы дольше этого (тиков) - фаза пропускается (застрял, цель недостижима). */
-    private static final float STUCK_TICKS = 240f;
-    /** Шаг перебора направлений захода вокруг турели и максимум перебора (до разворота на 180). */
-    private static final float ANGLE_STEP = 15f, SPREAD_STEP = 12f;
+    /** Запас точки отхода/пути вне зон (px сверх хитбокса). */
+    private static final float Q_PAD = 8f;
+    /** Юнит считается вышедшим из зоны, когда дальше её границы на столько (px). */
+    private static final float OUT_PAD = 6f;
+    /** Юнит у P / у Q (px). */
+    private static final float ENTER_P = 6f, REACH_Q = 12f;
+    /** Дальше этого от Q юнит получает впереди приказа «в P» ещё и «в Q» (подлёт к линии снаружи). */
+    private static final float STAGE_DIST = 4f * 8f;
+    /** Запас к времени «внутри зоны» до отправки отдельного приказа отхода (тиков) и к длительности круга. */
+    private static final float RESCUE_EXTRA = 90f, TRIP_SLACK = 240f;
+    /** Круг без захода в зону столько раз подряд - слот недостижим, баним его. */
+    private static final int MAX_FAILS = 3;
+    private static final long BAN_MS = 60_000L;
+    /** Шаг выборки точек по окружности турели (px) и сколько кандидатов юнит проверяет на проходимость пути. */
+    private static final float STEP_MIN = 8f, STEP_MAX = 24f;
+    private static final int CORRIDOR_TESTS = 150;
+    /** Вес «сколько других турелей накрывают P» и «сколько юнитов уже у этой турели» в стоимости слота (в блоках пути). */
+    private static final float EXPOSURE_COST = 1000f, LOAD_COST = 25f;
+    /** Насколько отодвигаем юнита от накрывшей его зоны (px сверх радиуса). */
+    private static final float ESCAPE_PAD = 24f;
 
     /** Ниже этой доли здоровья - летим лечиться; здоров - возвращаемся. */
     private static final float REPAIR_LOW = 0.5f, REPAIR_OK = 0.95f;
@@ -102,13 +125,16 @@ public final class TurretDrain{
     private static final long REPAIR_TIMEOUT_MS = 45_000L, REPAIR_BAN_MS = 60_000L;
 
     private static final int MODE_NONE = 0, MODE_CYCLE = 1, MODE_MOVE = 2;
-    private static final int PH_IN = 0, PH_OUT = 1, PH_WAIT = 2;
+    /** IDLE - приказы круга ещё не отправлены; GOING - цепочка отправлена, юнит идёт; HOLD - вышел и стоит у Q до готовности. */
+    private static final int ST_IDLE = 0, ST_GOING = 1, ST_HOLD = 2;
 
     private static boolean active, wasActive;
     private static float timer;
+    /** Настройки, прочитанные на последнем проходе планировщика (px / тиков). */
+    private static float retreatPx = DEF_RETREAT * 8f, gapPx = DEF_GAP * 8f, safeTicks = DEF_SAFE * 60f;
 
     private static final IntMap<Member> squad = new IntMap<>();
-    /** Очередь приказов на отправку (сглаживает всплески смены фаз). */
+    /** Очередь приказов на отправку (сглаживает всплески). */
     private static final Seq<Order> outbox = new Seq<>();
     /** Для теста: подменяет выделение игрока. */
     static Seq<Unit> testSelection;
@@ -117,40 +143,80 @@ public final class TurretDrain{
     private static final Seq<Zone>[] zones = new Seq[]{new Seq<Zone>(), new Seq<Zone>()};
     private static final long[] lastSig = new long[2], lastReplan = new long[2];
     private static final Seq<Unit> catUnits = new Seq<>();
-    private static final Seq<Zone> targets = new Seq<>();
     private static final IntSeq tmpIds = new IntSeq(), patrolOff = new IntSeq();
+    private static final Seq<Slot> chosen = new Seq<>();
+    private static final IntIntMap load = new IntIntMap();
+    private static final ObjectMap<UnitType, Cands> candCache = new ObjectMap<>();
 
     private TurretDrain(){
     }
 
-    /** Приказ «идти в точку» из очереди отправки. */
+    /** Цепочка приказов юниту: первая точка - обычный приказ, остальные - в очередь. */
     private static final class Order{
         final int id;
-        final float x, y;
+        final float[] xy = new float[6];
+        int n;
 
-        Order(int id, float x, float y){
+        Order(int id){
             this.id = id;
-            this.x = x;
-            this.y = y;
         }
+
+        Order add(float x, float y){
+            xy[n * 2] = x;
+            xy[n * 2 + 1] = y;
+            n++;
+            return this;
+        }
+    }
+
+    /** Занятый слот (для проверки интервала): точки входа и отхода. */
+    private static final class Slot{
+        final float px, py, qx, qy;
+
+        Slot(float px, float py, float qx, float qy){
+            this.px = px;
+            this.py = py;
+            this.qx = qx;
+            this.qy = qy;
+        }
+    }
+
+    /** Точка проникновения на линии обороны для данного типа юнита. */
+    static final class Cand{
+        long key;
+        int turret;
+        /** Точка границы, наружная нормаль, вход P, отход Q, глубина захода. */
+        float bx, by, nx, ny, px, py, qx, qy, dip;
+        /** Сколько ДРУГИХ турелей накрывают P. */
+        int exposure;
+    }
+
+    private static final class Cands{
+        final Seq<Cand> list = new Seq<>();
+        final LongMap<Cand> byKey = new LongMap<>();
     }
 
     /** Состояние одного юнита отряда. */
     static final class Member{
         final long joinedAt = Time.millis();
-        /** План: MODE_NONE - ничего не делаем, CYCLE - ходим фазами IN/OUT/WAIT вокруг turret, MOVE - стоим в точке P (лечение/отход). */
+        /** План: NONE - стоит в тылу, CYCLE - ходит кругами по слоту, MOVE - стоит в точке P (лечение/отход). */
         int mode = MODE_NONE;
+        long slot = -1;
         int turret = -1;
-        /** Точка входа P (она же цель режима MOVE) и точка выхода Q. */
-        float px, py, qx, qy;
-        /** Турель цикла: центр, эффективный радиус зоны, глубина захода и время полёта её снаряда (тиков). */
-        float zx, zy, zr, dip, flight;
-        /** Фаза цикла и её признаки: когда юнит прибыл к P и пошёл на выход (Time.time), прогресс подхода к цели фазы. */
-        int phase = PH_IN;
-        float leftAt, bestDist, progressAt;
-        /** План пересчитан под текущую подпись обстановки. */
-        boolean evaluated;
-        /** Приказ текущей фазы надо (пере)отправить; sentAt - когда последний раз отправляли (0 = ещё не отправляли). */
+        /** Слот: граница, нормаль, вход P, отход Q, глубина захода. */
+        float bx, by, nx, ny, px, py, qx, qy, dip;
+        /** Круг: состояние, признаки (вошёл / вышел / дошёл до Q), моменты (Time.time) и пределы времени. */
+        int state = ST_IDLE;
+        boolean entered, exited, reachedQ;
+        float tripAt, enteredAt, outAt, readyAt, rescuedAt;
+        /** Когда последний раз уводили из накрывшей зоны (ждём 60 тиков между такими приказами). */
+        float escapeAt = -1000f;
+        float tripLimit, rescueTicks;
+        int fails;
+        long banSlot = -1, banUntil;
+        /** План пересчитан под текущую подпись обстановки; planned - служебная метка внутри одного прохода plan(). */
+        boolean evaluated, planned;
+        /** Приказ надо (пере)отправить; sentAt - когда последний раз отправляли (0 = ещё не отправляли). */
         boolean needSend;
         long sentAt;
         /** Лечение. */
@@ -158,12 +224,6 @@ public final class TurretDrain{
         int repairPos = -1;
         long repairSince, repairBanUntil;
         float repairStartHp;
-
-        void beginPhase(int ph){
-            phase = ph;
-            bestDist = Float.MAX_VALUE;
-            progressAt = Time.time;
-        }
     }
 
     /** Опасная для категории турель. */
@@ -171,8 +231,6 @@ public final class TurretDrain{
         float x, y, r;
         int pos;
         boolean drain;
-        /** Сколько тиков снаряд текущего боезапаса летит до границы настоящей (не раздутой настройкой) дальности; 0 - мгновенный/неизвестно. */
-        float flight;
     }
 
     /** Из Main.kt: слушаем тики и сброс при смене мира. */
@@ -248,10 +306,11 @@ public final class TurretDrain{
         tick(now);
     }
 
-    /** Редкий проход планировщика по уже собранному отряду: обстановка, лечение, план, потерянные приказы. */
+    /** Редкий проход планировщика по уже собранному отряду: настройки, обстановка, лечение, план, потерянные приказы. */
     static void scan(long now){
         if(squad.isEmpty()) return;
 
+        readConfig();
         buildZones(Core.settings.getBool(cyclone29Key, false));
         handleRepair(Core.settings.getBool(repairKey, true), now);
         for(int c = 0; c < 2; c++) plan(c, now);
@@ -259,10 +318,11 @@ public final class TurretDrain{
         sendPending(now);
     }
 
-    /** Покадровая часть: смена фаз цикла по положению юнитов и отправка накопившихся приказов. */
+    /** Покадровая часть: ход кругов по положению юнитов и отправка накопившихся приказов. */
     static void tick(long now){
         if(squad.isEmpty()) return;
         cycle(now);
+        flushPatrol();
         drain(PER_TICK);
     }
 
@@ -287,11 +347,25 @@ public final class TurretDrain{
         return zones[category];
     }
 
+    /** Для теста: слоты-кандидаты типа юнита из последнего плана категории (пусто, если план не строился). */
+    static Seq<Cand> candidatesOf(UnitType type){
+        Cands cs = candCache.get(type);
+        return cs == null ? new Seq<>() : cs.list;
+    }
+
     /** Для теста: полный сброс состояния режима. */
     static void resetForTest(){
         reset();
         testSelection = null;
         timer = 0f;
+        candCache.clear();
+        patrolOff.clear();
+    }
+
+    private static void readConfig(){
+        retreatPx = Mathf.clamp(Core.settings.getInt(retreatKey, DEF_RETREAT), 2, 40) * tilesize;
+        safeTicks = Mathf.clamp(Core.settings.getInt(safeKey, DEF_SAFE), 0, 60) * 60f;
+        gapPx = Mathf.clamp(Core.settings.getInt(gapKey, DEF_GAP), 1, 60) * tilesize;
     }
 
     // ---------------------------------------------------------------- состав отряда
@@ -314,7 +388,7 @@ public final class TurretDrain{
     }
 
     /** Убирает из отряда погибших и тех, кому игрок дал ручной приказ (насовсем: обратно сами не возвращаются). */
-    private static void prune(){
+    static void prune(){
         tmpIds.clear();
         for(var e : squad){
             Unit u = Groups.unit.getByID(e.key);
@@ -339,13 +413,14 @@ public final class TurretDrain{
         }
         if(patrolOff.size > 0) sendStance(patrolOff, UnitStance.patrol, false);
         if(tmpIds.size > 0) sendStance(tmpIds, UnitStance.stop, true);
+        patrolOff.clear();
         squad.clear();
         lastSig[0] = lastSig[1] = 0;
     }
 
     // ---------------------------------------------------------------- обстановка
 
-    /** Собирает опасные зоны (вражеские работающие турели, видимые нам) отдельно для воздуха [0] и земли [1]. */
+    /** Собирает опасные зоны (вражеские работающие или лишь выключенные процессором турели, видимые нам) отдельно для воздуха [0] и земли [1]. */
     static void buildZones(boolean cyclone29){
         zones[0].clear();
         zones[1].clear();
@@ -364,22 +439,14 @@ public final class TurretDrain{
             z.y = b.y;
             z.r = r;
             z.pos = b.pos();
-            //разряжаем только тех, у кого есть боезапас, который тратится выстрелами (энергетические - нет)
-            z.drain = (b.block instanceof ItemTurret || b.block instanceof LiquidTurret) && b instanceof TurretBuild tb && tb.hasAmmo();
-            z.flight = z.drain ? flightTicks((TurretBuild)b, t.range()) : 0f;
+            //разряжаем тех, у кого есть боезапас, который тратится выстрелами (энергетические - нет). Выключенная процессором
+            //турель с зарядом тоже цель: её hasAmmo() врёт (эффективность обнулена), важен сам заряд
+            z.drain = (b.block instanceof ItemTurret || b.block instanceof LiquidTurret) && b instanceof TurretBuild tb
+                && TurretRanges.hasAmmoEvenIfDisabled(tb);
 
             if(t.targetAir()) zones[0].add(z);
             if(t.targetGround()) zones[1].add(z);
         }
-    }
-
-    /** Время полёта снаряда текущего боезапаса на дальность range (px); артиллерия летит ровно до цели, прочие - не дольше жизни пули. */
-    private static float flightTicks(TurretBuild tb, float range){
-        BulletType bt = tb.peekAmmo();
-        if(bt == null || bt.speed < 0.1f) return 0f; //лучи/мгновенные: ждать нечего
-        float t = range / bt.speed;
-        if(!bt.scaleLife) t = Math.min(t, bt.lifetime);
-        return t;
     }
 
     // ---------------------------------------------------------------- лечение
@@ -426,6 +493,8 @@ public final class TurretDrain{
         m.repairing = false;
         m.repairPos = -1;
         m.mode = MODE_NONE;
+        m.slot = -1;
+        m.state = ST_IDLE;
         m.evaluated = false;
     }
 
@@ -439,16 +508,23 @@ public final class TurretDrain{
         m.py = rb.y + (u.y - rb.y) * k;
         m.repairPos = rb.pos();
         m.turret = -1;
+        m.slot = -1;
+        m.state = ST_IDLE;
         m.needSend = true;
         m.evaluated = true;
     }
 
-    // ---------------------------------------------------------------- планирование
+    // ---------------------------------------------------------------- планирование: линия обороны и слоты
+
+    /** Юнит уже в зоне (цепочка с отходом ушла, ждём выхода): не трогаем, чтобы не сорвать отход. */
+    private static boolean locked(Member m){
+        return m.mode == MODE_CYCLE && m.state == ST_GOING && m.entered && !m.exited;
+    }
 
     private static void plan(int c, long now){
         catUnits.clear();
         boolean unevaluated = false;
-        long sig = 0x9E3779B97F4A7C15L;
+        long sig = 0x9E3779B97F4A7C15L + hash(Math.round(retreatPx), Math.round(gapPx), 0, 3);
 
         for(var e : squad){
             Member m = e.value;
@@ -464,7 +540,7 @@ public final class TurretDrain{
         Seq<Zone> zs = zones[c];
         for(int i = 0; i < zs.size; i++){
             Zone z = zs.get(i);
-            sig += hash(z.pos, Math.round(z.r), z.drain ? 1 : 0, 13 + Math.round(z.flight) * 31);
+            sig += hash(z.pos, Math.round(z.r), z.drain ? 1 : 0, 13);
         }
 
         if(sig == lastSig[c] && !unevaluated) return;
@@ -472,100 +548,221 @@ public final class TurretDrain{
         lastSig[c] = sig;
         lastReplan[c] = now;
 
-        targets.clear();
-        for(int i = 0; i < zs.size; i++) if(zs.get(i).drain) targets.add(zs.get(i));
-
         catUnits.sort((a, b) -> Integer.compare(a.id, b.id));
-        int[] load = new int[targets.size];
+        candCache.clear();
+        chosen.clear();
+        load.clear();
 
+        //слоты уже занятые юнитами другой категории тоже держат интервал
+        for(var e : squad){
+            Member m = e.value;
+            Unit u = Groups.unit.getByID(e.key);
+            if(u == null || (u.isFlying() ? 0 : 1) == c || m.mode != MODE_CYCLE || m.slot < 0) continue;
+            chosen.add(new Slot(m.px, m.py, m.qx, m.qy));
+        }
+
+        for(Unit u : catUnits) squad.get(u.id).planned = false;
+
+        //0) юниты внутри зоны остаются на своих слотах (их отход уже в очереди), но слоты занимают
         for(Unit u : catUnits){
             Member m = squad.get(u.id);
-            boolean planned = false;
+            if(!locked(m)) continue;
+            m.planned = true;
+            chosen.add(new Slot(m.px, m.py, m.qx, m.qy));
+            load.put(m.turret, load.get(m.turret, 0) + 1);
+            //слот пропал с линии - после выхода юнит будет перепланирован (evaluated=false вызовет пересчёт)
+            m.evaluated = cands(u, zs).byKey.containsKey(m.slot);
+        }
 
-            //кандидаты по возрастанию стоимости: близко к юниту, не перегружено другими, бонус за прежнюю цель (без метаний)
-            boolean[] tried = new boolean[targets.size];
-            for(int attempt = 0; attempt < Math.min(targets.size, 6) && !planned; attempt++){
-                int best = -1;
-                float bestCost = Float.MAX_VALUE;
-                for(int ti = 0; ti < targets.size; ti++){
-                    if(tried[ti]) continue;
-                    Zone z = targets.get(ti);
-                    float cost = Mathf.dst(u.x, u.y, z.x, z.y) / tilesize + 25f * load[ti] - (z.pos == m.turret ? 40f : 0f);
-                    if(cost < bestCost){
-                        bestCost = cost;
-                        best = ti;
-                    }
-                }
-                if(best < 0) break;
-                tried[best] = true;
+        //1) прежние слоты, если ещё годятся: без метаний при каждом пересчёте
+        for(Unit u : catUnits){
+            Member m = squad.get(u.id);
+            if(m.planned || m.mode != MODE_CYCLE || m.slot < 0) continue;
+            Cand cand = cands(u, zs).byKey.get(m.slot);
+            if(cand == null || banned(m, cand.key, now) || !spacingOk(cand)) continue;
+            take(u, m, cand);
+        }
 
-                if(geometry(u, m, targets.get(best), load[best], zs)){
-                    load[best]++;
-                    planned = true;
-                }
-            }
-
-            if(!planned) parkOrIdle(u, m);
+        //2) остальные: лучший свободный слот или тыл
+        for(Unit u : catUnits){
+            Member m = squad.get(u.id);
+            if(m.planned) continue;
+            Cand cand = pick(u, m, zs, now);
+            if(cand != null) take(u, m, cand);
+            else rear(m);
             m.evaluated = true;
         }
     }
 
-    /**
-     * Точки входа P / выхода Q для юнита у турели z. Юниты одной турели расходятся веером (k - номер в её группе),
-     * чтобы не лететь кучей под один сплэш. Направление ищется от «стороны юнита» с перебором углов по возрастанию
-     * отклонения: нужна проходимая точка Q вне зон ВСЕХ опасных турелей, а P - в зонах как можно меньшего числа
-     * чужих турелей. false - подходящего направления нет (юнит попробует другую турель).
-     */
-    private static boolean geometry(Unit u, Member m, Zone z, int k, Seq<Zone> all){
-        float hs = u.hitSize / 2f;
-        float rEff = z.r + hs;
-        float dip = Mathf.clamp(u.type.speed * DIP_PER_SPEED, DIP_MIN, DIP_MAX);
+    private static boolean banned(Member m, long key, long now){
+        return m.banSlot == key && now < m.banUntil;
+    }
 
-        float spread = ((k + 1) / 2) * SPREAD_STEP * (k % 2 == 1 ? 1f : -1f);
-        float base = Angles.angle(z.x, z.y, u.x, u.y) + spread;
+    private static void take(Unit u, Member m, Cand c){
+        assign(u, m, c);
+        chosen.add(new Slot(c.px, c.py, c.qx, c.qy));
+        load.put(c.turret, load.get(c.turret, 0) + 1);
+    }
 
-        float bestCost = Float.MAX_VALUE, bpx = 0, bpy = 0, bqx = 0, bqy = 0;
-        int steps = (int)(360f / ANGLE_STEP);
-        for(int i = 0; i <= steps; i++){
-            float delta = ((i + 1) / 2) * ANGLE_STEP * (i % 2 == 1 ? 1f : -1f);
-            float ang = base + delta;
-            float cx = Mathf.cosDeg(ang), cy = Mathf.sinDeg(ang);
-
-            float px = z.x + cx * (rEff - dip), py = z.y + cy * (rEff - dip);
-            float qx = z.x + cx * (rEff + RETREAT), qy = z.y + cy * (rEff + RETREAT);
-            if(!standable(u, px, py) || !standable(u, qx, qy)) continue;
-            if(coveredBy(all, qx, qy, hs + 8f, null) > 0) continue;
-
-            float cost = coveredBy(all, px, py, hs, z) * 1000f + Math.abs(delta);
-            if(cost < bestCost){
-                bestCost = cost;
-                bpx = px;
-                bpy = py;
-                bqx = qx;
-                bqy = qy;
-                if(cost < 1000f) break; //чужих турелей в точке входа нет, а отклонение растёт - лучшего уже не будет
-            }
-        }
-        if(bestCost == Float.MAX_VALUE) return false;
-
-        boolean same = m.mode == MODE_CYCLE && m.turret == z.pos && m.sentAt != 0
-            && Mathf.dst(m.px, m.py, bpx, bpy) < 4f && Mathf.dst(m.qx, m.qy, bqx, bqy) < 4f;
-        m.mode = MODE_CYCLE;
-        m.turret = z.pos;
-        m.px = bpx;
-        m.py = bpy;
-        m.qx = bqx;
-        m.qy = bqy;
-        m.zx = z.x;
-        m.zy = z.y;
-        m.zr = rEff;
-        m.dip = dip;
-        m.flight = z.flight;
-        if(!same){
-            m.beginPhase(PH_IN);
-            m.needSend = true;
+    /** Слот c не ближе gapPx ни к одному занятому (по точкам входа и по точкам отхода). */
+    private static boolean spacingOk(Cand c){
+        float g2 = gapPx * gapPx;
+        for(int i = 0; i < chosen.size; i++){
+            Slot s = chosen.get(i);
+            if(Mathf.dst2(c.px, c.py, s.px, s.py) < g2 || Mathf.dst2(c.qx, c.qy, s.qx, s.qy) < g2) return false;
         }
         return true;
+    }
+
+    /**
+     * Лучший свободный слот для юнита: стоимость = число других турелей над P * большой вес + путь до Q (блоки) +
+     * вес за каждого юнита, уже занявшего эту турель. Берётся первый по стоимости, удовлетворяющий интервалу и
+     * чистому пути от юнита к Q; проверок пути не больше CORRIDOR_TESTS (дальше - юнит остаётся в тылу).
+     */
+    private static Cand pick(Unit u, Member m, Seq<Zone> zs, long now){
+        Cands cs = cands(u, zs);
+        int n = cs.list.size;
+        if(n == 0) return null;
+
+        long[] order = new long[n];
+        int cnt = 0;
+        for(int i = 0; i < n; i++){
+            Cand c = cs.list.get(i);
+            if(banned(m, c.key, now) || !spacingOk(c)) continue;
+            float cost = c.exposure * EXPOSURE_COST + Mathf.dst(u.x, u.y, c.qx, c.qy) / tilesize + LOAD_COST * load.get(c.turret, 0);
+            order[cnt++] = ((long)Float.floatToIntBits(Math.max(cost, 0f)) << 32) | i;
+        }
+        java.util.Arrays.sort(order, 0, cnt);
+
+        float hs = u.hitSize / 2f;
+        for(int k = 0; k < cnt && k < CORRIDOR_TESTS; k++){
+            Cand c = cs.list.get((int)(order[k] & 0xFFFFFFFFL));
+            if(corridorOk(u, c, zs, hs)) return c;
+        }
+        return null;
+    }
+
+    /** Прямой путь от юнита к Q не задевает зон (кроме тех, в которых юнит уже стоит - из них ему всё равно выходить). */
+    private static boolean corridorOk(Unit u, Cand c, Seq<Zone> zs, float hs){
+        float pad = hs + Q_PAD;
+        for(int i = 0; i < zs.size; i++){
+            Zone o = zs.get(i);
+            float r = o.r + pad;
+            if(Mathf.dst2(u.x, u.y, o.x, o.y) < r * r) continue;
+            float d = Intersector.distanceSegmentPoint(u.x, u.y, c.qx, c.qy, o.x, o.y);
+            if(d < r) return false;
+        }
+        return true;
+    }
+
+    private static Cands cands(Unit u, Seq<Zone> zs){
+        Cands cs = candCache.get(u.type);
+        if(cs == null){
+            cs = new Cands();
+            candCache.put(u.type, cs);
+            genCands(cs, u, zs);
+        }
+        return cs;
+    }
+
+    /**
+     * Точки проникновения на внешней границе объединения зон для типа юнита u. Выборка по окружности каждой
+     * разряжаемой турели; точка на линии, если её не накрывает ни одна другая зона. Для неё P - на глубину dip внутрь,
+     * Q - на retreatPx наружу по нормали; Q и середина отхода обязаны быть вне всех зон, P и Q - проходимы.
+     */
+    private static void genCands(Cands out, Unit u, Seq<Zone> zs){
+        float hs = u.hitSize / 2f;
+        float dip = Mathf.clamp(u.type.speed * DIP_PER_SPEED, DIP_MIN, DIP_MAX);
+        float step = Mathf.clamp(gapPx / 3f, STEP_MIN, STEP_MAX);
+
+        for(int zi = 0; zi < zs.size; zi++){
+            Zone z = zs.get(zi);
+            if(!z.drain) continue;
+            float rEff = z.r + hs;
+            int n = Math.max(8, Mathf.ceil(Mathf.pi * 2f * rEff / step));
+            for(int i = 0; i < n; i++){
+                float ang = 360f * i / n;
+                float cx = Mathf.cosDeg(ang), cy = Mathf.sinDeg(ang);
+                float bx = z.x + cx * rEff, by = z.y + cy * rEff;
+                //внутри чужой зоны - это не линия обороны, а её глубина
+                if(coveredBy(zs, bx, by, hs + 1f, z) > 0) continue;
+
+                float qx = bx + cx * retreatPx, qy = by + cy * retreatPx;
+                float mx = bx + cx * retreatPx * 0.5f, my = by + cy * retreatPx * 0.5f;
+                if(coveredBy(zs, qx, qy, hs + Q_PAD, null) > 0 || coveredBy(zs, mx, my, hs + Q_PAD * 0.5f, null) > 0) continue;
+
+                float px = bx - cx * dip, py = by - cy * dip;
+                if(!standable(u, px, py) || !standable(u, qx, qy)) continue;
+
+                Cand c = new Cand();
+                c.key = ((long)z.pos << 16) | i;
+                c.turret = z.pos;
+                c.bx = bx;
+                c.by = by;
+                c.nx = cx;
+                c.ny = cy;
+                c.px = px;
+                c.py = py;
+                c.qx = qx;
+                c.qy = qy;
+                c.dip = dip;
+                c.exposure = coveredBy(zs, px, py, hs, z);
+                out.list.add(c);
+                out.byKey.put(c.key, c);
+            }
+        }
+    }
+
+    /** Выдаёт юниту слот: новый юнит/сменившийся слот, до зоны не дошедший, получает цепочку заново; ждущий у Q - со следующего круга. */
+    private static void assign(Unit u, Member m, Cand c){
+        boolean fresh = m.mode != MODE_CYCLE;
+        boolean same = !fresh && m.slot == c.key && Mathf.dst(m.px, m.py, c.px, c.py) < 4f && Mathf.dst(m.qx, m.qy, c.qx, c.qy) < 4f;
+
+        m.mode = MODE_CYCLE;
+        m.slot = c.key;
+        m.turret = c.turret;
+        m.bx = c.bx;
+        m.by = c.by;
+        m.nx = c.nx;
+        m.ny = c.ny;
+        m.px = c.px;
+        m.py = c.py;
+        m.qx = c.qx;
+        m.qy = c.qy;
+        m.dip = c.dip;
+        m.rescueTicks = 2f * c.dip / Math.max(u.type.speed, 0.2f) + RESCUE_EXTRA;
+
+        if(fresh){
+            m.state = ST_IDLE;
+            m.fails = 0;
+            m.needSend = true;
+        }else if(!same && (m.state == ST_IDLE || (m.state == ST_GOING && !m.entered))){
+            m.state = ST_IDLE;
+            m.needSend = true;
+        }
+        m.evaluated = true;
+        m.planned = true;
+    }
+
+    /**
+     * Слота нет (разряжать нечего, места нет или недостижимо): юнит стоит в тылу. Того, кто шёл к зоне, уводим к
+     * точке отхода (она была безопасной на момент плана); ждущий у Q остаётся на месте.
+     */
+    private static void rear(Member m){
+        if(m.mode == MODE_CYCLE && m.state == ST_GOING && m.sentAt != 0){
+            m.mode = MODE_MOVE;
+            m.px = m.qx;
+            m.py = m.qy;
+            m.needSend = true;
+        }else if(m.mode != MODE_MOVE){
+            m.mode = MODE_NONE;
+            m.state = ST_IDLE;
+        }
+        if(m.mode != MODE_CYCLE){
+            m.slot = -1;
+            m.turret = -1;
+        }
+        m.planned = true;
     }
 
     /** Сколько зон накрывают точку (радиус зоны + запас pad); skip - не считать эту зону (сама цель). */
@@ -588,121 +785,215 @@ public final class TurretDrain{
         return t != null && u.canPass(t.x, t.y);
     }
 
-    /**
-     * Разряжать нечего (или не нашлось безопасного захода): юнита, которого мы уже посылали, уводим из зоны к точке
-     * выхода (она была безопасной на момент плана) вместо вечного курсирования по устаревшему маршруту.
-     */
-    private static void parkOrIdle(Unit u, Member m){
-        if(m.mode == MODE_CYCLE && m.sentAt != 0){
-            m.mode = MODE_MOVE;
-            m.px = m.qx;
-            m.py = m.qy;
-            m.turret = -1;
-            m.needSend = true;
-        }else if(m.mode != MODE_MOVE){
-            m.mode = MODE_NONE;
-            m.turret = -1;
-        }
-    }
-
-    // ---------------------------------------------------------------- цикл и отправка
-
-    /** Куда сейчас должен идти юнит по плану; false - ничего ждать (WAIT/нет плана). */
-    private static boolean target(Member m, Vec2 out){
-        if(m.mode == MODE_MOVE){
-            out.set(m.px, m.py);
-            return true;
-        }
-        if(m.mode != MODE_CYCLE || m.phase == PH_WAIT) return false;
-        if(m.phase == PH_IN) out.set(m.px, m.py);
-        else out.set(m.qx, m.qy);
-        return true;
-    }
-
-    /** Нет приближения к цели фазы дольше STUCK_TICKS: юнит упёрся/цель недостижима - пропускаем фазу, а не висим. */
-    private static boolean stuck(Member m, Unit u, float tx, float ty){
-        float d = Mathf.dst(u.x, u.y, tx, ty);
-        if(d < m.bestDist - 4f){
-            m.bestDist = d;
-            m.progressAt = Time.time;
-        }
-        return Time.time - m.progressAt > STUCK_TICKS;
-    }
+    // ---------------------------------------------------------------- круг: заход, отход, пауза
 
     /**
-     * Смена фаз цикла по положению юнита (каждый тик, дёшево): IN - дошёл до глубины захода -> приказ к Q;
-     * OUT - вышел за зону -> ждёт; WAIT - с момента отхода прошло время полёта снаряда -> приказ к P.
+     * Ход кругов по положению юнитов (каждый тик, дёшево). GOING: ждём захода, выхода и прихода к Q, следим, чтобы юнит
+     * не застрял в зоне; HOLD: стоит у Q, пока не пройдёт время за радиусом, потом новая цепочка.
      */
     private static void cycle(long now){
         for(var e : squad){
             Member m = e.value;
-            if(m.mode != MODE_CYCLE || m.repairing || m.needSend || m.sentAt == 0) continue;
+            if(m.mode != MODE_CYCLE || m.repairing) continue;
             Unit u = Groups.unit.getByID(e.key);
             if(u == null) continue;
-            float d = Mathf.dst(u.x, u.y, m.zx, m.zy);
+            Seq<Zone> zs = zones[u.isFlying() ? 0 : 1];
+            float hs = u.hitSize / 2f;
+            if(m.state == ST_GOING) going(m, u, zs, hs, now);
+            else if(m.state == ST_HOLD) hold(m, u, zs, hs, now);
+        }
+    }
 
-            if(m.phase == PH_IN){
-                if(d <= m.zr - m.dip * DIP_REACHED || u.within(m.px, m.py, 6f) || stuck(m, u, m.px, m.py)){
-                    m.leftAt = Time.time;
-                    m.beginPhase(PH_OUT);
-                    m.sentAt = now;
-                    outbox.add(new Order(u.id, m.qx, m.qy));
-                }
-            }else if(m.phase == PH_OUT){
-                if(d >= m.zr + OUT_REACHED || u.within(m.qx, m.qy, 10f) || stuck(m, u, m.qx, m.qy)){
-                    m.beginPhase(PH_WAIT);
-                }
-            }else if(Time.time - m.leftAt >= m.flight + WAIT_MARGIN){
-                m.beginPhase(PH_IN);
-                m.sentAt = now;
-                outbox.add(new Order(u.id, m.px, m.py));
+    private static boolean idle(Unit u){
+        return u.controller() instanceof CommandAI ai && ai.targetPos == null;
+    }
+
+    private static void going(Member m, Unit u, Seq<Zone> zs, float hs, long now){
+        if(!m.entered){
+            if(coveredBy(zs, u.x, u.y, hs, null) > 0 || u.within(m.px, m.py, ENTER_P)){
+                m.entered = true;
+                m.enteredAt = Time.time;
+            }
+        }else if(!m.exited){
+            if(coveredBy(zs, u.x, u.y, hs + OUT_PAD, null) == 0){
+                m.exited = true;
+                m.outAt = Time.time;
+            }else if(Time.time - Math.max(m.enteredAt, m.rescuedAt) > m.rescueTicks){
+                //слишком долго в зоне: приказ отхода потерялся или юнит упёрся - шлём отход отдельным приказом
+                m.rescuedAt = Time.time;
+                outbox.add(new Order(u.id).add(m.qx, m.qy));
+            }
+        }
+
+        if(m.exited && !m.reachedQ && (u.within(m.qx, m.qy, REACH_Q) || idle(u))) m.reachedQ = true;
+        if(m.exited && m.reachedQ){
+            m.state = ST_HOLD;
+            m.fails = 0;
+            //общее время за радиусом = время до этого момента + обратный путь до границы: его вычитаем из паузы
+            m.readyAt = m.outAt + safeTicks - Mathf.dst(u.x, u.y, m.bx, m.by) / Math.max(u.type.speed, 0.2f);
+            return;
+        }
+        if(Time.time - m.tripAt > m.tripLimit) tripTimeout(m, u, now);
+    }
+
+    private static void hold(Member m, Unit u, Seq<Zone> zs, float hs, long now){
+        //у Q появилась новая турель (или линия сдвинулась): уходим из-под неё, не ждём конца паузы
+        if(coveredBy(zs, u.x, u.y, hs, null) > 0){
+            escape(m, u, zs, hs);
+            return;
+        }
+        if(m.slot < 0 || Time.time < m.readyAt) return;
+        if(!(u.controller() instanceof CommandAI ai)) return;
+        startTrip(m, u, ai, now);
+    }
+
+    /** Круг не уложился в отведённое время: зашедшего спасаем, не дошедшего пробуем ещё раз и в конце банем слот. */
+    private static void tripTimeout(Member m, Unit u, long now){
+        if(m.entered && !m.exited){
+            m.rescuedAt = Time.time;
+            m.tripAt = Time.time;
+            outbox.add(new Order(u.id).add(m.qx, m.qy));
+        }else if(m.entered){
+            //вышел, но до Q не дошёл (упёрся): круг окончен
+            m.reachedQ = true;
+        }else{
+            m.fails++;
+            if(m.fails >= MAX_FAILS){
+                //слот недостижим: пока не трогаем его и просим пересчёт (юнит встанет на другой или в тыл)
+                m.banSlot = m.slot;
+                m.banUntil = now + BAN_MS;
+                m.fails = 0;
+                m.state = ST_HOLD;
+                m.readyAt = Time.time + 600f;
+                m.evaluated = false;
+                lastReplan[0] = lastReplan[1] = 0;
+            }else if(u.controller() instanceof CommandAI ai){
+                startTrip(m, u, ai, now);
             }
         }
     }
 
-    /** Приказ мог потеряться (рейт-лимит сервера, обрыв): юнит без цели и вдали от точки своей фазы - шлём заново. */
+    /** Выводит юнита из накрывшей его зоны на ближайшую свободную точку. */
+    private static void escape(Member m, Unit u, Seq<Zone> zs, float hs){
+        if(Time.time - m.escapeAt < 60f) return;
+        m.escapeAt = Time.time;
+
+        float x = u.x, y = u.y;
+        for(int it = 0; it < 6; it++){
+            Zone z = null;
+            for(int i = 0; i < zs.size; i++){
+                Zone o = zs.get(i);
+                if(Mathf.dst2(x, y, o.x, o.y) < (o.r + hs) * (o.r + hs)){
+                    z = o;
+                    break;
+                }
+            }
+            if(z == null) break;
+            float dx = x - z.x, dy = y - z.y, l = Mathf.len(dx, dy);
+            if(l < 1f){
+                dx = 1f;
+                dy = 0f;
+                l = 1f;
+            }
+            x = z.x + dx / l * (z.r + hs + ESCAPE_PAD);
+            y = z.y + dy / l * (z.r + hs + ESCAPE_PAD);
+        }
+        x = Mathf.clamp(x, 0f, world.unitWidth());
+        y = Mathf.clamp(y, 0f, world.unitHeight());
+        outbox.add(new Order(u.id).add(x, y));
+    }
+
+    /**
+     * Новый круг: цепочка «P, затем Q» отправляется сразу вся. Юниту дальше STAGE_DIST от Q цепочка начинается с Q:
+     * подлёт к линии снаружи, вход - по нормали от Q к P. Патруль, если был, снимается (иначе CommandAI сам зациклил бы точки).
+     */
+    private static void startTrip(Member m, Unit u, CommandAI ai, long now){
+        Order o = new Order(u.id);
+        float len;
+        if(!u.within(m.qx, m.qy, STAGE_DIST)){
+            o.add(m.qx, m.qy).add(m.px, m.py).add(m.qx, m.qy);
+            len = Mathf.dst(u.x, u.y, m.qx, m.qy) + 2f * Mathf.dst(m.px, m.py, m.qx, m.qy);
+        }else{
+            o.add(m.px, m.py).add(m.qx, m.qy);
+            len = Mathf.dst(u.x, u.y, m.px, m.py) + Mathf.dst(m.px, m.py, m.qx, m.qy);
+        }
+        if(ai.hasStance(UnitStance.patrol)) patrolOff.add(u.id);
+        outbox.add(o);
+
+        m.state = ST_GOING;
+        m.entered = m.exited = m.reachedQ = false;
+        m.tripAt = Time.time;
+        m.tripLimit = len / Math.max(u.type.speed, 0.2f) * (u.isFlying() ? 1.5f : 2.5f) + TRIP_SLACK;
+        m.needSend = false;
+        m.sentAt = now;
+    }
+
+    /** Приказ мог потеряться (рейт-лимит сервера, обрыв): юнит без цели и вдали от нужных точек - шлём заново. */
     private static void checkLost(long now){
-        Vec2 t = new Vec2();
         for(var e : squad){
             Member m = e.value;
             if(m.needSend || m.sentAt == 0 || now - m.sentAt < RESEND_GRACE_MS) continue;
             Unit u = Groups.unit.getByID(e.key);
-            if(u == null || !(u.controller() instanceof CommandAI ai)) continue;
-            if(!target(m, t)) continue;
-            if(ai.targetPos == null && !u.within(t.x, t.y, 6f * tilesize)) m.needSend = true;
+            if(u == null || !(u.controller() instanceof CommandAI ai) || ai.targetPos != null) continue;
+            if(m.mode == MODE_MOVE){
+                if(!u.within(m.px, m.py, 6f * tilesize)) m.needSend = true;
+            }else if(m.mode == MODE_CYCLE && m.state == ST_GOING && !m.entered){
+                if(!u.within(m.px, m.py, 6f * tilesize) && !u.within(m.qx, m.qy, 6f * tilesize)){
+                    m.state = ST_IDLE;
+                    m.needSend = true;
+                }
+            }
         }
     }
 
-    /** Отправка плана тем, у кого он изменился: снять патруль (если был) и приказать идти в точку текущей фазы. */
+    /** Отправка плана тем, у кого он изменился: новый круг (цепочка приказов) либо приказ «идти в точку». */
     private static void sendPending(long now){
-        patrolOff.clear();
-        Vec2 t = new Vec2();
         for(var e : squad){
             Member m = e.value;
             if(!m.needSend) continue;
             Unit u = Groups.unit.getByID(e.key);
             if(u == null || !(u.controller() instanceof CommandAI ai)) continue;
-            m.needSend = false;
-            m.sentAt = now;
-            if(ai.hasStance(UnitStance.patrol)) patrolOff.add(e.key);
-            if(target(m, t)) outbox.add(new Order(e.key, t.x, t.y));
+            if(m.mode == MODE_MOVE){
+                m.needSend = false;
+                m.sentAt = now;
+                if(ai.hasStance(UnitStance.patrol)) patrolOff.add(e.key);
+                outbox.add(new Order(e.key).add(m.px, m.py));
+            }else if(m.mode == MODE_CYCLE && m.state == ST_IDLE){
+                startTrip(m, u, ai, now);
+            }else{
+                m.needSend = false;
+            }
         }
-        //патруль снимаем ДО приказа «идти» (иначе он успел бы положить старую точку в очередь); outbox уходит позже, в tick
-        if(patrolOff.size > 0) sendStance(patrolOff, UnitStance.patrol, false);
+        //патруль снимаем ДО приказов (иначе он успел бы положить старую точку в очередь); outbox уходит позже, в tick
+        flushPatrol();
     }
 
-    /** Отправляет до limit приказов из очереди; приказы тех, кто уже вышел из отряда, не шлём (не перебиваем ручное управление). */
+    private static void flushPatrol(){
+        if(patrolOff.size == 0) return;
+        sendStance(patrolOff, UnitStance.patrol, false);
+        patrolOff.clear();
+    }
+
+    /** Отправляет цепочки из очереди, пока хватает бюджета вызовов; приказы вышедших из отряда не шлём (не перебиваем ручное управление). */
     private static void drain(int limit){
         if(outbox.isEmpty()) return;
         if(player == null || state.isMenu()){
             outbox.clear();
             return;
         }
-        while(limit > 0 && !outbox.isEmpty()){
-            Order o = outbox.remove(0);
-            if(!squad.containsKey(o.id)) continue;
-            limit--;
-            Call.commandUnits(player, new int[]{o.id}, null, null, new Vec2(o.x, o.y), false, true);
+        while(!outbox.isEmpty()){
+            Order o = outbox.first();
+            if(!squad.containsKey(o.id)){
+                outbox.remove(0);
+                continue;
+            }
+            if(o.n > limit) break;
+            outbox.remove(0);
+            limit -= o.n;
+            for(int i = 0; i < o.n; i++){
+                //первая точка - обычный приказ (сбрасывает старую очередь), остальные - в очередь
+                Call.commandUnits(player, new int[]{o.id}, null, null, new Vec2(o.xy[i * 2], o.xy[i * 2 + 1]), i > 0, true);
+            }
         }
     }
 

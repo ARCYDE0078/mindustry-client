@@ -119,6 +119,14 @@ public final class TurretRanges{
         }
     }
 
+    /**
+     * Есть ли в турели боезапас, даже если её выключил процессор: обычный {@code hasAmmo()} у такой турели врёт
+     * («нет патрона», потому что потенциал эффективности обнулён), а для разрядки важен именно заряд.
+     */
+    public static boolean hasAmmoEvenIfDisabled(TurretBuild t){
+        return t.hasAmmo() || disabledWithAmmo(t);
+    }
+
     /** Турель «действующая» для радиусов: может стрелять сейчас либо выключена процессором, но заряжена. */
     public static boolean active(BaseTurretBuild t){
         return t.canShoot() || disabledWithAmmo(t);

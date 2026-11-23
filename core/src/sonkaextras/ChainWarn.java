@@ -128,6 +128,10 @@ public final class ChainWarn{
             //команда «разряжать турели» (кнопка в панели команд юнитов): лечение побитых и радиус циклона 29 блоков
             t.checkPref(TurretDrain.repairKey, true);
             t.checkPref(TurretDrain.cyclone29Key, false);
+            //цикл захода/отхода: на сколько блоков отлетать за радиус, сколько секунд пережидать за ним, интервал между юнитами
+            t.sliderPref(TurretDrain.retreatKey, TurretDrain.DEF_RETREAT, 2, 20, 1, v -> v + " " + Core.bundle.get("client.sonka.antisplash.tiles"));
+            t.sliderPref(TurretDrain.safeKey, TurretDrain.DEF_SAFE, 0, 15, 1, v -> v + " s");
+            t.sliderPref(TurretDrain.gapKey, TurretDrain.DEF_GAP, 3, 20, 1, v -> v + " " + Core.bundle.get("client.sonka.antisplash.tiles"));
             t.checkPref(TurretRanges.minimapKey, true);
             t.checkPref(TurretRanges.minimapEnemyKey, true);
             t.sliderPref(TurretRanges.minimapAlphaKey, 50, 0, 100, 5, v -> v + "%");
