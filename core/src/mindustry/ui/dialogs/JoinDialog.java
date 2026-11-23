@@ -370,6 +370,8 @@ public class JoinDialog extends BaseDialog{
 
             // sonka: редактор градиентного ника - живёт рядом с полем ника, т.к. пишет в ту же настройку "name"
             t.button(Icon.pencil, Styles.squarei, 40, () -> new NameGradientDialog().show()).size(54f).padLeft(4f).tooltip("@client.namegradient.title");
+            // sonka: выбор аккаунта (UUID) в одно касание - применяется со следующего подключения
+            t.button(Icon.players, Styles.squarei, 40, sonkaextras.accounts.AccountsDialog::showPicker).size(54f).padLeft(4f).tooltip("@client.sonka.accounts.title");
         }).width(w).height(70f).pad(4);
         cont.row();
         cont.add(pane).width((w + 5) * columns() + 33).pad(0);

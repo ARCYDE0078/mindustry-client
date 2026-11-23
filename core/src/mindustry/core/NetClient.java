@@ -124,7 +124,8 @@ public class NetClient implements ApplicationListener{
             c.versionType = Version.type;
             c.color = player.color.rgba();
             c.usid = getUsid(packet.addressTCP);
-            c.uuid = platform.getUUID();
+            //sonka: личность (uuid + usid серверов) берётся у активного аккаунта менеджера; при любом сбое - штатные
+            c.uuid = sonkaextras.accounts.Accounts.uuid();
 
             var address = packet.addressTCP.split("[:/]")[1]; // Remove leading slash (and domain) and trailing port
             if (ui.join.communityHosts.contains(h -> "Korea".equals(h.group) && h.address.equals(address))) { // Korea is cursed
@@ -1017,6 +1018,10 @@ public class NetClient implements ApplicationListener{
         if(ip.contains("/")){
             ip = ip.substring(ip.indexOf("/") + 1);
         }
+
+        //sonka: у не-системного аккаунта свой набор usid по серверам; null = ванильная логика ниже
+        String custom = sonkaextras.accounts.Accounts.usid(ip);
+        if(custom != null) return custom;
 
         if(Core.settings.getString("usid-" + ip, null) != null){
             return Core.settings.getString("usid-" + ip, null);

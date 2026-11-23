@@ -156,6 +156,8 @@ public enum DataCategory{
         if(key == null) return true;
         String k = key.toLowerCase(Locale.ROOT);
         if(k.equals("updateurl") || k.equals("autoupdate")) return true;
+        //аккаунты менеджера UUID (uuid + usid серверов) - учётные данные, архивы люди пересылают друг другу
+        if(k.startsWith(sonkaextras.accounts.Accounts.SETTINGS_KEY)) return true;
         for(String part : SECRET_PARTS){
             if(k.contains(part)) return true;
         }
