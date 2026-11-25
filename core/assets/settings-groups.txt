@@ -66,6 +66,7 @@ hdr:qol-conveyor-upgrade-enabled-header
 hdr:qol-schematic-sanitizer-enabled-header
 hdr:qol-erekir-autopower-enabled-header
 hdr:qol-erekir-sand-enabled-header
+hdr:qol-erekir-ore-enabled-header
 hdr:qol-copy-anywhere-enabled-header
 
 # ───────────────────────── Автоматика ─────────────────────────

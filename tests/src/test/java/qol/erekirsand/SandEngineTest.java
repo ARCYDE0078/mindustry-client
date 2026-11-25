@@ -18,8 +18,8 @@ import static mindustry.Vars.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Авторасстановка песчаных буров на настоящем движке (headless): карта с песчаными скалами -> {@link SandSnapshot} ->
- * {@link SandPlanner} -> setBlock -> логика. Проверяет то, чего не видит ASCII-стенд: каждый блок реально встаёт
+ * Авторасстановка песчаных буров на настоящем движке (headless): карта с песчаными скалами -> {@link DrillSnapshot} ->
+ * {@link DrillPlanner} -> setBlock -> логика. Проверяет то, чего не видит ASCII-стенд: каждый блок реально встаёт
  * ({@code Build.validPlace}), дробители выдают песок, утки доносят его до выхода, луч узлов связывает сеть питания,
  * без питания песка нет. На выходе стоит укреплённый контейнер-приёмник - как будто игрок подвёл линию дальше сам.
  */
@@ -99,27 +99,27 @@ public class SandEngineTest{
         }
 
         int zm = 8;
-        SandPlanner.Params params = new SandPlanner.Params();
+        DrillPlanner.Params params = new DrillPlanner.Params();
         params.drillTime = ((WallCrafter)Blocks.cliffCrusher).drillTime;
         params.nodeRange = (int)((BeamNode)Blocks.beamNode).range;
         params.exitDir = exitDir;
-        SandPlanner.Grid g = SandSnapshot.take(team, Blocks.duct, null, zm, zm, w - 1 - zm, h - 1 - zm, 24);
-        SandPlanner.Result r = new SandPlanner(g, params).plan();
+        DrillPlanner.Grid g = DrillSnapshot.take(team, Blocks.duct, null, zm, zm, w - 1 - zm, h - 1 - zm, 24);
+        DrillPlanner.Result r = new DrillPlanner(g, params).plan();
         assertNull(r.error, "планировщик: " + r.error);
         if(exitDir >= 0) assertEquals(exitDir, r.exitDir, "выход смотрит куда просили");
 
         Seq<Building> crushers = new Seq<>(), nodes = new Seq<>();
-        for(SandPlanner.Item it : r.items){
+        for(DrillPlanner.Item it : r.items){
             Block b = blockFor(it.kind);
             assertTrue(Build.validPlace(b, team, it.x, it.y, it.rot), "validPlace " + b.name + " @ " + it.x + "," + it.y + " rot " + it.rot);
             Tile t = world.tile(it.x, it.y);
             t.setBlock(b, team, it.rot);
-            if(it.kind == SandPlanner.CRUSHER) crushers.add(t.build);
-            if(it.kind == SandPlanner.NODE) nodes.add(t.build);
+            if(it.kind == DrillPlanner.CRUSHER) crushers.add(t.build);
+            if(it.kind == DrillPlanner.NODE) nodes.add(t.build);
         }
 
         //приёмник: укреплённый контейнер 2x2, одна из клеток - первая клетка полосы перед выходной уткой
-        Tile lane1 = world.tile(r.exitX + SandPlanner.DX[r.exitDir], r.exitY + SandPlanner.DY[r.exitDir]);
+        Tile lane1 = world.tile(r.exitX + DrillPlanner.DX[r.exitDir], r.exitY + DrillPlanner.DY[r.exitDir]);
         Building sink = null;
         for(int[] o : new int[][]{{0, 0}, {-1, 0}, {0, -1}, {-1, -1}}){
             Tile at = world.tile(lane1.x + o[0], lane1.y + o[1]);
@@ -144,7 +144,7 @@ public class SandEngineTest{
             }
         }
         float rate = arrived / ((total - warm) / 60f);
-        Log.info("[SANDTEST] exit @,@ dir @: sand @/s (plan @), crushers @ nodes @", r.exitX, r.exitY, r.exitDir, rate, r.sandRate, crushers.size, nodes.size);
+        Log.info("[SANDTEST] exit @,@ dir @: sand @/s (plan @), crushers @ nodes @", r.exitX, r.exitY, r.exitDir, rate, r.rate, crushers.size, nodes.size);
 
         PowerGraph graph = null;
         int unpowered = 0;
@@ -158,7 +158,7 @@ public class SandEngineTest{
         if(withPower){
             assertTrue(graph.producers.size > 0, "в сети есть источник");
             assertEquals(0, unpowered, "все дробители запитаны");
-            assertTrue(rate >= Math.min(r.sandRate, 15f) * 0.85f, "на выход доходит >=85% плана: " + rate);
+            assertTrue(rate >= Math.min(r.rate, 15f) * 0.85f, "на выход доходит >=85% плана: " + rate);
         }else{
             assertTrue(rate < 0.01f, "без питания песка нет: " + rate);
         }
@@ -185,8 +185,8 @@ public class SandEngineTest{
 
     static Block blockFor(int kind){
         return switch(kind){
-            case SandPlanner.CRUSHER -> Blocks.cliffCrusher;
-            case SandPlanner.DUCT -> Blocks.duct;
+            case DrillPlanner.CRUSHER -> Blocks.cliffCrusher;
+            case DrillPlanner.DUCT -> Blocks.duct;
             default -> Blocks.beamNode;
         };
     }

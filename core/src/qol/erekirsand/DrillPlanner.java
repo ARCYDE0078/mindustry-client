@@ -8,7 +8,8 @@ import java.util.List;
 import java.util.PriorityQueue;
 
 /**
- * Планировщик песчаных буров Эрекира: дробители + утки + лучевые узлы, один открытый выход песка. НЕ зависит
+ * Планировщик буров Эрекира (песчаные скальные дробители и плазменные буры по настенной руде): буры + утки +
+ * лучевые узлы, один открытый выход. Режим выбирает {@link Params#beam}. НЕ зависит
  * от движка вообще (только массивы-снимок {@link Grid}) - поэтому проверяется обычным javac на синтетических
  * картах, а в игре его кормит {@link ErekirSandFeature}, снимая такой же снимок с мира.
  * <p>
@@ -27,11 +28,22 @@ import java.util.PriorityQueue;
  * Куда песок девается дальше - забота игрока: выходная утка просто смотрит в одну сторону, а перед ней
  * оставлена свободная полоса {@link Params#exitLane} клеток (в неё не встают ни дробители, ни утки, ни узлы),
  * чтобы линию можно было продолжить к печам/ядру/чему угодно. Печей, роутеров и прочего тут нет.
+ * <p>
+ * Режим {@code beam} (плазменный бур, {@code BeamDrill}): бур бьёт лучом по столбцам перед собой до ПЕРВОЙ твёрдой
+ * клетки; пока клетки между буром и рудой пусты, луч идёт сквозь них. Между буром и рудой оставляется зазор не
+ * меньше {@link Params#minGap} клеток, и ВСЕ клетки зазора резервируются ({@link #GAP}): ни утка, ни узел, ни
+ * соседний бур туда не встанут - игрок потом проложит там трубы с водородом (он ускоряет плазменный бур x2.5), а
+ * любое твёрдое здание в зазоре просто перекрыло бы луч. Бур берёт только ОДНУ руду (иначе в одну утку польётся
+ * смесь): либо заданную {@link Params#oreItem}, либо ту, которой в выделении больше всего.
  */
-public final class SandPlanner{
-    public static final int CRUSHER = 1, DUCT = 2, NODE = 3;
+public final class DrillPlanner{
+    public static final int DRILL = 1, CRUSHER = DRILL, DUCT = 2, NODE = 3;
     /** Клетка занята «не нашим» блоком, но и не пуста: свободная полоса перед выходной уткой. */
     static final byte RESERVED = 9;
+    /** Клетка зазора между плазменным буром и рудой: свободна и такой остаётся (трубы/луч). */
+    static final byte GAP = 8;
+    /** Штраф к весу кандидата за каждую лишнюю (сверх minGap) клетку зазора в столбце с рудой: при прочих равных бур жмётся к стене. */
+    static final float GAP_PENALTY = 0.3f;
 
     public static final int[] DX = {1, 0, -1, 0}, DY = {0, 1, 0, -1};
     /** Значение pw[] для плитки-изолятора: луч узла дальше неё не идёт. */
@@ -58,7 +70,7 @@ public final class SandPlanner{
 
     public static final class Params{
         /** Сколько песка в секунду набирать: 3 кремниевые дуговые печи x 4.8 = 14.4 (одна утка тянет 15). */
-        public float targetSand = 14.4f;
+        public float targetRate = 14.4f;
         /** Минимальная суммарная «эффективность» двух передних клеток, чтобы дробитель вообще рассматривался. */
         public float minEff = 1.0f;
         /** WallCrafter.drillTime у cliff-crusher. */
@@ -73,6 +85,24 @@ public final class SandPlanner{
         public int exitDir = -1;
         /** Сколько клеток перед выходной уткой должно остаться свободными: туда игрок продолжит линию. */
         public int exitLane = 3;
+
+        // --- режим плазменного бура (BeamDrill); для скального дробителя ничего из этого не используется
+        /** true - плазменный бур по настенной руде, false - скальный дробитель по песку. */
+        public boolean beam = false;
+        /** Сторона бура: 2 (плазменный) или 3 (большой плазменный). Дробитель всегда 2x2. */
+        public int size = 2;
+        /** BeamDrill.range: сколько клеток перед буром просматривает луч (зазор + клетка руды). */
+        public int range = 5;
+        /** BeamDrill.tier: руда с hardness выше не добывается. */
+        public int tier = 3;
+        /** Зазор между буром и стеной: минимум столько свободных клеток в КАЖДОМ столбце луча. */
+        public int minGap = 1;
+        /** Потолок зазора: дальше бур не ставим, хотя луч достал бы (иначе линия расползается по всей дальности и трубам не за что зацепиться). */
+        public int maxGap = 2;
+        /** Сколько столбцов луча должны упираться в руду (иначе бур не рассматривается). */
+        public int minOreCols = 2;
+        /** Какую руду брать: id предмета + 1; 0 - ту, которой в выделении больше. */
+        public int oreItem = 0;
     }
 
     /** Снимок мира: окно плиток + зона, в которой разрешено строить. */
@@ -82,6 +112,12 @@ public final class SandPlanner{
         public final boolean[] free;
         /** Атрибут песка у ТВЁРДОЙ плитки (стена), иначе 0. */
         public final float[] sand;
+        /** Плитка твёрдая (стена или твёрдое здание): луч плазменного бура останавливается на первой такой. */
+        public final boolean[] solid;
+        /** Что даёт стена как настенная руда: id предмета + 1, иначе 0. */
+        public final int[] ore;
+        /** Твёрдость предметов по индексу id + 1 (чтобы отсечь руду выше tier бура). */
+        public int[] itemHardness = new int[0];
         /** Энергия: 0 - ничего, -1 - изолятор (останавливает луч), &gt;0 - id уже существующей энергосети. */
         public final int[] pw;
         public int zx0, zy0, zx1, zy1;
@@ -95,6 +131,8 @@ public final class SandPlanner{
             this.h = h;
             free = new boolean[w * h];
             sand = new float[w * h];
+            solid = new boolean[w * h];
+            ore = new int[w * h];
             pw = new int[w * h];
         }
 
@@ -113,8 +151,13 @@ public final class SandPlanner{
 
     public static final class Result{
         public final List<Item> items = new ArrayList<>();
-        public float sandRate;
+        public float rate;
+        /** Сколько буров (crushers - историческое имя поля: там и скальные дробители, и плазменные буры). */
         public int crushers, ducts, nodes;
+        /** Добываемая руда (id предмета + 1) в режиме beam, иначе 0. */
+        public int item;
+        /** Клетки зазора между бурами и рудой (x, y): остаются свободными под трубы. */
+        public final List<int[]> gaps = new ArrayList<>();
         public boolean powerOk = true, gridLinked;
         /** Выходная утка (последняя в линии, песок из неё сыплется вперёд в никуда) и её направление. */
         public int exitX, exitY, exitDir;
@@ -134,7 +177,7 @@ public final class SandPlanner{
     /** Индексы (в Run.crushers) дробителей, не попавших в общую сеть питания, - заполняет verifyPower. */
     final List<Integer> unlinked = new ArrayList<>();
 
-    public SandPlanner(Grid g, Params p){
+    public DrillPlanner(Grid g, Params p){
         this.g = g;
         this.p = p;
         this.n = g.w * g.h;
@@ -142,10 +185,17 @@ public final class SandPlanner{
 
     static final class Cand{
         int id, x, y, rot;
+        /** Сколько единиц добычи даёт бур: сумма песчаного атрибута (дробитель) либо число столбцов луча в руду (плазменный). */
         float eff;
+        /** Вес при выборе кандидата: eff минус штраф за лишний зазор (при прочих равных бур жмётся к стене). */
+        float pref;
+        /** Добываемая руда (id + 1), только режим beam. */
+        int item;
         int[] foot = new int[4];
         int[] ports = new int[6];
         int portCount;
+        /** Клетки зазора перед буром (режим beam): их резервируем. */
+        int[] gap = new int[0];
     }
 
     /** Одна попытка при конкретном положении выхода. */
@@ -170,6 +220,136 @@ public final class SandPlanner{
 
     void buildCandidates(){
         cands.clear();
+        if(p.beam) buildBeamCandidates();
+        else buildCrusherCandidates();
+        for(Cand c : cands) if(c.pref == 0f) c.pref = c.eff;
+    }
+
+    int hardness(int itemPlusOne){
+        return itemPlusOne >= 0 && itemPlusOne < g.itemHardness.length ? g.itemHardness[itemPlusOne] : 99;
+    }
+
+    /** Первая клетка перед стороной бура в столбце i (rot - куда смотрит бур, s - его сторона, (x,y) - левый нижний угол). */
+    static int[] frontStart(int x, int y, int s, int rot, int i){
+        return switch(rot){
+            case 0 -> new int[]{x + s, y + i};
+            case 1 -> new int[]{x + i, y + s};
+            case 2 -> new int[]{x - 1, y + i};
+            default -> new int[]{x + i, y - 1};
+        };
+    }
+
+    /** Порты (клетки периметра, куда утка может принимать): все стороны, кроме передней. */
+    void fillPorts(Cand c, int s){
+        int[] ports = new int[3 * s];
+        int pc = 0;
+        for(int sd = 0; sd < 4; sd++){
+            if(sd == c.rot) continue;
+            for(int i = 0; i < s; i++){
+                int[] q = frontStart(c.x, c.y, s, sd, i);
+                if(g.in(q[0], q[1])) ports[pc++] = g.idx(q[0], q[1]);
+            }
+        }
+        c.ports = ports;
+        c.portCount = pc;
+    }
+
+    /**
+     * Плазменные буры: для каждого положения/поворота прослеживаем луч по каждому столбцу ровно как BeamDrill.updateFacing
+     * (до первой ТВЁРДОЙ плитки не дальше range). Берём только положения, где: каждый столбец имеет зазор &gt;= minGap
+     * свободных клеток до первой твёрдой (даже если это не руда - иначе бур стоял бы вплотную к скале), все клетки
+     * зазора свободны (туда пойдут трубы), руда в столбцах одна и та же и не выше tier, а столбцов с рудой достаточно.
+     */
+    void buildBeamCandidates(){
+        int s = p.size;
+        for(int x = g.zx0; x <= g.zx1 - (s - 1); x++){
+            for(int y = g.zy0; y <= g.zy1 - (s - 1); y++){
+                int[] foot = new int[s * s];
+                boolean free = true;
+                for(int i = 0; i < s && free; i++){
+                    for(int j = 0; j < s; j++){
+                        int t = g.idx(x + i, y + j);
+                        if(!g.free[t]){
+                            free = false;
+                            break;
+                        }
+                        foot[i * s + j] = t;
+                    }
+                }
+                if(!free) continue;
+                for(int rot = 0; rot < 4; rot++){
+                    int item = 0, cols = 0;
+                    boolean ok = true, mixed = false;
+                    float penalty = 0f;
+                    List<Integer> gap = new ArrayList<>();
+                    for(int i = 0; i < s && ok; i++){
+                        int[] st = frontStart(x, y, s, rot, i);
+                        List<Integer> col = new ArrayList<>();
+                        int hit = 0;
+                        boolean solidHit = false;
+                        for(int j = 0; j < p.range; j++){
+                            int tx = st[0] + DX[rot] * j, ty = st[1] + DY[rot] * j;
+                            if(!g.in(tx, ty)) break; //край окна/карты: дальше не видно
+                            int t = g.idx(tx, ty);
+                            if(g.solid[t]){
+                                solidHit = true;
+                                int it = g.ore[t];
+                                if(it > 0 && hardness(it) <= p.tier) hit = it;
+                                break;
+                            }
+                            col.add(t);
+                        }
+                        if(solidHit && col.size() < p.minGap){
+                            ok = false; //упирается в скалу вплотную - трубам места нет
+                            break;
+                        }
+                        if(hit > 0 && col.size() > p.maxGap){
+                            ok = false; //руда есть, но далеко: такой бур не берём (а двигать его ближе - это уже другой кандидат)
+                            break;
+                        }
+                        //резервируем весь зазор до руды; в столбце без руды хватит minGap клеток у самого бура
+                        int reserve = hit > 0 ? col.size() : Math.min(col.size(), p.minGap);
+                        if(reserve < p.minGap){
+                            ok = false;
+                            break;
+                        }
+                        for(int k = 0; k < reserve; k++){
+                            int t = col.get(k);
+                            if(!g.free[t]){
+                                ok = false;
+                                break;
+                            }
+                            gap.add(t);
+                        }
+                        if(!ok) break;
+                        if(hit > 0){
+                            if(item != 0 && item != hit) mixed = true;
+                            item = hit;
+                            cols++;
+                            penalty += GAP_PENALTY * (col.size() - p.minGap);
+                        }
+                    }
+                    if(!ok || mixed || cols < p.minOreCols) continue;
+                    Cand c = new Cand();
+                    c.id = cands.size();
+                    c.x = x;
+                    c.y = y;
+                    c.rot = rot;
+                    c.eff = cols;
+                    c.pref = cols - penalty;
+                    c.item = item;
+                    c.foot = foot;
+                    int[] ga = new int[gap.size()];
+                    for(int k = 0; k < ga.length; k++) ga[k] = gap.get(k);
+                    c.gap = ga;
+                    fillPorts(c, s);
+                    cands.add(c);
+                }
+            }
+        }
+    }
+
+    void buildCrusherCandidates(){
         for(int x = g.zx0; x <= g.zx1 - 1; x++){
             for(int y = g.zy0; y <= g.zy1 - 1; y++){
                 int[] foot = {g.idx(x, y), g.idx(x + 1, y), g.idx(x, y + 1), g.idx(x + 1, y + 1)};
@@ -315,6 +495,8 @@ public final class SandPlanner{
 
     boolean available(Run r, Cand c){
         for(int t : c.foot) if(r.occ[t] != 0) return false;
+        //зазор должен быть пуст либо уже зарезервирован соседним буром (общий зазор); утка/бур/полоса выхода в нём - нет
+        for(int t : c.gap) if(r.occ[t] != 0 && r.occ[t] != GAP) return false;
         return true;
     }
 
@@ -345,7 +527,7 @@ public final class SandPlanner{
         boolean[] banned = bannedGlobal.clone();
         int guard = 0;
         int[] out = new int[1];
-        while(r.rate < p.targetSand && guard++ < 120){
+        while(r.rate < p.targetRate && guard++ < 120){
             dijkstra(r);
             int best = -1;
             float bestScore = 0f;
@@ -355,7 +537,7 @@ public final class SandPlanner{
                 if(!available(r, c)) continue;
                 float cost = portCost(r, c, out);
                 if(cost >= INF) continue;
-                float score = c.eff / (cost + p.crusherCostInDucts);
+                float score = c.pref / (cost + p.crusherCostInDucts);
                 if(score > bestScore){
                     bestScore = score;
                     best = i;
@@ -364,10 +546,19 @@ public final class SandPlanner{
             if(best < 0) break;
             Cand c = cands.get(best);
             for(int t : c.foot) r.occ[t] = CRUSHER;
+            //зазор резервируем ДО пересчёта путей: утки обходят его
+            List<Integer> marked = new ArrayList<>();
+            for(int t : c.gap){
+                if(r.occ[t] == 0){
+                    r.occ[t] = GAP;
+                    marked.add(t);
+                }
+            }
             dijkstra(r);
             float cost = portCost(r, c, out);
             if(cost >= INF){
                 for(int t : c.foot) r.occ[t] = 0;
+                for(int t : marked) r.occ[t] = 0;
                 banned[best] = true;
                 continue;
             }
@@ -388,7 +579,7 @@ public final class SandPlanner{
 
     float runScore(Run r){
         float cost = 30f * r.crushers.size() + r.ducts.size();
-        return (r.rate >= p.targetSand ? 1e6f : r.rate * 1000f) - cost;
+        return (r.rate >= p.targetRate ? 1e6f : r.rate * 1000f) - cost;
     }
 
     // ------------------------------------------------------------------------------------------
@@ -396,6 +587,25 @@ public final class SandPlanner{
     public Result plan(){
         Result res = new Result();
         buildCandidates();
+        int chosenItem = 0;
+        if(p.beam && !cands.isEmpty()){
+            //одна руда на всю линию: заданная либо та, у которой больше суммарная добыча кандидатов
+            chosenItem = p.oreItem;
+            if(chosenItem == 0){
+                HashMap<Integer, Float> sum = new HashMap<>();
+                for(Cand c : cands) sum.merge(c.item, c.eff, Float::sum);
+                float bestSum = -1f;
+                for(var e : sum.entrySet()){
+                    if(e.getValue() > bestSum || (e.getValue() == bestSum && e.getKey() < chosenItem)){
+                        bestSum = e.getValue();
+                        chosenItem = e.getKey();
+                    }
+                }
+            }
+            final int ci = chosenItem;
+            cands.removeIf(c -> c.item != ci);
+            for(int i = 0; i < cands.size(); i++) cands.get(i).id = i;
+        }
         if(cands.isEmpty()){
             res.error = "no-walls";
             return res;
@@ -514,10 +724,14 @@ public final class SandPlanner{
             int t = e[1];
             res.items.add(new Item(DUCT, t % g.w + g.ox, t / g.w + g.oy, r.dir[t]));
         }
-        for(Cand c : r.crushers) res.items.add(new Item(CRUSHER, c.x, c.y, c.rot));
+        //координата блока в движке: у чётной стороны (2) это левый нижний угол, у нечётной (3) - центр
+        int off = ((p.beam ? p.size : 2) - 1) / 2;
+        for(Cand c : r.crushers) res.items.add(new Item(DRILL, c.x + off, c.y + off, c.rot));
+        if(p.beam && !r.crushers.isEmpty()) res.item = r.crushers.get(0).item;
+        for(int t = 0; t < n; t++) if(r.occ[t] == GAP) res.gaps.add(new int[]{t % g.w + g.ox, t / g.w + g.oy});
         res.crushers = r.crushers.size();
         res.ducts = r.ducts.size();
-        res.sandRate = r.rate;
+        res.rate = r.rate;
     }
 
     // ------------------------------------------------------------------------------------------
@@ -781,16 +995,18 @@ public final class SandPlanner{
     String ascii(Result res, Run r){
         char[] ch = new char[n];
         for(int t = 0; t < n; t++){
-            if(g.sand[t] > 0) ch[t] = '#';
+            if(g.sand[t] > 0 || (p.beam && g.ore[t] > 0 && g.solid[t])) ch[t] = '#';
+            else if(p.beam && g.solid[t]) ch[t] = 'X';
             else if(!g.free[t]) ch[t] = 'x';
             else ch[t] = '.';
             if(g.pw[t] > 0) ch[t] = 'P';
         }
         for(Item it : res.items){
             switch(it.kind){
-                case CRUSHER -> {
+                case DRILL -> {
                     char c = "ABCD".charAt(it.rot);
-                    for(int dx = 0; dx < 2; dx++) for(int dy = 0; dy < 2; dy++) ch[g.idx(it.x + dx, it.y + dy)] = c;
+                    int sz = p.beam ? p.size : 2, off = (sz - 1) / 2;
+                    for(int dx = 0; dx < sz; dx++) for(int dy = 0; dy < sz; dy++) ch[g.idx(it.x - off + dx, it.y - off + dy)] = c;
                 }
                 case DUCT -> ch[g.idx(it.x, it.y)] = ">^<v".charAt(it.rot);
                 case NODE -> ch[g.idx(it.x, it.y)] = 'n';
@@ -798,6 +1014,8 @@ public final class SandPlanner{
                 }
             }
         }
+        //зазор между бурами и рудой (под трубы)
+        for(int[] q : res.gaps) if(ch[g.idx(q[0], q[1])] == '.') ch[g.idx(q[0], q[1])] = '~';
         //свободная полоса перед выходом
         for(int k = 1; k <= p.exitLane; k++){
             int lx = res.exitX + DX[res.exitDir] * k, ly = res.exitY + DY[res.exitDir] * k;
