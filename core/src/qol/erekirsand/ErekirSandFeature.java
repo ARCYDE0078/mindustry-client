@@ -167,6 +167,7 @@ public class ErekirSandFeature implements Feature{
         x1 = Math.min(world.width() - 1, x1);
         y1 = Math.min(world.height() - 1, y1);
         int w = x1 - x0 + 1, h = y1 - y0 + 1;
+        Log.info("[erekir-sand] zone @,@ .. @,@ (@x@ tiles)", x0, y0, x1, y1, w, h);
         if(w < MIN_ZONE_SIDE || h < MIN_ZONE_SIDE){
             ui.showInfoToast(Core.bundle.format("qol.erekir-sand.small", MIN_ZONE_SIDE), 4f);
             return;
