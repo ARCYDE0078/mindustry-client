@@ -181,6 +181,117 @@ public class DrillPlannerTest{
             boolean ok = g.in(fx, fy) && owner[g.idx(fx, fy)] >= 0 && r.items.get(owner[g.idx(fx, fy)]).kind == DrillPlanner.DUCT;
             check(ok, "утка смотрит не в утку " + it);
         }
+        if(p.prune) verifyMinimal(g, r, p);
+    }
+
+    /**
+     * Независимая проверка «нет лишнего»: снимаем по одной каждую утку (кроме выходной) - и какому-то буру добыча перестаёт
+     * доезжать до выхода; снимаем по одному каждый узел - и питание перестаёт доходить до какого-то бура (или до внешней сети,
+     * если планировщик к ней подключился). Правила переписаны здесь заново, а не взяты из планировщика.
+     */
+    static void verifyMinimal(DrillPlanner.Grid g, DrillPlanner.Result r, DrillPlanner.Params p){
+        for(DrillPlanner.Item it : r.items){
+            if(it.kind == DrillPlanner.DUCT && !(it.x == r.exitX && it.y == r.exitY))
+                check(!allDeliver(g, r, p, it), "лишняя утка " + it.x + "," + it.y + ": без неё вся добыча всё равно доезжает до выхода");
+            if(it.kind == DrillPlanner.NODE && r.powerOk)
+                check(!allPowered(g, r, p, it), "лишний узел " + it.x + "," + it.y + ": без него питание всё равно доходит до всех буров");
+        }
+    }
+
+    /** Доезжает ли добыча от каждого бура до выходной утки, если утки skip нет. */
+    static boolean allDeliver(DrillPlanner.Grid g, DrillPlanner.Result r, DrillPlanner.Params p, DrillPlanner.Item skip){
+        int sz = p.beam ? p.size : 2, off = (sz - 1) / 2;
+        HashMap<Integer, DrillPlanner.Item> duct = new HashMap<>();
+        for(DrillPlanner.Item it : r.items) if(it.kind == DrillPlanner.DUCT && it != skip) duct.put(g.idx(it.x, it.y), it);
+        for(DrillPlanner.Item b : r.items){
+            if(b.kind != DrillPlanner.DRILL) continue;
+            int bx = b.x - off, by = b.y - off;
+            boolean got = false;
+            for(int dx = -1; dx <= sz && !got; dx++) for(int dy = -1; dy <= sz && !got; dy++){
+                boolean inside = dx >= 0 && dx < sz && dy >= 0 && dy < sz;
+                boolean corner = (dx == -1 || dx == sz) && (dy == -1 || dy == sz);
+                if(inside || corner) continue;
+                int x = bx + dx, y = by + dy;
+                if(!g.in(x, y)) continue;
+                DrillPlanner.Item cur = duct.get(g.idx(x, y));
+                if(cur == null) continue;
+                //бур не отдаёт в утку, смотрящую на него
+                int fx = cur.x + DrillPlanner.DX[cur.rot], fy = cur.y + DrillPlanner.DY[cur.rot];
+                if(fx >= bx && fx < bx + sz && fy >= by && fy < by + sz) continue;
+                for(int guard = 0; guard < 3000 && cur != null; guard++){
+                    if(cur.x == r.exitX && cur.y == r.exitY){ got = true; break; }
+                    int nx = cur.x + DrillPlanner.DX[cur.rot], ny = cur.y + DrillPlanner.DY[cur.rot];
+                    cur = g.in(nx, ny) ? duct.get(g.idx(nx, ny)) : null;
+                }
+            }
+            if(!got) return false;
+        }
+        return true;
+    }
+
+    /** Все ли буры (и внешняя сеть, если планировщик к ней подключился) в одной сети питания, если узла skip нет. */
+    static boolean allPowered(DrillPlanner.Grid g, DrillPlanner.Result r, DrillPlanner.Params p, DrillPlanner.Item skip){
+        int sz = p.beam ? p.size : 2, off = (sz - 1) / 2;
+        int[] id = g.pw.clone();
+        int[] par = new int[100000];
+        for(int i = 0; i < par.length; i++) par[i] = i;
+        int k = 0, nid = 2000;
+        List<Integer> bores = new ArrayList<>();
+        List<int[]> nodes = new ArrayList<>();
+        for(DrillPlanner.Item it : r.items){
+            if(it.kind == DrillPlanner.DRILL){
+                int v = nid++;
+                bores.add(v);
+                for(int a = 0; a < sz; a++) for(int b = 0; b < sz; b++) id[g.idx(it.x - off + a, it.y - off + b)] = v;
+            }else if(it.kind == DrillPlanner.NODE && it != skip){
+                int v = nid++;
+                id[g.idx(it.x, it.y)] = v;
+                nodes.add(new int[]{it.x, it.y, v});
+            }
+        }
+        for(int[] nd : nodes){
+            for(int d = 0; d < 4; d++){
+                for(int j = 1; j <= p.nodeRange; j++){
+                    int x = nd[0] + DrillPlanner.DX[d] * j, y = nd[1] + DrillPlanner.DY[d] * j;
+                    if(!g.in(x, y)) break;
+                    int c = id[g.idx(x, y)];
+                    if(c < 0) break;
+                    if(c > 0){
+                        int ra = root(par, nd[2]), rb = root(par, c);
+                        par[ra] = rb;
+                        break;
+                    }
+                }
+            }
+        }
+        int main = root(par, bores.get(0));
+        for(int v : bores) if(root(par, v) != main) return false;
+        if(r.gridLinked && root(par, 1) != main) return false;
+        return true;
+    }
+
+    static int root(int[] par, int a){
+        while(par[a] != a){
+            par[a] = par[par[a]];
+            a = par[a];
+        }
+        return a;
+    }
+
+    /** Итоги по фаззингу: сколько уток/узлов с проверкой на лишнее и без неё (на каждой третьей карте считаем оба варианта). */
+    static long prunedDucts, rawDucts, prunedNodes, rawNodes, comparedCases;
+
+    static void compareRaw(DrillPlanner.Grid g, DrillPlanner.Params pp, DrillPlanner.Result pruned){
+        DrillPlanner.Params raw = new DrillPlanner.Params();
+        raw.beam = pp.beam; raw.size = pp.size; raw.range = pp.range; raw.tier = pp.tier; raw.drillTime = pp.drillTime;
+        raw.minGap = pp.minGap; raw.minOreCols = pp.minOreCols; raw.targetRate = pp.targetRate;
+        raw.exitDir = pp.exitDir; raw.oreItem = pp.oreItem;
+        raw.prune = false;
+        DrillPlanner.Result rr = new DrillPlanner(g, raw).plan();
+        if(rr.error != null) return;
+        comparedCases++;
+        prunedDucts += pruned.ducts; rawDucts += rr.ducts;
+        prunedNodes += pruned.nodes; rawNodes += rr.nodes;
     }
 
     /**
@@ -423,6 +534,7 @@ public class DrillPlannerTest{
             verifyLayout(g, r, pp);
             verifyOre(g, r, pp);
             verifyPipes(g, r, false);
+            if(seed % 3 == 1) compareRaw(g, pp, r);
             if(fails != before){ System.out.println("  (ore seed " + seed + ")"); System.out.print(r.ascii); }
             else ok++;
         }
@@ -481,6 +593,7 @@ public class DrillPlannerTest{
             if(r.rate < 14.4f * 0.999f){ shortfall++; if(System.getenv("SAND_VERBOSE") != null){ System.out.println("seed " + seed + " rate=" + r.rate); System.out.print(r.ascii);} } //на случайной карте песка может просто не хватить - это не ошибка планировщика
             if(!r.powerOk) { fails++; System.out.println("  FAIL fuzz seed " + seed + ": power"); }
             verifyLayout(g, r, pp);
+            if(seed % 3 == 1) compareRaw(g, pp, r);
             if(fails != before){ System.out.println("  (seed " + seed + ")"); System.out.print(r.ascii); }
             else ok++;
         }
@@ -704,5 +817,10 @@ public class DrillPlannerTest{
         fuzzOre(40, 60, 60);
         fuzzOre(6, 100, 90);
 
+        //проверка на лишнее реально что-то снимает (суммарно по случайным картам) и ничего не добавляет
+        System.out.printf("=== прореживание на %d картах: утки %d -> %d, узлы %d -> %d%n", comparedCases, rawDucts, prunedDucts, rawNodes, prunedNodes);
+        check(comparedCases > 0, "не сравнили ни одной карты");
+        check(prunedDucts + prunedNodes < rawDucts + rawNodes, "проверка на лишнее ничего не сняла");
+        check(prunedDucts <= rawDucts && prunedNodes <= rawNodes + rawNodes / 10 + 2, "после проверки на лишнее блоков стало больше");
     }
 }

@@ -2,6 +2,7 @@ package qol.erekirsand;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -116,6 +117,11 @@ public final class DrillPlanner{
         public int minOreCols = 2;
         /** Какую руду брать: id предмета + 1; 0 - ту, которой в выделении больше. */
         public int oreItem = 0;
+        /**
+         * Проверка на лишнее: утка убирается, если без неё каждый бур всё равно сдаёт добычу в выход; узел - если без него
+         * питание всё равно доходит до каждого бура (и до внешней сети, если мы к ней подключаемся). false - как раньше.
+         */
+        public boolean prune = true;
     }
 
     /** Снимок мира: окно плиток + зона, в которой разрешено строить. */
@@ -889,6 +895,7 @@ public final class DrillPlanner{
                 break;
             }
 
+            if(p.prune) pruneDucts(bestRun);
             res = new Result();
             emit(res, bestRun);
             unlinked.clear();
@@ -938,6 +945,59 @@ public final class DrillPlanner{
         res.ducts = r.ducts.size();
         res.rate = r.rate;
         res.pipeOk = r.pipeOpen;
+    }
+
+    /**
+     * Проверка на лишние утки. Бур сдаёт добычу в ЛЮБУЮ соседнюю утку у боковых/задней сторон (передняя сторона - зазор, там уток нет),
+     * а дальше она едет по цепочке до выходной. Значит, утка лишняя, если ни одному буру она не единственная: у каждого
+     * питаемого ею бура есть ещё хотя бы одна соседняя утка. Снимаем только «листья» (в утку никто не смотрит), иначе соседняя
+     * утка осталась бы смотреть в пустоту; снятие листа открывает следующий, так что целые ненужные ветки уходят цепочкой.
+     * Идём от самых дальних от выхода: из двух возможных подводов остаётся более короткий. Выходная утка не трогается.
+     * Порядок «лист за листом» достаточен: ветку можно снять целиком, только если каждый её лист по отдельности не нужен.
+     */
+    void pruneDucts(Run r){
+        int[] indeg = new int[n];
+        for(int t : r.ducts){
+            if(t == r.entry) continue;
+            int f = nb(t, r.dir[t]);
+            if(f >= 0) indeg[f]++;
+        }
+        int m = r.crushers.size();
+        int[] served = new int[m];
+        HashMap<Integer, List<Integer>> feeds = new HashMap<>();
+        for(int i = 0; i < m; i++){
+            Cand c = r.crushers.get(i);
+            for(int k = 0; k < c.portCount; k++){
+                int pt = c.ports[k];
+                if(r.occ[pt] != DUCT) continue;
+                served[i]++;
+                feeds.computeIfAbsent(pt, z -> new ArrayList<>()).add(i);
+            }
+        }
+        int[] depth = new int[n];
+        for(int t : r.ducts){
+            int d = 0, cur = t;
+            while(cur != r.entry && cur >= 0 && d < 5000){
+                cur = nb(cur, r.dir[cur]);
+                d++;
+            }
+            depth[t] = d;
+        }
+        PriorityQueue<int[]> pq = new PriorityQueue<>((a, b) -> a[0] != b[0] ? Integer.compare(b[0], a[0]) : Integer.compare(a[1], b[1]));
+        for(int t : r.ducts) if(t != r.entry && indeg[t] == 0) pq.add(new int[]{depth[t], t});
+        while(!pq.isEmpty()){
+            int t = pq.poll()[1];
+            List<Integer> fs = feeds.get(t);
+            boolean needed = false;
+            if(fs != null) for(int i : fs) if(served[i] <= 1){ needed = true; break; }
+            if(needed) continue; //единственный подвод какого-то бура (позже станет ещё нужнее - не вернёмся)
+            int f = nb(t, r.dir[t]);
+            r.occ[t] = 0;
+            r.dir[t] = -1;
+            if(fs != null) for(int i : fs) served[i]--;
+            if(f >= 0 && --indeg[f] == 0 && f != r.entry) pq.add(new int[]{depth[f], f});
+        }
+        r.ducts.removeIf(t -> t != r.entry && r.occ[t] != DUCT);
     }
 
     // ------------------------------------------------------------------------------------------
@@ -1113,6 +1173,8 @@ public final class DrillPlanner{
             for(int t : chain) placeNode(res, nodes, pw, t, nextId++);
         }
 
+        //проверка на лишнее: узлы, без которых питание всё равно доходит, убираем (только если сеть связана - иначе нечего беречь)
+        if(p.prune && res.powerOk && powerLinked(pw, nodes, terminalIds, gridId, null)) pruneNodes(pw, nodes, terminalIds, gridId, near);
         //итоговая проверка «с нуля» - по правилам лучей, а не по инкрементальным объединениям
         res.items.addAll(nodes);
         res.nodes = nodes.size();
@@ -1219,8 +1281,18 @@ public final class DrillPlanner{
         return arr;
     }
 
-    /** Пересчёт сети с нуля по правилам BeamNode.updateDirections и «два потребителя рядом не проводят». */
+    /** Пересчёт сети с нуля (см. {@link #powerLinked}); индексы буров вне главной компоненты кладёт в {@link #unlinked}. */
     boolean verifyPower(Run r, int[] pw, List<Item> nodes, List<Integer> terminals, int gridId){
+        return powerLinked(pw, nodes, terminals, gridId, unlinked);
+    }
+
+    /**
+     * Пересчёт сети с нуля по правилам BeamNode.updateDirections и «два потребителя рядом не проводят». Без побочных эффектов:
+     * в bad (если не null) кладёт индексы терминалов вне главной компоненты. true - все терминалы в одной компоненте
+     * (и во внешней сети gridId, если она есть).
+     */
+    boolean powerLinked(int[] pw, List<Item> nodes, List<Integer> terminals, int gridId, List<Integer> bad){
+        List<Integer> out = bad != null ? bad : new ArrayList<>();
         HashMap<Integer, Integer> p2 = new HashMap<>();
         java.util.function.IntUnaryOperator[] f = new java.util.function.IntUnaryOperator[1];
         f[0] = a -> {
@@ -1259,11 +1331,41 @@ public final class DrillPlanner{
             }
         }
         for(int i = 0; i < terminals.size(); i++){
-            if(f[0].applyAsInt(terminals.get(i)) != root) unlinked.add(i);
+            if(f[0].applyAsInt(terminals.get(i)) != root) out.add(i);
         }
-        if(!unlinked.isEmpty()) return false;
+        if(!out.isEmpty()) return false;
         if(gridId > 0 && f[0].applyAsInt(gridId) != root) return false;
         return true;
+    }
+
+    /**
+     * Проверка на лишние узлы: узел снимается, если без него питание всё равно доходит до каждого бура (и до внешней сети,
+     * если мы к ней подключались) - по тем же правилам лучей, что и итоговая проверка. Пробуем сначала самые дальние от буров
+     * (а при равенстве - поставленные позже): оставшиеся узлы жмутся к бурам. Снятие одного узла меняет лучи остальных
+     * (луч, упиравшийся в него, идёт дальше), поэтому проходим по кругу, пока что-то снимается: на выходе убрать любой
+     * один узел уже нельзя. pw очищается от снятых узлов.
+     */
+    void pruneNodes(int[] pw, List<Item> nodes, List<Integer> terminals, int gridId, int[] near){
+        boolean changed = true;
+        while(changed && !nodes.isEmpty()){
+            changed = false;
+            List<Item> order = new ArrayList<>(nodes);
+            Collections.reverse(order); //поставленные позже - раньше
+            order.sort(Comparator.comparingInt((Item it) -> -near[g.idx(it.x, it.y)])); //стабильная: при равенстве порядок «позже - раньше»
+            for(Item nd : order){
+                int t = g.idx(nd.x, nd.y);
+                int id = pw[t];
+                pw[t] = 0;
+                List<Item> rest = new ArrayList<>(nodes);
+                rest.remove(nd);
+                if(powerLinked(pw, rest, terminals, gridId, null)){
+                    nodes.remove(nd);
+                    changed = true;
+                }else{
+                    pw[t] = id;
+                }
+            }
+        }
     }
 
     // ------------------------------------------------------------------------------------------
