@@ -278,6 +278,7 @@ public abstract class ErekirDrillFeature implements Feature{
         if(res.rate < params.targetRate * 0.999f) msg.append('\n').append(Core.bundle.get(bundle() + ".partial"));
         if(!res.powerOk) msg.append('\n').append(Core.bundle.get(bundle() + ".nopower"));
         else if(!res.gridLinked) msg.append('\n').append(Core.bundle.get(bundle() + ".nogrid"));
+        if(!res.pipeOk) msg.append('\n').append(Core.bundle.get(bundle() + ".nopipe"));
         if(rejected > 0) msg.append('\n').append(Core.bundle.format(bundle() + ".rejected", rejected));
         ui.showInfoToast(msg.toString(), 7f);
         Log.info("[" + tag() + "] queued @ plans (rejected @)\n@", queued, rejected, res.ascii);

@@ -40,6 +40,8 @@ public final class DrillPlanner{
     public static final int DRILL = 1, CRUSHER = DRILL, DUCT = 2, NODE = 3;
     /** Клетка занята «не нашим» блоком, но и не пуста: свободная полоса перед выходной уткой. */
     static final byte RESERVED = 9;
+    /** Клетка на кратчайшем пути трубы от зазора наружу: узлы сюда не ставим, чтобы не перекрыть проход. */
+    static final byte PIPE = 10;
     /** Клетка зазора между плазменным буром и рудой: свободна и такой остаётся (трубы/луч). */
     static final byte GAP = 8;
     /** Штраф к весу кандидата за каждую лишнюю (сверх minGap) клетку зазора в столбце с рудой: при прочих равных бур жмётся к стене. */
@@ -97,8 +99,19 @@ public final class DrillPlanner{
         public int tier = 3;
         /** Зазор между буром и стеной: минимум столько свободных клеток в КАЖДОМ столбце луча. */
         public int minGap = 1;
-        /** Потолок зазора: дальше бур не ставим, хотя луч достал бы (иначе линия расползается по всей дальности и трубам не за что зацепиться). */
-        public int maxGap = 2;
+        /**
+         * Потолок зазора: дальше бур не ставим, хотя луч достал бы (иначе линия расползается по всей дальности и трубам не за что
+         * зацепиться). 3, а не 2, потому что на диагональной (ступенчатой) стене зазор 1-2 клетки не даёт трубе пройти от бура к бурам:
+         * углы зазоров касаются только по диагонали; с зазором 2-3 клетки они стыкуются боками.
+         */
+        public int maxGap = 3;
+        /**
+         * Зазоры всех буров обязаны образовать ОДНУ связную (по 4-соседям) сеть клеток, достижимую снаружи: по ней игрок
+         * протянет трубы с водородом. false - старое поведение (каждый зазор сам по себе).
+         */
+        public boolean pipeCorridor = true;
+        /** Сколько клеток-соединителей (резервируются как зазор) можно добавить, чтобы стыковать зазор нового бура с сетью зазоров. */
+        public int linkMax = 3;
         /** Сколько столбцов луча должны упираться в руду (иначе бур не рассматривается). */
         public int minOreCols = 2;
         /** Какую руду брать: id предмета + 1; 0 - ту, которой в выделении больше. */
@@ -159,6 +172,8 @@ public final class DrillPlanner{
         /** Клетки зазора между бурами и рудой (x, y): остаются свободными под трубы. */
         public final List<int[]> gaps = new ArrayList<>();
         public boolean powerOk = true, gridLinked;
+        /** Сеть зазоров под трубы связна и выходит наружу (иначе трубу к части буров не подвести). Для песка всегда true. */
+        public boolean pipeOk = true;
         /** Выходная утка (последняя в линии, песок из неё сыплется вперёд в никуда) и её направление. */
         public int exitX, exitY, exitDir;
         public String error;
@@ -174,6 +189,8 @@ public final class DrillPlanner{
     final List<Cand> cands = new ArrayList<>();
     /** Дробители, которые не удалось связать питанием (мешают соседи/стены): исключаются из расчёта и он повторяется. */
     boolean[] bannedGlobal;
+    /** В окне есть куда вывести трубу (свободная клетка вне рамки/на краю окна). */
+    boolean sinkAvail = true;
     /** Индексы (в Run.crushers) дробителей, не попавших в общую сеть питания, - заполняет verifyPower. */
     final List<Integer> unlinked = new ArrayList<>();
 
@@ -209,6 +226,9 @@ public final class DrillPlanner{
         float rate;
         float[] dist;
         int[] from;
+        /** Сколько клеток уже зарезервировано под зазоры (сеть труб). */
+        int gapTiles;
+        boolean pipeOpen = true;
 
         Run(){
             Arrays.fill(dir, (byte)-1);
@@ -523,14 +543,139 @@ public final class DrillPlanner{
         return bs < 0 ? INF : best;
     }
 
+    /** Сосед клетки t в направлении d или -1 (край окна). */
+    int nb(int t, int d){
+        int x = t % g.w + g.ox + DX[d], y = t / g.w + g.oy + DY[d];
+        return g.in(x, y) ? g.idx(x, y) : -1;
+    }
+
+    /** Клетка t граничит (по 4-соседям) с уже существующей сетью зазоров - клеткой GAP, которой нет в mine. */
+    boolean touchesNet(Run r, int t, java.util.Set<Integer> mine){
+        for(int d = 0; d < 4; d++){
+            int v = nb(t, d);
+            if(v >= 0 && r.occ[v] == GAP && !mine.contains(v)) return true;
+        }
+        return false;
+    }
+
+    /** Клетка вне рамки либо на краю окна: оттуда игрок протянет трубу (дальше мира мы не видим). */
+    boolean isSink(int t){
+        int x = t % g.w + g.ox, y = t / g.w + g.oy;
+        return !g.inZone(x, y) || x == g.ox || y == g.oy || x == g.ox + g.w - 1 || y == g.oy + g.h - 1;
+    }
+
+    boolean pipePassable(Run r, int t){
+        return g.free[t] && (r.occ[t] == 0 || r.occ[t] == GAP);
+    }
+
+    /** Есть ли вообще в окне свободная клетка снаружи (иначе трубе деваться некуда и требование о выходе наружу снимаем). */
+    boolean sinkExists(){
+        for(int t = 0; t < n; t++) if(g.free[t] && isSink(t)) return true;
+        return false;
+    }
+
+    /** Дотекают ли от клеток src по свободным (и не занятым нами) клеткам до клетки снаружи. */
+    boolean reachesSink(Run r, int[] src){
+        java.util.ArrayDeque<Integer> q = new java.util.ArrayDeque<>();
+        boolean[] seen = new boolean[n];
+        for(int t : src){
+            if(!seen[t]){
+                seen[t] = true;
+                q.add(t);
+            }
+        }
+        while(!q.isEmpty()){
+            int t = q.poll();
+            if(isSink(t)) return true;
+            for(int d = 0; d < 4; d++){
+                int v = nb(t, d);
+                if(v < 0 || seen[v] || !pipePassable(r, v)) continue;
+                seen[v] = true;
+                q.add(v);
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Зазор нового бура (его клетки уже помечены GAP) должен годиться под трубу. Труба идёт по 4-соседям, по диагонали не
+     * пройдёт, поэтому: либо зазор перекрывается с уже существующей сетью зазоров, либо примыкает к ней, либо дотягивается
+     * до неё цепочкой из не более {@link Params#linkMax} свободных клеток-соединителей (их тоже резервируем, дописываем в
+     * marked); а если не стыкуется - то хотя бы сам выходит наружу по свободным клеткам (отдельная стена со своей трубой).
+     * На диагональной стене зазоры двух соседних буров с зазором 1-2 клетки касаются углами и зажаты стеной и бурами:
+     * такой бур отбрасывается; с зазором 2-3 клетки зазоры стыкуются боком.
+     */
+    boolean linkGap(Run r, Cand c, List<Integer> marked){
+        if(r.gapTiles > 0){
+            java.util.HashSet<Integer> mine = new java.util.HashSet<>(marked);
+            for(int t : c.gap) if(!mine.contains(t)) return true; //часть зазора уже в сети: общий зазор
+            for(int t : marked) if(touchesNet(r, t, mine)) return true;
+
+            HashMap<Integer, Integer> par = new HashMap<>(), depth = new HashMap<>();
+            java.util.ArrayDeque<Integer> q = new java.util.ArrayDeque<>();
+            for(int t : marked){
+                par.put(t, -1);
+                depth.put(t, 0);
+                q.add(t);
+            }
+            while(!q.isEmpty()){
+                int u = q.poll();
+                int du = depth.get(u);
+                if(du >= p.linkMax) continue;
+                for(int d = 0; d < 4; d++){
+                    int v = nb(u, d);
+                    if(v < 0 || par.containsKey(v) || !g.free[v] || r.occ[v] != 0) continue;
+                    par.put(v, u);
+                    depth.put(v, du + 1);
+                    if(touchesNet(r, v, mine)){
+                        for(int w = v; w >= 0 && par.get(w) >= 0; w = par.get(w)){
+                            r.occ[w] = GAP;
+                            marked.add(w);
+                        }
+                        return true;
+                    }
+                    q.add(v);
+                }
+            }
+        }
+        return !sinkAvail || reachesSink(r, c.gap);
+    }
+
+    /** Каждая клетка зазора (вся сеть, любое число отдельных кусков) выходит наружу: труба подводится к каждому буру. */
+    boolean pipeOpen(Run r){
+        if(!sinkAvail) return true;
+        java.util.ArrayDeque<Integer> q = new java.util.ArrayDeque<>();
+        boolean[] seen = new boolean[n];
+        int gaps = 0;
+        for(int t = 0; t < n; t++){
+            if(r.occ[t] == GAP) gaps++;
+            if(pipePassable(r, t) && isSink(t)){
+                seen[t] = true;
+                q.add(t);
+            }
+        }
+        while(!q.isEmpty()){
+            int t = q.poll();
+            for(int d = 0; d < 4; d++){
+                int v = nb(t, d);
+                if(v < 0 || seen[v] || !pipePassable(r, v)) continue;
+                seen[v] = true;
+                q.add(v);
+            }
+        }
+        for(int t = 0; t < n; t++) if(r.occ[t] == GAP && !seen[t]) return false;
+        return true;
+    }
+
     void grow(Run r){
         boolean[] banned = bannedGlobal.clone();
         int guard = 0;
         int[] out = new int[1];
+        boolean corridor = p.beam && p.pipeCorridor;
         while(r.rate < p.targetRate && guard++ < 120){
             dijkstra(r);
-            int best = -1;
-            float bestScore = 0f;
+            //все годные кандидаты по убыванию веса: если лучший не стыкуется с сетью зазоров, пробуем следующий (без бана - позже он может подойти)
+            List<float[]> scored = new ArrayList<>();
             for(int i = 0; i < cands.size(); i++){
                 if(banned[i]) continue;
                 Cand c = cands.get(i);
@@ -538,47 +683,106 @@ public final class DrillPlanner{
                 float cost = portCost(r, c, out);
                 if(cost >= INF) continue;
                 float score = c.pref / (cost + p.crusherCostInDucts);
-                if(score > bestScore){
-                    bestScore = score;
-                    best = i;
+                if(score > 0f) scored.add(new float[]{score, i});
+            }
+            scored.sort((a, b) -> Float.compare(b[0], a[0]));
+            boolean placed = false;
+            for(float[] sc : scored){
+                int best = (int)sc[1];
+                Cand c = cands.get(best);
+                for(int t : c.foot) r.occ[t] = CRUSHER;
+                //зазор резервируем ДО пересчёта путей: утки обходят его
+                List<Integer> marked = new ArrayList<>();
+                for(int t : c.gap){
+                    if(r.occ[t] == 0){
+                        r.occ[t] = GAP;
+                        marked.add(t);
+                    }
                 }
-            }
-            if(best < 0) break;
-            Cand c = cands.get(best);
-            for(int t : c.foot) r.occ[t] = CRUSHER;
-            //зазор резервируем ДО пересчёта путей: утки обходят его
-            List<Integer> marked = new ArrayList<>();
-            for(int t : c.gap){
-                if(r.occ[t] == 0){
-                    r.occ[t] = GAP;
-                    marked.add(t);
+                if(corridor && !linkGap(r, c, marked)){
+                    for(int t : c.foot) r.occ[t] = 0;
+                    for(int t : marked) r.occ[t] = 0;
+                    continue;
                 }
-            }
-            dijkstra(r);
-            float cost = portCost(r, c, out);
-            if(cost >= INF){
-                for(int t : c.foot) r.occ[t] = 0;
-                for(int t : marked) r.occ[t] = 0;
-                banned[best] = true;
-                continue;
-            }
-            if(out[0] >= 0){
-                int s = out[0];
-                while(s >= 0){
-                    int t = s >> 2, d = s & 3;
-                    r.occ[t] = DUCT;
-                    r.dir[t] = (byte)d;
-                    r.ducts.add(t);
-                    s = r.from[s];
+                dijkstra(r);
+                float cost = portCost(r, c, out);
+                if(cost >= INF){
+                    for(int t : c.foot) r.occ[t] = 0;
+                    for(int t : marked) r.occ[t] = 0;
+                    banned[best] = true;
+                    dijkstra(r); //вернуть пути к состоянию до попытки (следующие кандидаты из списка считаются по ним)
+                    continue;
                 }
+                //утки нового бура кладём пробно: если они (или сам бур) отрежут от внешней стороны чей-то зазор, откатываем и банним
+                List<int[]> trial = new ArrayList<>();
+                if(out[0] >= 0){
+                    int s = out[0];
+                    while(s >= 0){
+                        int t = s >> 2, d = s & 3;
+                        trial.add(new int[]{t, r.occ[t], r.dir[t]});
+                        r.occ[t] = DUCT;
+                        r.dir[t] = (byte)d;
+                        s = r.from[s];
+                    }
+                }
+                if(corridor && !pipeOpen(r)){
+                    for(int[] u : trial){
+                        r.occ[u[0]] = (byte)u[1];
+                        r.dir[u[0]] = (byte)u[2];
+                    }
+                    for(int t : c.foot) r.occ[t] = 0;
+                    for(int t : marked) r.occ[t] = 0;
+                    banned[best] = true;
+                    dijkstra(r);
+                    continue;
+                }
+                for(int[] u : trial) r.ducts.add(u[0]);
+                r.crushers.add(c);
+                r.gapTiles += marked.size();
+                r.rate += 60f * c.eff / p.drillTime;
+                placed = true;
+                break;
             }
-            r.crushers.add(c);
-            r.rate += 60f * c.eff / p.drillTime;
+            if(!placed) break;
+        }
+        if(corridor){
+            r.pipeOpen = pipeOpen(r);
+            if(r.pipeOpen) reservePipes(r);
+        }
+    }
+
+    /**
+     * Узлы питания ставятся уже после буров и могут встать ровно в то место, по которому игрок протянул бы трубу к зазору.
+     * Поэтому от каждой клетки зазора по кратчайшему пути наружу помечаем клетки как PIPE (узлы их обходят).
+     */
+    void reservePipes(Run r){
+        int[] par = new int[n];
+        Arrays.fill(par, -2);
+        java.util.ArrayDeque<Integer> q = new java.util.ArrayDeque<>();
+        for(int t = 0; t < n; t++){
+            if(pipePassable(r, t) && isSink(t)){
+                par[t] = -1;
+                q.add(t);
+            }
+        }
+        while(!q.isEmpty()){
+            int t = q.poll();
+            for(int d = 0; d < 4; d++){
+                int v = nb(t, d);
+                if(v < 0 || par[v] != -2 || !pipePassable(r, v)) continue;
+                par[v] = t;
+                q.add(v);
+            }
+        }
+        for(int t = 0; t < n; t++){
+            if(r.occ[t] != GAP || par[t] == -2) continue;
+            for(int u = par[t]; u >= 0; u = par[u]) if(r.occ[u] == 0) r.occ[u] = PIPE;
         }
     }
 
     float runScore(Run r){
         float cost = 30f * r.crushers.size() + r.ducts.size();
+        if(!r.pipeOpen) cost += 300f; //зазоры замкнуты в кольцо: трубу не подвести - берём другое положение выхода, если есть
         return (r.rate >= p.targetRate ? 1e6f : r.rate * 1000f) - cost;
     }
 
@@ -587,6 +791,7 @@ public final class DrillPlanner{
     public Result plan(){
         Result res = new Result();
         buildCandidates();
+        sinkAvail = sinkExists();
         int chosenItem = 0;
         if(p.beam && !cands.isEmpty()){
             //одна руда на всю линию: заданная либо та, у которой больше суммарная добыча кандидатов
@@ -732,6 +937,7 @@ public final class DrillPlanner{
         res.crushers = r.crushers.size();
         res.ducts = r.ducts.size();
         res.rate = r.rate;
+        res.pipeOk = r.pipeOpen;
     }
 
     // ------------------------------------------------------------------------------------------
@@ -767,25 +973,61 @@ public final class DrillPlanner{
         return 0;
     }
 
-    /** К каким компонентам присоединится узел в (x,y): лучи в 4 стороны + соседние энергоблоки. Возвращает число различных корней в out. */
-    int attach(int[] pw, int x, int y, int[] out){
+    /**
+     * К каким компонентам присоединится узел в (x,y): лучи в 4 стороны (до первого энергоблока; сосед - это луч длиной 1).
+     * Возвращает число различных корней в out; в dist[i] - длина самого короткого луча до корня out[i].
+     */
+    int attach(int[] pw, int x, int y, int[] out, int[] dist){
         int cnt = 0;
         for(int d = 0; d < 4; d++){
-            int c = hit(pw, x, y, d);
-            if(c > 0) cnt = addRoot(out, cnt, find(c));
-            int nx = x + DX[d], ny = y + DY[d];
-            if(g.in(nx, ny)){
-                int a = pw[g.idx(nx, ny)];
-                if(a > 0) cnt = addRoot(out, cnt, find(a));
+            for(int j = 1; j <= p.nodeRange; j++){
+                int tx = x + DX[d] * j, ty = y + DY[d] * j;
+                if(!g.in(tx, ty)) break;
+                int c = pw[g.idx(tx, ty)];
+                if(c == INSULATED) break;
+                if(c > 0){
+                    int root = find(c), at = -1;
+                    for(int i = 0; i < cnt; i++) if(out[i] == root) at = i;
+                    if(at < 0){
+                        out[cnt] = root;
+                        dist[cnt] = j;
+                        cnt++;
+                    }else if(j < dist[at]){
+                        dist[at] = j;
+                    }
+                    break;
+                }
             }
         }
         return cnt;
     }
 
-    static int addRoot(int[] out, int cnt, int root){
-        for(int i = 0; i < cnt; i++) if(out[i] == root) return cnt;
-        out[cnt] = root;
-        return cnt + 1;
+    /** Расстояние (по Чебышёву) от каждой клетки до ближайшего бура: узлы выбираем поближе к бурам. */
+    int[] nearField(Run r){
+        int[] near = new int[n];
+        Arrays.fill(near, 99);
+        java.util.ArrayDeque<Integer> q = new java.util.ArrayDeque<>();
+        for(Cand c : r.crushers){
+            for(int t : c.foot){
+                near[t] = 0;
+                q.add(t);
+            }
+        }
+        while(!q.isEmpty()){
+            int t = q.poll();
+            int x = t % g.w + g.ox, y = t / g.w + g.oy;
+            for(int dx = -1; dx <= 1; dx++){
+                for(int dy = -1; dy <= 1; dy++){
+                    if((dx | dy) == 0 || !g.in(x + dx, y + dy)) continue;
+                    int v = g.idx(x + dx, y + dy);
+                    if(near[v] > near[t] + 1){
+                        near[v] = near[t] + 1;
+                        q.add(v);
+                    }
+                }
+            }
+        }
+        return near;
     }
 
     boolean nodeSpot(Run r, int[] pw, int t){
@@ -824,7 +1066,8 @@ public final class DrillPlanner{
         }
         //существующие сети: одна и та же сеть = один id уже на уровне снимка
 
-        int[] roots = new int[16];
+        int[] roots = new int[16], rd = new int[16];
+        int[] near = nearField(r);
         int guard = 0;
         List<Item> nodes = new ArrayList<>();
         while(guard++ < 400){
@@ -834,25 +1077,26 @@ public final class DrillPlanner{
             if(gridId > 0) rel.add(find(gridId));
             if(rel.size() <= 1) break;
 
-            //1) жадно: один узел, склеивающий как можно больше нужных компонентов
-            int bestT = -1, bestGain = 1;
-            double bestDist = Double.MAX_VALUE;
+            //1) жадно: один узел, склеивающий как можно больше нужных компонентов, но поближе к ним: вес = 8 за каждый
+            //   склеенный компонент минус длины лучей до них (узел у самого бура лучше узла на пределе дальности луча)
+            int bestT = -1;
+            double bestScore = -1e18;
             for(int t = 0; t < n; t++){
                 if(!nodeSpot(r, pw, t)) continue;
                 int x = t % g.w + g.ox, y = t / g.w + g.oy;
-                int cnt = attach(pw, x, y, roots);
-                int k = 0;
-                for(int i = 0; i < cnt; i++) if(rel.contains(roots[i])) k++;
+                int cnt = attach(pw, x, y, roots, rd);
+                int k = 0, sum = 0;
+                for(int i = 0; i < cnt; i++){
+                    if(rel.contains(roots[i])){
+                        k++;
+                        sum += rd[i];
+                    }
+                }
                 if(k < 2) continue;
-                double dd = Math.hypot(x - zcx, y - zcy);
-                if(k > bestGain || (k == bestGain && bestT >= 0 && dd < bestDist)){
-                    bestGain = k;
+                double score = 8.0 * k - sum - 0.1 * near[t];
+                if(score > bestScore){
+                    bestScore = score;
                     bestT = t;
-                    bestDist = dd;
-                }else if(bestT < 0){
-                    bestGain = k;
-                    bestT = t;
-                    bestDist = dd;
                 }
             }
             if(bestT >= 0){
@@ -860,9 +1104,8 @@ public final class DrillPlanner{
                 continue;
             }
 
-            //2) цепочка узлов от главной компоненты к ближайшей другой (BFS по «прыжкам» луча)
-            int mainRoot = gridId > 0 ? find(gridId) : find(terminalIds.get(0));
-            int[] chain = chainSearch(r, pw, mainRoot, rel);
+            //2) цепочка узлов от главной компоненты к ближайшей другой (Дейкстра по «прыжкам» луча, узлы поближе к бурам дешевле)
+            int[] chain = chainSearch(r, pw, rel, near);
             if(chain == null){
                 res.powerOk = false;
                 break;
@@ -896,35 +1139,48 @@ public final class DrillPlanner{
         nodes.add(new Item(NODE, x, y, 0));
     }
 
-    /** BFS по клеткам-кандидатам для узла: возвращает цепочку клеток (не пустую) или null. */
-    int[] chainSearch(Run r, int[] pw, int mainRoot, java.util.HashSet<Integer> rel){
-        int[] prev = new int[n];
-        Arrays.fill(prev, -2);
-        ArrayList<Integer> queue = new ArrayList<>();
-        int[] roots = new int[16];
+    /**
+     * Мультиисточниковая Дейкстра по клеткам-кандидатам для узла: стартуем ОДНОВРЕМЕННО от всех клеток, откуда виден какой-либо
+     * нужный компонент (у каждой метка - её компонент), растём прыжками луча, пока две волны с РАЗНЫМИ метками не встретятся
+     * (узел t видит узел u по лучу, а метки у них разные) - это и есть самая короткая связка между двумя компонентами.
+     * Так цепочка находится там, где компоненты ближе всего друг к другу, а не там, где «первый» бур (он может быть зажат
+     * выходной полосой и видеть мир только с дальнего края). Возвращает цепочку клеток (не пустую) или null.
+     * Цена узла = 1 + четверть расстояния до ближайшего бура: цепочка не уходит от буров без нужды, но и лишних не плодит.
+     */
+    int[] chainSearch(Run r, int[] pw, java.util.HashSet<Integer> rel, int[] near){
+        float[] cost = new float[n];
+        Arrays.fill(cost, INF);
+        int[] prev = new int[n], label = new int[n];
+        Arrays.fill(prev, -1);
+        PriorityQueue<float[]> pq = new PriorityQueue<>((a, b) -> Float.compare(a[0], b[0]));
+        int[] roots = new int[16], rd = new int[16];
         for(int t = 0; t < n; t++){
             if(!nodeSpot(r, pw, t)) continue;
             int x = t % g.w + g.ox, y = t / g.w + g.oy;
-            int cnt = attach(pw, x, y, roots);
-            boolean touchMain = false;
-            for(int i = 0; i < cnt; i++) if(roots[i] == mainRoot) touchMain = true;
-            if(touchMain){
-                prev[t] = -1;
-                queue.add(t);
+            int cnt = attach(pw, x, y, roots, rd);
+            for(int i = 0; i < cnt; i++){
+                if(!rel.contains(roots[i])) continue;
+                cost[t] = 1f + 0.25f * near[t];
+                label[t] = roots[i];
+                pq.add(new float[]{cost[t], t});
+                break;
             }
         }
-        for(int qi = 0; qi < queue.size(); qi++){
-            int t = queue.get(qi);
+        float best = INF;
+        int bt = -1, bu = -1;
+        while(!pq.isEmpty()){
+            float[] top = pq.poll();
+            int t = (int)top[1];
+            if(top[0] > cost[t]) continue;
+            if(top[0] >= best) break; //любая дальнейшая встреча уже не дешевле найденной
             int x = t % g.w + g.ox, y = t / g.w + g.oy;
-            //цель: узел здесь присоединится к другой нужной компоненте
-            int cnt = attach(pw, x, y, roots);
+            //сам узел видит сразу две нужные компоненты (в норме это ловит шаг 1, но на всякий случай)
+            int cnt = attach(pw, x, y, roots, rd);
             for(int i = 0; i < cnt; i++){
-                if(roots[i] != mainRoot && rel.contains(roots[i])){
-                    ArrayList<Integer> path = new ArrayList<>();
-                    for(int c = t; c >= 0; c = prev[c]) path.add(c);
-                    int[] arr = new int[path.size()];
-                    for(int k = 0; k < arr.length; k++) arr[k] = path.get(k);
-                    return arr;
+                if(roots[i] != label[t] && rel.contains(roots[i]) && cost[t] < best){
+                    best = cost[t];
+                    bt = t;
+                    bu = -1;
                 }
             }
             //прыжки по осям до первого энергоблока
@@ -934,13 +1190,33 @@ public final class DrillPlanner{
                     if(!g.in(ux, uy)) break;
                     int u = g.idx(ux, uy);
                     if(pw[u] != 0) break;
-                    if(!nodeSpot(r, pw, u) || prev[u] != -2) continue;
-                    prev[u] = t;
-                    queue.add(u);
+                    if(!nodeSpot(r, pw, u)) continue;
+                    if(cost[u] < INF && label[u] != label[t]){
+                        //встреча двух волн: t и u видят друг друга по лучу
+                        if(cost[t] + cost[u] < best){
+                            best = cost[t] + cost[u];
+                            bt = t;
+                            bu = u;
+                        }
+                        continue;
+                    }
+                    float nc = cost[t] + 1f + 0.25f * near[u];
+                    if(nc < cost[u]){
+                        cost[u] = nc;
+                        prev[u] = t;
+                        label[u] = label[t];
+                        pq.add(new float[]{nc, u});
+                    }
                 }
             }
         }
-        return null;
+        if(bt < 0) return null;
+        ArrayList<Integer> path = new ArrayList<>();
+        for(int c = bt; c >= 0; c = prev[c]) path.add(c);
+        if(bu >= 0) for(int c = bu; c >= 0; c = prev[c]) path.add(c);
+        int[] arr = new int[path.size()];
+        for(int k = 0; k < arr.length; k++) arr[k] = path.get(k);
+        return arr;
     }
 
     /** Пересчёт сети с нуля по правилам BeamNode.updateDirections и «два потребителя рядом не проводят». */

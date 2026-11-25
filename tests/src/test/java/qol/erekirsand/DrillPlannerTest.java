@@ -241,7 +241,7 @@ public class DrillPlannerTest{
         for(int[] q : r.gaps) check(g.in(q[0], q[1]) && owner[g.idx(q[0], q[1])] < 0, "помеченный зазор занят " + q[0] + "," + q[1]);
     }
 
-    static void runOre(String name, String[] rows, boolean grid, int exitDir, int oreItem, boolean expectOk){
+    static DrillPlanner.Result runOre(String name, String[] rows, boolean grid, int exitDir, int oreItem, boolean expectOk){
         System.out.println("=== [ore] " + name);
         DrillPlanner.Grid g = parseOre(rows);
         if(grid) g.grids.add(new int[]{1, 2, 2, 1});
@@ -252,7 +252,7 @@ public class DrillPlannerTest{
         if(r.error != null){
             System.out.println("  error=" + r.error);
             check(!expectOk, "ожидали раскладку, а планировщик: " + r.error);
-            return;
+            return null;
         }
         check(expectOk, "ожидали ошибку, а раскладка есть");
         System.out.print(r.ascii);
@@ -261,6 +261,116 @@ public class DrillPlannerTest{
         check(r.powerOk, "power");
         verifyLayout(g, r, p);
         verifyOre(g, r, p);
+        verifyPipes(g, r, !grid);
+        return r;
+    }
+
+    /** Ромб/ступени: стена руды там, где y >= base - slope*x (y вверх). Для проверки зазора на диагональных стенах. */
+    static String[] stairs(int w, int h, double slope, double base, boolean mirror){
+        String[] rows = new String[h];
+        for(int ry = 0; ry < h; ry++){
+            int y = h - 1 - ry;
+            StringBuilder sb = new StringBuilder();
+            for(int x = 0; x < w; x++){
+                int xx = mirror ? w - 1 - x : x;
+                sb.append(y >= Math.round(base - slope * xx) ? 'B' : '.');
+            }
+            rows[ry] = sb.toString();
+        }
+        return rows;
+    }
+
+    /** Прямоугольный блок руды: колонки x0..x1, строки (сверху вниз) r0..r1 внутри пустой карты w x h; top - сколько верхних рядов тоже стена. */
+    static String[] block(int w, int h, int x0, int x1, int r0, int r1, int top){
+        String[] rows = new String[h];
+        for(int ry = 0; ry < h; ry++){
+            StringBuilder sb = new StringBuilder();
+            for(int x = 0; x < w; x++) sb.append(ry < top || (ry >= r0 && ry <= r1 && x >= x0 && x <= x1) ? 'B' : '.');
+            rows[ry] = sb.toString();
+        }
+        return rows;
+    }
+
+    /**
+     * Зазоры под трубы: (1) каждая клетка зазора достижима снаружи по свободным клеткам, не занятым нашими блоками (труба
+     * подведётся к каждому буру); (2) у узлов нет «дальних»: без внешней сети каждый узел в пределах 4 клеток (по Чебышёву)
+     * от какого-нибудь бура.
+     */
+    static void verifyPipes(DrillPlanner.Grid g, DrillPlanner.Result r, boolean checkNodes){
+        int sz = 2, off = 0;
+        boolean[] taken = new boolean[g.w * g.h];
+        List<int[]> drills = new ArrayList<>();
+        for(DrillPlanner.Item it : r.items){
+            if(it.kind == DrillPlanner.DRILL){
+                drills.add(new int[]{it.x - off, it.y - off});
+                for(int a = 0; a < sz; a++) for(int b = 0; b < sz; b++) taken[g.idx(it.x - off + a, it.y - off + b)] = true;
+            }else taken[g.idx(it.x, it.y)] = true;
+        }
+        boolean hasSink = false;
+        boolean[] seen = new boolean[g.w * g.h];
+        ArrayDeque<Integer> q = new ArrayDeque<>();
+        for(int y = 0; y < g.h; y++) for(int x = 0; x < g.w; x++){
+            //«снаружи» = край окна или клетка вне рамки (там игрок протянет трубу)
+            boolean border = x == 0 || y == 0 || x == g.w - 1 || y == g.h - 1 || !g.inZone(x + g.ox, y + g.oy);
+            int i = g.idx(x, y);
+            if(border && g.free[i] && !taken[i]){ hasSink = true; seen[i] = true; q.add(i); }
+        }
+        while(!q.isEmpty()){
+            int t = q.poll();
+            int x = t % g.w, y = t / g.w;
+            for(int d = 0; d < 4; d++){
+                int nx = x + DrillPlanner.DX[d], ny = y + DrillPlanner.DY[d];
+                if(!g.in(nx, ny)) continue;
+                int v = g.idx(nx, ny);
+                if(seen[v] || !g.free[v] || taken[v]) continue;
+                seen[v] = true;
+                q.add(v);
+            }
+        }
+        if(hasSink) for(int[] gp : r.gaps) check(seen[g.idx(gp[0], gp[1])], "зазор " + gp[0] + "," + gp[1] + " отрезан от внешней стороны: трубу не подвести");
+        check(r.pipeOk || !hasSink, "pipeOk=false, хотя снаружи есть место");
+        if(checkNodes){
+            int worst = 0;
+            for(DrillPlanner.Item it : r.items){
+                if(it.kind != DrillPlanner.NODE) continue;
+                int best = 99;
+                for(int[] d : drills) best = Math.min(best, Math.max(Math.max(d[0] - it.x, it.x - (d[0] + sz - 1)), Math.max(d[1] - it.y, it.y - (d[1] + sz - 1))));
+                worst = Math.max(worst, best);
+            }
+            check(worst <= 6, "узел в " + worst + " клетках от ближайшего бура (должен быть рядом)");
+        }
+    }
+
+    /** Число компонент связности (по 4-соседям) среди клеток зазора. */
+    static int gapComponents(DrillPlanner.Result r){
+        HashSet<Long> set = new HashSet<>();
+        for(int[] q : r.gaps) set.add(((long)q[0] << 32) | (q[1] & 0xffffffffL));
+        int comps = 0;
+        HashSet<Long> done = new HashSet<>();
+        for(long k : set){
+            if(done.contains(k)) continue;
+            comps++;
+            ArrayDeque<Long> st = new ArrayDeque<>();
+            st.add(k);
+            done.add(k);
+            while(!st.isEmpty()){
+                long c = st.poll();
+                int x = (int)(c >> 32), y = (int)c;
+                for(int d = 0; d < 4; d++){
+                    long nk = (((long)(x + DrillPlanner.DX[d])) << 32) | ((y + DrillPlanner.DY[d]) & 0xffffffffL);
+                    if(set.contains(nk) && done.add(nk)) st.add(nk);
+                }
+            }
+        }
+        return comps;
+    }
+
+    static int rotations(DrillPlanner.Result r){
+        boolean[] seen = new boolean[4];
+        for(DrillPlanner.Item it : r.items) if(it.kind == DrillPlanner.DRILL) seen[it.rot] = true;
+        int c = 0;
+        for(boolean b : seen) if(b) c++;
+        return c;
     }
 
     /** Случайные карты руды: сглаженный шум -> стены; руда пятнами (бериллий/графит), часть стены - голая скала. */
@@ -312,6 +422,7 @@ public class DrillPlannerTest{
             if(!r.powerOk){ fails++; System.out.println("  FAIL fuzzOre seed " + seed + ": power"); }
             verifyLayout(g, r, pp);
             verifyOre(g, r, pp);
+            verifyPipes(g, r, false);
             if(fails != before){ System.out.println("  (ore seed " + seed + ")"); System.out.print(r.ascii); }
             else ok++;
         }
@@ -557,6 +668,38 @@ public class DrillPlannerTest{
             "................................",
             "................................",
         }, true, -1, 0, true);
+
+        //карман с выходом наружу сверху: у каждой стены своя труба, обе достижимы снаружи
+        runOre("карман с проёмом сверху", new String[]{
+            "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "xBBBBB..................BBBBBBBx",
+            "xBBBBB..................BBBBBBBx",
+            "xBBBBB..................BBBBBBBx",
+            "xBBBBB..................BBBBBBBx",
+            "xBBBBB..................BBBBBBBx",
+            "xBBBBB..................BBBBBBBx",
+            "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        }, false, -1, 0, true);
+
+        //диагональные (ступенчатые) стены: зазор 1 клетка тут не стыкуется, должен получиться ОДИН связный проход под трубу
+        for(boolean mirror : new boolean[]{false, true}){
+            for(double slope : new double[]{1.0, 0.5, 2.0}){
+                String tag = "диагональная стена, наклон " + slope + (mirror ? " (зеркало)" : "");
+                int w = slope == 2.0 ? 18 : 30, hh = slope == 2.0 ? 34 : 28;
+                DrillPlanner.Result r = runOre(tag, stairs(w, hh, slope, hh - 3, mirror), false, -1, 0, true);
+                if(r != null){
+                    check(r.crushers >= 4, tag + ": буров мало: " + r.crushers);
+                    //у каждого куска свой выход наружу (verifyPipes), но кусков должно быть мало: без требования связности их ~по куску на бур
+                    check(gapComponents(r) <= 3, tag + ": зазор распался на " + gapComponents(r) + " кусков, трубе не пройти");
+                }
+            }
+        }
+
+        //руда со всех сторон: островок в чистом поле и полуостров с тремя сторонами
+        DrillPlanner.Result isl = runOre("островок руды: со всех сторон", block(30, 26, 11, 18, 8, 15, 0), false, -1, 0, true);
+        if(isl != null) check(rotations(isl) >= 3, "островок: буры только с " + rotations(isl) + " сторон(ы)");
+        DrillPlanner.Result pen = runOre("полуостров руды: с трёх сторон", block(32, 26, 12, 17, 3, 16, 3), false, -1, 0, true);
+        if(pen != null) check(rotations(pen) >= 3, "полуостров: буры только с " + rotations(pen) + " сторон(ы)");
 
         fuzzOre(40, 60, 60);
         fuzzOre(6, 100, 90);

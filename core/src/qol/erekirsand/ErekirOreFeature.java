@@ -63,7 +63,7 @@ public class ErekirOreFeature extends ErekirDrillFeature{
     void configure(DrillPlanner.Params params){
         params.beam = true;
         params.targetRate = Core.settings.getInt("erekir-ore-target", MAX_TARGET);
-        params.minGap = 1; //ровно столько нужно под трубу; больше допускается (maxGap), но штрафуется
+        params.minGap = 1; //ровно столько нужно под трубу; до maxGap (3) допускается - на диагональной стене при зазоре 1-2 трубу не провести, - но штрафуется
         params.minOreCols = 2;
         if(drillBlock instanceof BeamDrill bd){
             params.size = bd.size;
