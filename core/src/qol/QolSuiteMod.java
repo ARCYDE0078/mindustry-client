@@ -27,6 +27,8 @@ import qol.quicktoggles.QuickTogglesFeature;
 import qol.resourceforecast.ResourceForecastFeature;
 import qol.travelboost.TravelBoostFeature;
 import qol.erekirautopower.ErekirAutoPowerFeature;
+import qol.erekirsand.ErekirOreFeature;
+import qol.erekirsand.ErekirSandFeature;
 import qol.forcebuildschematic.ForceBuildSchematicFeature;
 import qol.minedefaults.MineDefaultsFeature;
 import qol.payloaddrop.PayloadDropFeature;
@@ -60,6 +62,8 @@ public class QolSuiteMod{
         features.add(new ForceBuildSchematicFeature());
         features.add(new AutoBuildSchematicFeature());
         features.add(new ErekirAutoPowerFeature());
+        features.add(new ErekirSandFeature());
+        features.add(new ErekirOreFeature());
         features.add(new EnemyMonitorFeature());
         features.add(new BuildBeamColorFeature());
         features.add(new ZoomDisplayFeature());
