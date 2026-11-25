@@ -170,7 +170,6 @@ public abstract class ErekirDrillFeature implements Feature{
         x1 = Math.min(world.width() - 1, x1);
         y1 = Math.min(world.height() - 1, y1);
         int w = x1 - x0 + 1, h = y1 - y0 + 1;
-        Log.info("[" + tag() + "] zone @,@ .. @,@ (@x@ tiles)", x0, y0, x1, y1, w, h);
         if(w < MIN_ZONE_SIDE || h < MIN_ZONE_SIDE){
             ui.showInfoToast(Core.bundle.format(bundle() + ".small", MIN_ZONE_SIDE), 4f);
             return;
@@ -187,7 +186,6 @@ public abstract class ErekirDrillFeature implements Feature{
         configure(params);
 
         busy = true;
-        toast(bundle() + ".planning", "Planning drills...");
         Thread t = new Thread(() -> {
             DrillPlanner.Result res = null;
             Throwable err = null;
@@ -260,7 +258,7 @@ public abstract class ErekirDrillFeature implements Feature{
         Unit unit = player.unit();
         if(unit == null || !unit.canBuild()) return;
 
-        int queued = 0, rejected = 0;
+        int rejected = 0;
         Team team = player.team();
         for(DrillPlanner.Item it : res.items){
             Block block = blockFor(it.kind);
@@ -270,18 +268,15 @@ public abstract class ErekirDrillFeature implements Feature{
                 continue;
             }
             unit.addBuild(new BuildPlan(it.x, it.y, it.rot, block));
-            queued++;
         }
 
+        //главное - суммарная скорость бурения; остальное показываем только если что-то пошло не так
         StringBuilder msg = new StringBuilder(doneText(res, params));
-        msg.append('\n').append(Core.bundle.format(bundle() + ".exit", res.exitX, res.exitY, Core.bundle.get("qol.erekir-sand.dir." + res.exitDir))); //стороны света - общий набор ключей для обеих фич
-        if(res.rate < params.targetRate * 0.999f) msg.append('\n').append(Core.bundle.get(bundle() + ".partial"));
         if(!res.powerOk) msg.append('\n').append(Core.bundle.get(bundle() + ".nopower"));
         else if(!res.gridLinked) msg.append('\n').append(Core.bundle.get(bundle() + ".nogrid"));
         if(!res.pipeOk) msg.append('\n').append(Core.bundle.get(bundle() + ".nopipe"));
         if(rejected > 0) msg.append('\n').append(Core.bundle.format(bundle() + ".rejected", rejected));
-        ui.showInfoToast(msg.toString(), 7f);
-        Log.info("[" + tag() + "] queued @ plans (rejected @)\n@", queued, rejected, res.ascii);
+        ui.showInfoToast(msg.toString(), 5f);
     }
 
     Block blockFor(int kind){

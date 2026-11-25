@@ -50,7 +50,6 @@ public class ErekirSandFeature extends ErekirDrillFeature{
 
     @Override
     String doneText(DrillPlanner.Result res, DrillPlanner.Params params){
-        return Core.bundle.format("qol.erekir-sand.done", res.crushers, res.ducts, res.nodes,
-            String.format("%.1f", res.rate), String.format("%.1f", params.targetRate));
+        return Core.bundle.format("qol.erekir-sand.done", String.format("%.1f", res.rate));
     }
 }

@@ -81,7 +81,7 @@ public class ErekirOreFeature extends ErekirDrillFeature{
     @Override
     String doneText(DrillPlanner.Result res, DrillPlanner.Params params){
         Item it = res.item > 0 ? content.item(res.item - 1) : null;
-        return Core.bundle.format("qol.erekir-ore.done", res.crushers, res.ducts, res.nodes,
-            it == null ? "?" : it.localizedName, String.format("%.1f", res.rate), String.format("%.1f", params.targetRate));
+        return Core.bundle.format("qol.erekir-ore.done",
+            it == null ? "?" : it.localizedName, String.format("%.1f", res.rate));
     }
 }
